@@ -12,7 +12,15 @@
       "Bash(npm start:*)",
       "Bash(npx react-native run-ios:*)",
       "Bash(lsof:*)",
-      "Bash(xargs:*)"
+      "Bash(xargs:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run ios:*)",
+      "Bash(npx tsc:*)",
+      "Bash(pkill:*)",
+      "Bash(watchman watch-del-all:*)",
+      "Bash(pod install)",
+      "Bash(npx react-native start --reset-cache)",
+      "Bash(npm uninstall:*)"
     ]
   }
 }

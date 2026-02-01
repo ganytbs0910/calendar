@@ -35,6 +35,10 @@
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string></string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>カレンダーの予定を表示するためにアクセスが必要です</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>カレンダーの予定を表示・管理するためにアクセスが必要です</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
