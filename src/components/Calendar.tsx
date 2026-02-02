@@ -566,10 +566,18 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
               <TouchableOpacity
                 style={styles.bottomSheetAddButton}
                 onPress={() => {
-                  closeDayEventsSheet();
-                  if (dayEventsDate) {
-                    onDateDoubleSelect?.(dayEventsDate);
-                  }
+                  const dateToAdd = dayEventsDate;
+                  Animated.timing(bottomSheetAnim, {
+                    toValue: 0,
+                    duration: 200,
+                    useNativeDriver: true,
+                  }).start(() => {
+                    setShowDayEvents(false);
+                    setDayEventsDate(null);
+                    if (dateToAdd) {
+                      onDateDoubleSelect?.(dateToAdd);
+                    }
+                  });
                 }}>
                 <Text style={styles.bottomSheetAddButtonText}>+ 予定を追加</Text>
               </TouchableOpacity>
@@ -579,37 +587,59 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                 <Text style={styles.bottomSheetNoEvents}>予定はありません</Text>
               ) : (
                 dayEventsForSheet.map((event) => (
-                  <TouchableOpacity
-                    key={event.id}
-                    style={styles.bottomSheetEventItem}
-                    onPress={() => {
-                      closeDayEventsSheet();
-                      onEventPress?.(event);
-                    }}>
-                    <View
-                      style={[
-                        styles.bottomSheetEventColor,
-                        {backgroundColor: event.calendar?.color || '#007AFF'},
-                      ]}
-                    />
-                    <View style={styles.bottomSheetEventContent}>
-                      <Text style={styles.bottomSheetEventTitle} numberOfLines={1}>
-                        {event.title}
-                      </Text>
-                      <Text style={styles.bottomSheetEventTime}>
-                        {event.allDay
-                          ? '終日'
-                          : event.startDate && event.endDate
-                            ? `${formatTime(event.startDate)} - ${formatTime(event.endDate)}`
-                            : ''}
-                      </Text>
-                      {event.location && (
-                        <Text style={styles.bottomSheetEventLocation} numberOfLines={1}>
-                          📍 {event.location}
+                  <View key={event.id} style={styles.bottomSheetEventItem}>
+                    <TouchableOpacity
+                      style={styles.bottomSheetEventTouchable}
+                      onPress={() => {
+                        // Close bottom sheet first, then open event detail after animation
+                        Animated.timing(bottomSheetAnim, {
+                          toValue: 0,
+                          duration: 200,
+                          useNativeDriver: true,
+                        }).start(() => {
+                          setShowDayEvents(false);
+                          setDayEventsDate(null);
+                          // Open event detail after sheet is closed
+                          onEventPress?.(event);
+                        });
+                      }}>
+                      <View
+                        style={[
+                          styles.bottomSheetEventColor,
+                          {backgroundColor: event.calendar?.color || '#007AFF'},
+                        ]}
+                      />
+                      <View style={styles.bottomSheetEventContent}>
+                        <Text style={styles.bottomSheetEventTitle} numberOfLines={1}>
+                          {event.title}
                         </Text>
-                      )}
-                    </View>
-                  </TouchableOpacity>
+                        <Text style={styles.bottomSheetEventTime}>
+                          {event.allDay
+                            ? '終日'
+                            : event.startDate && event.endDate
+                              ? `${formatTime(event.startDate)} - ${formatTime(event.endDate)}`
+                              : ''}
+                        </Text>
+                        {event.location && (
+                          <Text style={styles.bottomSheetEventLocation} numberOfLines={1}>
+                            📍 {event.location}
+                          </Text>
+                        )}
+                      </View>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.bottomSheetDeleteButton}
+                      onPress={async () => {
+                        try {
+                          await RNCalendarEvents.removeEvent(event.id!);
+                          fetchEvents();
+                        } catch (err) {
+                          console.error('Error deleting event:', err);
+                        }
+                      }}>
+                      <Text style={styles.bottomSheetDeleteButtonText}>×</Text>
+                    </TouchableOpacity>
+                  </View>
                 ))
               )}
             </ScrollView>
@@ -1030,6 +1060,11 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginBottom: 10,
     overflow: 'hidden',
+    alignItems: 'center',
+  },
+  bottomSheetEventTouchable: {
+    flex: 1,
+    flexDirection: 'row',
   },
   bottomSheetEventColor: {
     width: 4,
@@ -1037,6 +1072,17 @@ const styles = StyleSheet.create({
   bottomSheetEventContent: {
     flex: 1,
     padding: 12,
+  },
+  bottomSheetDeleteButton: {
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  bottomSheetDeleteButtonText: {
+    fontSize: 22,
+    color: '#FF3B30',
+    fontWeight: '300',
   },
   bottomSheetEventTitle: {
     fontSize: 16,

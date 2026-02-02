@@ -219,10 +219,10 @@ function AppContent() {
             <TouchableOpacity
               style={styles.viewToggle}
               onPress={toggleViewMode}
-              accessibilityLabel={viewMode === 'month' ? '週表示に切り替え' : '月表示に切り替え'}
+              accessibilityLabel={viewMode === 'month' ? '週間表示に切り替え' : '月間表示に切り替え'}
               accessibilityRole="button">
               <Text style={styles.viewToggleText}>
-                {viewMode === 'month' ? '週' : '月'}
+                {viewMode === 'month' ? '週間' : '月間'}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity

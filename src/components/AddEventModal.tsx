@@ -9,6 +9,7 @@ import {
   Alert,
   ScrollView,
   Platform,
+  Linking,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
@@ -21,7 +22,13 @@ interface EventPreset {
   id: string;
   title: string;
   durationMinutes: number;
+  // Optional: for recurring presets
+  dayOfWeek?: number; // 0=日, 1=月, 2=火, 3=水, 4=木, 5=金, 6=土
+  startHour?: number;
+  startMinute?: number;
 }
+
+const WEEKDAY_NAMES = ['日', '月', '火', '水', '木', '金', '土'];
 
 // Duration options - unified list for adding time
 const DURATION_OPTIONS = [
@@ -63,7 +70,9 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   const [showStartTimePicker, setShowStartTimePicker] = useState(false);
   const [showEndDatePicker, setShowEndDatePicker] = useState(false);
   const [showEndTimePicker, setShowEndTimePicker] = useState(false);
+  const [tempDate, setTempDate] = useState(new Date());
   const [presets, setPresets] = useState<EventPreset[]>([]);
+  const [includeSchedule, setIncludeSchedule] = useState(false);
 
   // Load presets from storage
   useEffect(() => {
@@ -92,29 +101,72 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   // Apply a preset
   const applyPreset = useCallback((preset: EventPreset) => {
     setTitle(preset.title);
-    const newEnd = new Date(startDate);
-    newEnd.setMinutes(newEnd.getMinutes() + preset.durationMinutes);
+
+    let newStart = new Date(startDate);
+
+    // If preset has day of week, find the next occurrence
+    if (preset.dayOfWeek !== undefined) {
+      const today = new Date();
+      const currentDay = today.getDay();
+      let daysUntil = preset.dayOfWeek - currentDay;
+      if (daysUntil < 0) {
+        daysUntil += 7;
+      }
+      // If it's today but the time has passed, go to next week
+      if (daysUntil === 0 && preset.startHour !== undefined) {
+        const now = new Date();
+        if (now.getHours() > preset.startHour ||
+            (now.getHours() === preset.startHour && now.getMinutes() >= (preset.startMinute || 0))) {
+          daysUntil = 7;
+        }
+      }
+      newStart = new Date(today);
+      newStart.setDate(today.getDate() + daysUntil);
+    }
+
+    // If preset has start time, set it
+    if (preset.startHour !== undefined) {
+      newStart.setHours(preset.startHour, preset.startMinute || 0, 0, 0);
+    }
+
+    setStartDate(newStart);
+
+    // Ensure minimum 5 minutes duration
+    const durationMinutes = Math.max(5, preset.durationMinutes);
+    const newEnd = new Date(newStart);
+    newEnd.setMinutes(newEnd.getMinutes() + durationMinutes);
     setEndDate(newEnd);
   }, [startDate]);
 
   // Save current settings as a new preset
   const saveAsPreset = useCallback(() => {
-    if (!title.trim()) {
-      Alert.alert('エラー', 'プリセットを保存するにはタイトルを入力してください');
-      return;
-    }
     const durationMs = Math.max(0, endDate.getTime() - startDate.getTime());
-    const durationMinutes = Math.round(durationMs / (1000 * 60));
+    // Minimum 5 minutes for presets
+    const durationMinutes = Math.max(5, Math.round(durationMs / (1000 * 60)));
+    const presetTitle = title.trim() || '(タイトルなし)';
     const newPreset: EventPreset = {
       id: Date.now().toString(),
-      title: title.trim(),
+      title: presetTitle,
       durationMinutes,
     };
+
+    // Include schedule if toggle is on
+    if (includeSchedule) {
+      newPreset.dayOfWeek = startDate.getDay();
+      newPreset.startHour = startDate.getHours();
+      newPreset.startMinute = startDate.getMinutes();
+    }
+
     const newPresets = [...presets, newPreset];
     setPresets(newPresets);
     savePresetsToStorage(newPresets);
-    Alert.alert('保存完了', `「${title.trim()}」をプリセットに追加しました`);
-  }, [title, startDate, endDate, presets, savePresetsToStorage]);
+
+    const scheduleInfo = includeSchedule
+      ? `（毎週${WEEKDAY_NAMES[startDate.getDay()]} ${startDate.getHours()}:${startDate.getMinutes().toString().padStart(2, '0')}）`
+      : '';
+    Alert.alert('保存完了', `「${presetTitle}」${scheduleInfo}をプリセットに追加しました`);
+    setIncludeSchedule(false);
+  }, [title, startDate, endDate, presets, savePresetsToStorage, includeSchedule]);
 
   // Delete a preset
   const deletePreset = useCallback((presetId: string) => {
@@ -145,6 +197,16 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
       return mins > 0 ? `${hours}時間${mins}分` : `${hours}時間`;
     }
     return `${minutes}分`;
+  };
+
+  // Format preset info (including schedule if set)
+  const formatPresetInfo = (preset: EventPreset) => {
+    let info = formatPresetDuration(preset.durationMinutes);
+    if (preset.dayOfWeek !== undefined && preset.startHour !== undefined) {
+      const time = `${preset.startHour}:${(preset.startMinute || 0).toString().padStart(2, '0')}`;
+      info = `${WEEKDAY_NAMES[preset.dayOfWeek]} ${time}〜 ${info}`;
+    }
+    return info;
   };
 
   // Initialize dates when modal opens or initialDate/initialEndDate changes
@@ -193,50 +255,79 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   }, [onClose]);
 
   const handleSave = useCallback(async () => {
-    if (!title.trim()) {
-      Alert.alert('エラー', 'タイトルを入力してください');
-      return;
+    console.log('handleSave called', {startDate, endDate, title});
+
+    // Check and request permission before saving
+    const permissionStatus = await RNCalendarEvents.checkPermissions();
+    console.log('Current permission status:', permissionStatus);
+
+    if (permissionStatus !== 'authorized' && permissionStatus !== 'fullAccess') {
+      const requestedStatus = await RNCalendarEvents.requestPermissions();
+      console.log('Requested permission status:', requestedStatus);
+
+      if (requestedStatus !== 'authorized' && requestedStatus !== 'fullAccess') {
+        Alert.alert(
+          'カレンダーへのアクセス',
+          'カレンダーに予定を保存するには、設定でフルアクセスを許可してください。',
+          [
+            {text: 'キャンセル', style: 'cancel'},
+            {text: '設定を開く', onPress: () => Linking.openSettings()},
+          ]
+        );
+        return;
+      }
     }
 
+    // Auto-fix: if endDate is not after startDate, set to startDate + 1 hour
+    let finalEndDate = endDate;
     if (endDate.getTime() <= startDate.getTime()) {
-      Alert.alert('エラー', '終了時刻は開始時刻より後に設定してください');
-      return;
+      finalEndDate = new Date(startDate);
+      finalEndDate.setHours(finalEndDate.getHours() + 1);
     }
 
-    // Minimum event duration: 5 minutes
-    const minDuration = 5 * 60 * 1000; // 5 minutes in ms
-    if (endDate.getTime() - startDate.getTime() < minDuration) {
-      Alert.alert('エラー', '予定は最低5分以上の長さが必要です');
-      return;
+    // Auto-fix: ensure minimum 5 minutes duration
+    const minDuration = 5 * 60 * 1000;
+    if (finalEndDate.getTime() - startDate.getTime() < minDuration) {
+      finalEndDate = new Date(startDate.getTime() + minDuration);
     }
 
     try {
       if (isEditing && editingEvent?.id) {
         // Update existing event
-        await RNCalendarEvents.saveEvent(title.trim(), {
+        await RNCalendarEvents.saveEvent(title.trim() || '(タイトルなし)', {
           id: editingEvent.id,
           startDate: startDate.toISOString(),
-          endDate: endDate.toISOString(),
+          endDate: finalEndDate.toISOString(),
           allDay: false,
         });
       } else {
         // Create new event
         const calendars = await RNCalendarEvents.findCalendars();
-        const defaultCalendar = calendars.find(
-          cal => cal.isPrimary || cal.allowsModifications,
-        );
+        console.log('Found calendars:', calendars.map(c => ({
+          title: c.title,
+          allowsModifications: c.allowsModifications,
+          isPrimary: c.isPrimary,
+          type: c.type,
+        })));
 
-        if (!defaultCalendar) {
+        // Only select calendars that allow modifications
+        const writableCalendars = calendars.filter(cal => cal.allowsModifications);
+        if (writableCalendars.length === 0) {
           Alert.alert('エラー', '書き込み可能なカレンダーが見つかりません');
           return;
         }
 
-        await RNCalendarEvents.saveEvent(title.trim(), {
+        // Prefer primary calendar if writable, otherwise use first writable calendar
+        const defaultCalendar = writableCalendars.find(cal => cal.isPrimary) || writableCalendars[0];
+        console.log('Using calendar:', defaultCalendar.title, 'allowsModifications:', defaultCalendar.allowsModifications);
+
+        await RNCalendarEvents.saveEvent(title.trim() || '(タイトルなし)', {
           calendarId: defaultCalendar.id,
           startDate: startDate.toISOString(),
-          endDate: endDate.toISOString(),
+          endDate: finalEndDate.toISOString(),
           allDay: false,
         });
+        console.log('Event saved successfully');
       }
 
       handleClose();
@@ -289,61 +380,59 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   }, [endDate]);
 
 
-  const onStartDateChange = (_: any, selectedDate?: Date) => {
+  const onTempDateChange = (_: any, selectedDate?: Date) => {
+    if (selectedDate) {
+      setTempDate(selectedDate);
+    }
+  };
+
+  const confirmStartDate = () => {
+    const newDate = new Date(startDate);
+    newDate.setFullYear(tempDate.getFullYear());
+    newDate.setMonth(tempDate.getMonth());
+    newDate.setDate(tempDate.getDate());
+    setStartDate(newDate);
+
+    const startDay = new Date(newDate.getFullYear(), newDate.getMonth(), newDate.getDate());
+    const endDay = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+
+    if (endDay < startDay) {
+      const newEndDate = new Date(newDate);
+      newEndDate.setHours(newEndDate.getHours() + 1);
+      setEndDate(newEndDate);
+    }
     setShowStartDatePicker(false);
-    if (selectedDate) {
-      const newDate = new Date(startDate);
-      newDate.setFullYear(selectedDate.getFullYear());
-      newDate.setMonth(selectedDate.getMonth());
-      newDate.setDate(selectedDate.getDate());
-      setStartDate(newDate);
-
-      const startDay = new Date(newDate.getFullYear(), newDate.getMonth(), newDate.getDate());
-      const endDay = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
-
-      if (endDay < startDay) {
-        const newEndDate = new Date(newDate);
-        newEndDate.setHours(newEndDate.getHours() + 1);
-        setEndDate(newEndDate);
-      }
-    }
   };
 
-  const onStartTimeChange = (_: any, selectedDate?: Date) => {
+  const confirmStartTime = () => {
+    const newDate = new Date(startDate);
+    newDate.setHours(tempDate.getHours());
+    newDate.setMinutes(tempDate.getMinutes());
+    setStartDate(newDate);
+
+    if (endDate <= newDate) {
+      const newEndDate = new Date(newDate);
+      newEndDate.setHours(newEndDate.getHours() + 1);
+      setEndDate(newEndDate);
+    }
     setShowStartTimePicker(false);
-    if (selectedDate) {
-      const newDate = new Date(startDate);
-      newDate.setHours(selectedDate.getHours());
-      newDate.setMinutes(selectedDate.getMinutes());
-      setStartDate(newDate);
-
-      if (endDate <= newDate) {
-        const newEndDate = new Date(newDate);
-        newEndDate.setHours(newEndDate.getHours() + 1);
-        setEndDate(newEndDate);
-      }
-    }
   };
 
-  const onEndDateChange = (_: any, selectedDate?: Date) => {
+  const confirmEndDate = () => {
+    const newDate = new Date(endDate);
+    newDate.setFullYear(tempDate.getFullYear());
+    newDate.setMonth(tempDate.getMonth());
+    newDate.setDate(tempDate.getDate());
+    setEndDate(newDate);
     setShowEndDatePicker(false);
-    if (selectedDate) {
-      const newDate = new Date(endDate);
-      newDate.setFullYear(selectedDate.getFullYear());
-      newDate.setMonth(selectedDate.getMonth());
-      newDate.setDate(selectedDate.getDate());
-      setEndDate(newDate);
-    }
   };
 
-  const onEndTimeChange = (_: any, selectedDate?: Date) => {
+  const confirmEndTime = () => {
+    const newDate = new Date(endDate);
+    newDate.setHours(tempDate.getHours());
+    newDate.setMinutes(tempDate.getMinutes());
+    setEndDate(newDate);
     setShowEndTimePicker(false);
-    if (selectedDate) {
-      const newDate = new Date(endDate);
-      newDate.setHours(selectedDate.getHours());
-      newDate.setMinutes(selectedDate.getMinutes());
-      setEndDate(newDate);
-    }
   };
 
   return (
@@ -392,6 +481,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                   setShowStartTimePicker(false);
                   setShowEndDatePicker(false);
                   setShowEndTimePicker(false);
+                  setTempDate(new Date(startDate));
                   setShowStartDatePicker(true);
                 }}>
                 <Text style={styles.compactDateText}>{formatDate(startDate)}</Text>
@@ -402,6 +492,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                   setShowStartDatePicker(false);
                   setShowEndDatePicker(false);
                   setShowEndTimePicker(false);
+                  setTempDate(new Date(startDate));
                   setShowStartTimePicker(true);
                 }}>
                 <Text style={styles.compactTimeText}>{formatTime(startDate)}</Text>
@@ -413,6 +504,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                   setShowStartDatePicker(false);
                   setShowStartTimePicker(false);
                   setShowEndTimePicker(false);
+                  setTempDate(new Date(endDate));
                   setShowEndDatePicker(true);
                 }}>
                 <Text style={styles.compactDateText}>{formatDate(endDate)}</Text>
@@ -423,6 +515,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                   setShowStartDatePicker(false);
                   setShowStartTimePicker(false);
                   setShowEndDatePicker(false);
+                  setTempDate(new Date(endDate));
                   setShowEndTimePicker(true);
                 }}>
                 <Text style={styles.compactTimeText}>{formatTime(endDate)}</Text>
@@ -458,26 +551,36 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
             <View style={styles.presetHeader}>
               <Text style={styles.sectionLabel}>プリセット</Text>
               <TouchableOpacity onPress={saveAsPreset}>
-                <Text style={styles.savePresetButton}>+ 現在の設定を保存</Text>
+                <Text style={styles.savePresetButton}>+ 保存</Text>
               </TouchableOpacity>
             </View>
+            <TouchableOpacity
+              style={styles.scheduleToggle}
+              onPress={() => setIncludeSchedule(!includeSchedule)}>
+              <View style={[styles.checkbox, includeSchedule && styles.checkboxChecked]}>
+                {includeSchedule && <Text style={styles.checkmark}>✓</Text>}
+              </View>
+              <Text style={styles.scheduleToggleText}>曜日・時間も保存（定期予定用）</Text>
+            </TouchableOpacity>
             {presets.length > 0 ? (
               <View style={styles.presetButtons}>
                 {presets.map((preset) => (
                   <TouchableOpacity
                     key={preset.id}
-                    style={styles.presetButton}
+                    style={[
+                      styles.presetButton,
+                      preset.dayOfWeek !== undefined && styles.presetButtonScheduled,
+                    ]}
                     onPress={() => applyPreset(preset)}
                     onLongPress={() => deletePreset(preset.id)}>
                     <Text style={styles.presetButtonTitle}>{preset.title}</Text>
-                    <Text style={styles.presetButtonDuration}>{formatPresetDuration(preset.durationMinutes)}</Text>
+                    <Text style={styles.presetButtonDuration}>{formatPresetInfo(preset)}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
             ) : (
               <Text style={styles.noPresetsText}>
-                プリセットがありません{'\n'}
-                タイトルと所要時間を設定して「現在の設定を保存」をタップ
+                タイトルと所要時間を設定して「+ 保存」をタップ
               </Text>
             )}
           </View>
@@ -485,40 +588,84 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         </ScrollView>
 
         {showStartDatePicker && (
-          <DateTimePicker
-            value={startDate}
-            mode="date"
-            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-            onChange={onStartDateChange}
-            locale="ja-JP"
-          />
+          <View style={styles.pickerContainer}>
+            <View style={styles.pickerHeader}>
+              <TouchableOpacity onPress={() => setShowStartDatePicker(false)}>
+                <Text style={styles.pickerCancelText}>キャンセル</Text>
+              </TouchableOpacity>
+              <Text style={styles.pickerTitle}>開始日</Text>
+              <TouchableOpacity onPress={confirmStartDate}>
+                <Text style={styles.pickerOkText}>OK</Text>
+              </TouchableOpacity>
+            </View>
+            <DateTimePicker
+              value={tempDate}
+              mode="date"
+              display="spinner"
+              onChange={onTempDateChange}
+              locale="ja-JP"
+            />
+          </View>
         )}
         {showStartTimePicker && (
-          <DateTimePicker
-            value={startDate}
-            mode="time"
-            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-            onChange={onStartTimeChange}
-            minuteInterval={5}
-          />
+          <View style={styles.pickerContainer}>
+            <View style={styles.pickerHeader}>
+              <TouchableOpacity onPress={() => setShowStartTimePicker(false)}>
+                <Text style={styles.pickerCancelText}>キャンセル</Text>
+              </TouchableOpacity>
+              <Text style={styles.pickerTitle}>開始時間</Text>
+              <TouchableOpacity onPress={confirmStartTime}>
+                <Text style={styles.pickerOkText}>OK</Text>
+              </TouchableOpacity>
+            </View>
+            <DateTimePicker
+              value={tempDate}
+              mode="time"
+              display="spinner"
+              onChange={onTempDateChange}
+              minuteInterval={5}
+            />
+          </View>
         )}
         {showEndDatePicker && (
-          <DateTimePicker
-            value={endDate}
-            mode="date"
-            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-            onChange={onEndDateChange}
-            locale="ja-JP"
-          />
+          <View style={styles.pickerContainer}>
+            <View style={styles.pickerHeader}>
+              <TouchableOpacity onPress={() => setShowEndDatePicker(false)}>
+                <Text style={styles.pickerCancelText}>キャンセル</Text>
+              </TouchableOpacity>
+              <Text style={styles.pickerTitle}>終了日</Text>
+              <TouchableOpacity onPress={confirmEndDate}>
+                <Text style={styles.pickerOkText}>OK</Text>
+              </TouchableOpacity>
+            </View>
+            <DateTimePicker
+              value={tempDate}
+              mode="date"
+              display="spinner"
+              onChange={onTempDateChange}
+              locale="ja-JP"
+            />
+          </View>
         )}
         {showEndTimePicker && (
-          <DateTimePicker
-            value={endDate}
-            mode="time"
-            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-            onChange={onEndTimeChange}
-            minuteInterval={5}
-          />
+          <View style={styles.pickerContainer}>
+            <View style={styles.pickerHeader}>
+              <TouchableOpacity onPress={() => setShowEndTimePicker(false)}>
+                <Text style={styles.pickerCancelText}>キャンセル</Text>
+              </TouchableOpacity>
+              <Text style={styles.pickerTitle}>終了時間</Text>
+              <TouchableOpacity onPress={confirmEndTime}>
+                <Text style={styles.pickerOkText}>OK</Text>
+              </TouchableOpacity>
+            </View>
+            <DateTimePicker
+              value={tempDate}
+              mode="time"
+              display="spinner"
+              onChange={onTempDateChange}
+              minuteInterval={5}
+            />
+          </View>
         )}
       </View>
     </Modal>
@@ -682,6 +829,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#007AFF',
   },
+  presetButtonScheduled: {
+    backgroundColor: '#FFF3E8',
+    borderColor: '#FF9500',
+  },
   presetButtonTitle: {
     fontSize: 14,
     fontWeight: '600',
@@ -697,6 +848,62 @@ const styles = StyleSheet.create({
     color: '#999',
     textAlign: 'center',
     lineHeight: 20,
+  },
+  scheduleToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: '#ccc',
+    marginRight: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  checkboxChecked: {
+    backgroundColor: '#007AFF',
+    borderColor: '#007AFF',
+  },
+  checkmark: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  scheduleToggleText: {
+    fontSize: 14,
+    color: '#333',
+  },
+  pickerContainer: {
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+  },
+  pickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  pickerTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  pickerCancelText: {
+    fontSize: 16,
+    color: '#999',
+  },
+  pickerOkText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#007AFF',
   },
 });
 
