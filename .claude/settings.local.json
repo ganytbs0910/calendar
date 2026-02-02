@@ -20,7 +20,13 @@
       "Bash(watchman watch-del-all:*)",
       "Bash(pod install)",
       "Bash(npx react-native start --reset-cache)",
-      "Bash(npm uninstall:*)"
+      "Bash(npm uninstall:*)",
+      "Bash(SOURCE=\"/Users/gan/Desktop/ChatGPT Image 2026年2月1日 13_03_36.png\")",
+      "Bash(sips:*)",
+      "Bash(npm test:*)",
+      "Bash(npm run lint:*)",
+      "Bash(npx eslint:*)",
+      "Bash(xcodebuild:*)"
     ]
   }
 }

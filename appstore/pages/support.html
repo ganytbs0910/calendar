@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>サポート - 理想のカレンダー</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Hiragino Sans', 'Noto Sans CJK JP', sans-serif;
+            line-height: 1.8;
+            color: #333;
+            background-color: #f5f5f7;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: #fff;
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+        }
+        .app-header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        .app-icon {
+            width: 80px;
+            height: 80px;
+            border-radius: 18px;
+            background: linear-gradient(135deg, #007AFF 0%, #5856D6 100%);
+            margin: 0 auto 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-size: 36px;
+            font-weight: 300;
+        }
+        h1 {
+            font-size: 28px;
+            font-weight: 700;
+            color: #1d1d1f;
+        }
+        .tagline {
+            font-size: 16px;
+            color: #86868b;
+            margin-top: 8px;
+        }
+        h2 {
+            font-size: 22px;
+            font-weight: 600;
+            margin-top: 40px;
+            margin-bottom: 20px;
+            color: #1d1d1f;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #007AFF;
+        }
+        .faq-item {
+            margin-bottom: 24px;
+            padding: 20px;
+            background: #f5f5f7;
+            border-radius: 12px;
+        }
+        .faq-question {
+            font-weight: 600;
+            font-size: 16px;
+            color: #1d1d1f;
+            margin-bottom: 12px;
+        }
+        .faq-answer {
+            color: #424245;
+            font-size: 15px;
+        }
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-top: 20px;
+        }
+        .feature-card {
+            background: #f5f5f7;
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+        }
+        .feature-icon {
+            font-size: 32px;
+            margin-bottom: 12px;
+        }
+        .feature-title {
+            font-weight: 600;
+            font-size: 15px;
+            color: #1d1d1f;
+            margin-bottom: 8px;
+        }
+        .feature-desc {
+            font-size: 13px;
+            color: #86868b;
+        }
+        .contact-section {
+            background: linear-gradient(135deg, #007AFF 0%, #5856D6 100%);
+            color: #fff;
+            padding: 32px;
+            border-radius: 16px;
+            margin-top: 40px;
+            text-align: center;
+        }
+        .contact-section h2 {
+            color: #fff;
+            border-bottom: none;
+            margin-top: 0;
+        }
+        .contact-section p {
+            opacity: 0.9;
+            margin-bottom: 20px;
+        }
+        .contact-button {
+            display: inline-block;
+            background: #fff;
+            color: #007AFF;
+            padding: 14px 32px;
+            border-radius: 25px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 16px;
+            transition: transform 0.2s;
+        }
+        .contact-button:hover {
+            transform: scale(1.05);
+            text-decoration: none;
+        }
+        .tips-list {
+            list-style: none;
+            padding: 0;
+        }
+        .tips-list li {
+            padding: 12px 0;
+            border-bottom: 1px solid #e5e5e5;
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+        }
+        .tips-list li:last-child {
+            border-bottom: none;
+        }
+        .tip-icon {
+            font-size: 20px;
+            flex-shrink: 0;
+        }
+        .tip-content strong {
+            display: block;
+            color: #1d1d1f;
+            margin-bottom: 4px;
+        }
+        .tip-content span {
+            color: #86868b;
+            font-size: 14px;
+        }
+        footer {
+            text-align: center;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #e5e5e5;
+            color: #86868b;
+            font-size: 14px;
+        }
+        footer a {
+            color: #007AFF;
+            text-decoration: none;
+        }
+        footer a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="app-header">
+            <div class="app-icon">31</div>
+            <h1>理想のカレンダー</h1>
+            <p class="tagline">直感操作で予定管理</p>
+        </div>
+
+        <h2>主な機能</h2>
+        <div class="feature-grid">
+            <div class="feature-card">
+                <div class="feature-icon">📅</div>
+                <div class="feature-title">月表示</div>
+                <div class="feature-desc">一目で月全体の予定を把握</div>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">📊</div>
+                <div class="feature-title">週表示</div>
+                <div class="feature-desc">タイムラインで時間管理</div>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">👆</div>
+                <div class="feature-title">ドラッグ操作</div>
+                <div class="feature-desc">なぞるだけで予定作成</div>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🔄</div>
+                <div class="feature-title">カレンダー連携</div>
+                <div class="feature-desc">iCloud/Googleと同期</div>
+            </div>
+        </div>
+
+        <h2>使い方のヒント</h2>
+        <ul class="tips-list">
+            <li>
+                <span class="tip-icon">💡</span>
+                <div class="tip-content">
+                    <strong>予定を素早く作成</strong>
+                    <span>月表示で日付をダブルタップ、または週表示で時間帯を長押し＆ドラッグ</span>
+                </div>
+            </li>
+            <li>
+                <span class="tip-icon">💡</span>
+                <div class="tip-content">
+                    <strong>複数日の予定</strong>
+                    <span>週表示で横方向にドラッグすると、複数日にまたがる予定を作成できます</span>
+                </div>
+            </li>
+            <li>
+                <span class="tip-icon">💡</span>
+                <div class="tip-content">
+                    <strong>予定を移動</strong>
+                    <span>週表示で予定を長押しすると、ドラッグして別の日時に移動できます</span>
+                </div>
+            </li>
+            <li>
+                <span class="tip-icon">💡</span>
+                <div class="tip-content">
+                    <strong>表示切り替え</strong>
+                    <span>右上の「週」「月」ボタンで表示を切り替え。左右スワイプで前後に移動</span>
+                </div>
+            </li>
+            <li>
+                <span class="tip-icon">💡</span>
+                <div class="tip-content">
+                    <strong>今日にジャンプ</strong>
+                    <span>月表示のヘッダーをタップすると今日に移動します</span>
+                </div>
+            </li>
+        </ul>
+
+        <h2>よくある質問</h2>
+
+        <div class="faq-item">
+            <div class="faq-question">Q: カレンダーの予定が表示されません</div>
+            <div class="faq-answer">
+                「設定」→「プライバシーとセキュリティ」→「カレンダー」から、本アプリへのアクセスが許可されているか確認してください。
+            </div>
+        </div>
+
+        <div class="faq-item">
+            <div class="faq-question">Q: Googleカレンダーの予定を表示できますか？</div>
+            <div class="faq-answer">
+                はい。iOSの「設定」→「カレンダー」→「アカウント」でGoogleアカウントを追加すると、本アプリでも表示されます。
+            </div>
+        </div>
+
+        <div class="faq-item">
+            <div class="faq-question">Q: 通知が届きません</div>
+            <div class="faq-answer">
+                「設定」→「通知」→「カレンダー」で通知が有効になっているか確認してください。また、予定作成時に通知設定を追加してください。
+            </div>
+        </div>
+
+        <div class="faq-item">
+            <div class="faq-question">Q: 予定を削除してしまいました</div>
+            <div class="faq-answer">
+                本アプリはiOSカレンダーと連携しているため、iCloudカレンダーを使用している場合は、iCloud.comから削除した予定を復元できる場合があります。
+            </div>
+        </div>
+
+        <div class="faq-item">
+            <div class="faq-question">Q: データはどこに保存されますか？</div>
+            <div class="faq-answer">
+                すべての予定データはiOSのカレンダーに保存されます。本アプリは独自のサーバーを持たず、お客様のデータを収集することはありません。
+            </div>
+        </div>
+
+        <div class="contact-section">
+            <h2>お問い合わせ</h2>
+            <p>ご質問、ご要望、バグ報告などがありましたら<br>お気軽にお問い合わせください。</p>
+            <a href="mailto:support@example.com" class="contact-button">メールで問い合わせ</a>
+        </div>
+
+        <footer>
+            <p><a href="privacy-policy.html">プライバシーポリシー</a></p>
+            <p style="margin-top: 16px;">&copy; 2026 理想のカレンダー. All rights reserved.</p>
+        </footer>
+    </div>
+</body>
+</html>

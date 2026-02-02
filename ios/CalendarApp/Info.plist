@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>CalendarApp</string>
+	<string>理想のカレンダー</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -33,12 +33,12 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string></string>
-	<key>NSCalendarsUsageDescription</key>
-	<string>カレンダーの予定を表示するためにアクセスが必要です</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>カレンダーの予定を表示・管理するためにアクセスが必要です</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>カレンダーの予定を表示するためにアクセスが必要です</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string></string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
