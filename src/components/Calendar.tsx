@@ -454,6 +454,32 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
     return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
   };
 
+  // Navigate to previous day in bottom sheet
+  const goToPreviousDay = useCallback(() => {
+    if (!dayEventsDate) return;
+    const prevDay = new Date(dayEventsDate);
+    prevDay.setDate(prevDay.getDate() - 1);
+    setDayEventsDate(prevDay);
+    setSelectedDate(prevDay);
+    // Switch month if needed
+    if (prevDay.getMonth() !== currentMonth || prevDay.getFullYear() !== currentYear) {
+      setCurrentDate(new Date(prevDay.getFullYear(), prevDay.getMonth(), 1));
+    }
+  }, [dayEventsDate, currentMonth, currentYear]);
+
+  // Navigate to next day in bottom sheet
+  const goToNextDay = useCallback(() => {
+    if (!dayEventsDate) return;
+    const nextDay = new Date(dayEventsDate);
+    nextDay.setDate(nextDay.getDate() + 1);
+    setDayEventsDate(nextDay);
+    setSelectedDate(nextDay);
+    // Switch month if needed
+    if (nextDay.getMonth() !== currentMonth || nextDay.getFullYear() !== currentYear) {
+      setCurrentDate(new Date(nextDay.getFullYear(), nextDay.getMonth(), 1));
+    }
+  }, [dayEventsDate, currentMonth, currentYear]);
+
   return (
     <ScrollView style={styles.scrollView}>
       <View style={styles.container}>
@@ -673,28 +699,38 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
             {...bottomSheetPanResponder.panHandlers}>
             <View style={styles.bottomSheetHandle} />
             <View style={styles.bottomSheetHeader}>
+              <TouchableOpacity
+                style={styles.bottomSheetNavButton}
+                onPress={goToPreviousDay}>
+                <Text style={styles.bottomSheetNavButtonText}>{'<'}</Text>
+              </TouchableOpacity>
               <Text style={styles.bottomSheetTitle}>
                 {dayEventsDate && formatSheetDate(dayEventsDate)}
               </Text>
               <TouchableOpacity
-                style={styles.bottomSheetAddButton}
-                onPress={() => {
-                  const dateToAdd = dayEventsDate;
-                  Animated.timing(bottomSheetAnim, {
-                    toValue: 0,
-                    duration: 200,
-                    useNativeDriver: true,
-                  }).start(() => {
-                    setShowDayEvents(false);
-                    setDayEventsDate(null);
-                    if (dateToAdd) {
-                      onDateDoubleSelect?.(dateToAdd);
-                    }
-                  });
-                }}>
-                <Text style={styles.bottomSheetAddButtonText}>+ 予定を追加</Text>
+                style={styles.bottomSheetNavButton}
+                onPress={goToNextDay}>
+                <Text style={styles.bottomSheetNavButtonText}>{'>'}</Text>
               </TouchableOpacity>
             </View>
+            <TouchableOpacity
+              style={styles.bottomSheetAddButton}
+              onPress={() => {
+                const dateToAdd = dayEventsDate;
+                Animated.timing(bottomSheetAnim, {
+                  toValue: 0,
+                  duration: 200,
+                  useNativeDriver: true,
+                }).start(() => {
+                  setShowDayEvents(false);
+                  setDayEventsDate(null);
+                  if (dateToAdd) {
+                    onDateDoubleSelect?.(dateToAdd);
+                  }
+                });
+              }}>
+              <Text style={styles.bottomSheetAddButtonText}>+ 予定を追加</Text>
+            </TouchableOpacity>
             <ScrollView style={styles.bottomSheetContent}>
               {dayEventsForSheet.length === 0 ? (
                 <Text style={styles.bottomSheetNoEvents}>予定はありません</Text>
@@ -1142,24 +1178,37 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+  },
+  bottomSheetNavButton: {
+    width: 36,
+    height: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  bottomSheetNavButtonText: {
+    fontSize: 22,
+    color: '#007AFF',
+    fontWeight: '600',
   },
   bottomSheetTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#333',
+    flex: 1,
+    textAlign: 'center',
   },
   bottomSheetAddButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    marginHorizontal: 20,
+    marginBottom: 12,
+    paddingVertical: 10,
     backgroundColor: '#007AFF',
-    borderRadius: 16,
+    borderRadius: 20,
+    alignItems: 'center',
   },
   bottomSheetAddButtonText: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '600',
     color: '#fff',
   },
