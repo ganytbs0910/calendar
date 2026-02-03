@@ -17,7 +17,9 @@ import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-eve
 const SCREEN_WIDTH = Dimensions.get('window').width;
 // Container has margin: 16 (both sides = 32) + padding: 16 (both sides = 32) = 64 total
 const DAY_WIDTH = Math.floor((SCREEN_WIDTH - 64) / 7);
-const DAY_HEIGHT = 75; // Taller cells to show event times
+const DAY_HEIGHT = 115; // Taller cells for better event display
+const EVENT_BAR_HEIGHT = 22; // Height of multi-day event bar
+const DAY_NUMBER_HEIGHT = 20; // Space for day number
 
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 const MONTHS = [
@@ -142,17 +144,15 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
   const calendarDays = useMemo(() => {
     const daysInMonth = getDaysInMonth(currentYear, currentMonth);
     const firstDay = getFirstDayOfMonth(currentYear, currentMonth);
-    const daysInPrevMonth = getDaysInMonth(currentYear, currentMonth - 1);
 
-    const days: Array<{day: number; isCurrentMonth: boolean; date: Date}> = [];
+    const days: Array<{day: number; isCurrentMonth: boolean; date: Date | null}> = [];
 
-    // Previous month days
-    for (let i = firstDay - 1; i >= 0; i--) {
-      const day = daysInPrevMonth - i;
+    // Empty cells for days before the 1st
+    for (let i = 0; i < firstDay; i++) {
       days.push({
-        day,
+        day: 0,
         isCurrentMonth: false,
-        date: new Date(currentYear, currentMonth - 1, day),
+        date: null,
       });
     }
 
@@ -165,18 +165,23 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       });
     }
 
-    // Next month days
-    const remainingDays = 42 - days.length;
-    for (let i = 1; i <= remainingDays; i++) {
+    // Fill remaining cells to complete the last week (empty)
+    const remainingDays = (7 - (days.length % 7)) % 7;
+    for (let i = 0; i < remainingDays; i++) {
       days.push({
-        day: i,
+        day: 0,
         isCurrentMonth: false,
-        date: new Date(currentYear, currentMonth + 1, i),
+        date: null,
       });
     }
 
     return days;
   }, [currentYear, currentMonth, getDaysInMonth, getFirstDayOfMonth]);
+
+  // Calculate number of weeks to display
+  const numberOfWeeks = useMemo(() => {
+    return Math.ceil(calendarDays.length / 7);
+  }, [calendarDays]);
 
   // Pre-compute events by date for O(1) lookup instead of O(n) filtering
   const eventsByDate = useMemo(() => {
@@ -227,6 +232,111 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       });
     return futureEvents.length > 0 ? futureEvents[0] : null;
   }, [events]);
+
+  // Pre-calculate multi-day events for each week
+  const multiDayEventsByWeek = useMemo(() => {
+    const result: Array<Array<{
+      event: CalendarEventReadable;
+      startDayIndex: number;
+      endDayIndex: number;
+      rowIndex: number;
+    }>> = [];
+
+    for (let weekIndex = 0; weekIndex < numberOfWeeks; weekIndex++) {
+      const weekDays = calendarDays.slice(weekIndex * 7, (weekIndex + 1) * 7);
+      const seen = new Set<string>();
+      const weekEvents: typeof result[0] = [];
+      const daySlots: number[][] = [[], [], [], [], [], [], []];
+
+      weekDays.forEach((dayItem, dayIndex) => {
+        if (!dayItem.date) return; // Skip empty cells
+        const dayEvents = getEventsForDate(dayItem.date);
+        dayEvents.forEach(event => {
+          if (!event.startDate || !event.endDate || !event.id) return;
+          if (seen.has(event.id)) return;
+
+          const eventStart = new Date(event.startDate);
+          const eventEnd = new Date(event.endDate);
+          const eventStartDay = new Date(eventStart);
+          eventStartDay.setHours(0, 0, 0, 0);
+          const eventEndDay = new Date(eventEnd);
+          eventEndDay.setHours(0, 0, 0, 0);
+
+          const dayStart = new Date(dayItem.date!);
+          dayStart.setHours(0, 0, 0, 0);
+
+          // Check if this is a multi-day event
+          const durationDays = Math.ceil((eventEndDay.getTime() - eventStartDay.getTime()) / (1000 * 60 * 60 * 24));
+          if (durationDays < 1 && !event.allDay) return;
+
+          // Find the first valid day in this week for start index calculation
+          let firstValidDayIndex = 0;
+          for (let i = 0; i < 7; i++) {
+            if (weekDays[i].date) {
+              firstValidDayIndex = i;
+              break;
+            }
+          }
+
+          // Calculate start index
+          let startIdx = dayIndex;
+          const firstValidDay = weekDays[firstValidDayIndex].date;
+          if (firstValidDay) {
+            const weekStart = new Date(firstValidDay);
+            weekStart.setHours(0, 0, 0, 0);
+            if (eventStartDay < weekStart) {
+              startIdx = firstValidDayIndex;
+            } else if (eventStartDay > dayStart) {
+              return; // Event hasn't started yet
+            }
+          }
+
+          // Calculate end index
+          let endIdx = startIdx;
+          for (let i = startIdx; i < 7; i++) {
+            if (!weekDays[i].date) continue;
+            const checkDate = new Date(weekDays[i].date!);
+            checkDate.setHours(0, 0, 0, 0);
+            if (checkDate <= eventEndDay) {
+              endIdx = i;
+            } else {
+              break;
+            }
+          }
+
+          if (endIdx >= startIdx) {
+            seen.add(event.id);
+
+            // Find available row slot
+            let rowIndex = 0;
+            while (true) {
+              let slotFree = true;
+              for (let i = startIdx; i <= endIdx; i++) {
+                if (daySlots[i].includes(rowIndex)) {
+                  slotFree = false;
+                  break;
+                }
+              }
+              if (slotFree) break;
+              rowIndex++;
+              if (rowIndex > 2) break; // Max 3 rows
+            }
+
+            if (rowIndex <= 2) {
+              for (let i = startIdx; i <= endIdx; i++) {
+                daySlots[i].push(rowIndex);
+              }
+              weekEvents.push({event, startDayIndex: startIdx, endDayIndex: endIdx, rowIndex});
+            }
+          }
+        });
+      });
+
+      result.push(weekEvents);
+    }
+
+    return result;
+  }, [calendarDays, getEventsForDate]);
 
   const goToPreviousMonth = useCallback(() => {
     setCurrentDate(new Date(currentYear, currentMonth - 1, 1));
@@ -344,33 +454,6 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
     return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
   };
 
-  // Check if an event spans multiple days
-  const isMultiDayEvent = useCallback((event: CalendarEventReadable) => {
-    if (!event.startDate || !event.endDate) return false;
-    const start = new Date(event.startDate);
-    const end = new Date(event.endDate);
-    return (
-      start.getFullYear() !== end.getFullYear() ||
-      start.getMonth() !== end.getMonth() ||
-      start.getDate() !== end.getDate()
-    );
-  }, []);
-
-  // Get the position of a date within a multi-day event
-  const getEventDayPosition = useCallback((event: CalendarEventReadable, date: Date): 'start' | 'middle' | 'end' | 'single' => {
-    if (!event.startDate || !event.endDate) return 'single';
-    const start = new Date(event.startDate);
-    const end = new Date(event.endDate);
-    const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-    const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
-    const currentDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-
-    if (startDay.getTime() === endDay.getTime()) return 'single';
-    if (currentDay.getTime() === startDay.getTime()) return 'start';
-    if (currentDay.getTime() === endDay.getTime()) return 'end';
-    return 'middle';
-  }, []);
-
   return (
     <ScrollView style={styles.scrollView}>
       <View style={styles.container}>
@@ -433,131 +516,130 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
           ))}
         </View>
 
-        {/* Calendar grid */}
+        {/* Calendar grid - render by weeks */}
         <View style={styles.calendarGrid} {...panResponder.panHandlers}>
-          {calendarDays.map((item, index) => {
-            const allDayEvents = getEventsForDate(item.date);
-            // For today, filter out events that have already ended
-            const now = new Date();
-            const isTodayDate = isToday(item.date);
-            const todayRemainingEvents = isTodayDate
-              ? allDayEvents.filter(event => {
-                  if (event.allDay) return true;
-                  if (!event.endDate) return true;
-                  return new Date(event.endDate) > now;
-                })
-              : allDayEvents;
-
-            // If today has no remaining events, show next upcoming event
-            const showNextEvent = isTodayDate && todayRemainingEvents.length === 0 && nextUpcomingEvent;
-            const dayEvents = showNextEvent ? [nextUpcomingEvent] : todayRemainingEvents;
-            const hasEvents = dayEvents.length > 0;
+          {Array.from({length: numberOfWeeks}).map((_, weekIndex) => {
+            const weekDays = calendarDays.slice(weekIndex * 7, (weekIndex + 1) * 7);
+            const multiDayEventsInWeek = multiDayEventsByWeek[weekIndex] || [];
 
             return (
-              <TouchableOpacity
-                key={`${item.date.toISOString()}-${index}`}
-                style={[
-                  styles.dayCell,
-                  isToday(item.date) && styles.todayCell,
-                  isSelected(item.date) && styles.selectedCell,
-                ]}
-                onPress={() => handleDateSelect(item.date)}
-                accessibilityLabel={`${item.date.getMonth() + 1}月${item.day}日${isToday(item.date) ? '、今日' : ''}${hasEvents ? `、${dayEvents.length}件の予定` : ''}`}
-                accessibilityRole="button"
-                accessibilityState={{selected: isSelected(item.date)}}>
-                <Text
-                  style={[
-                    styles.dayText,
-                    !item.isCurrentMonth && styles.otherMonthText,
-                    isSunday(index) && item.isCurrentMonth && styles.sundayText,
-                    isSaturday(index) && item.isCurrentMonth && styles.saturdayText,
-                    isToday(item.date) && styles.todayText,
-                    isSelected(item.date) && styles.selectedText,
-                  ]}>
-                  {item.day}
-                </Text>
-                {hasEvents && item.isCurrentMonth && (
-                  <View style={styles.cellEventsContainer}>
-                    {dayEvents.slice(0, 1).map((event) => {
-                      const isMultiDay = isMultiDayEvent(event);
-                      const position = getEventDayPosition(event, item.date);
-                      const dayIndex = index % 7;
-                      const isFirstDayOfWeek = dayIndex === 0;
-                      const isLastDayOfWeek = dayIndex === 6;
+              <View key={weekIndex} style={styles.weekRow}>
+                {/* Day cells */}
+                {weekDays.map((item, dayIndex) => {
+                  const globalIndex = weekIndex * 7 + dayIndex;
 
-                      // Get cell time display
-                      const getCellTimeContent = () => {
-                        // Show next event with date if today has no remaining events
-                        if (showNextEvent && event.startDate) {
-                          const nextDate = new Date(event.startDate);
-                          return (
-                            <>
-                              <Text style={styles.cellNextEventDate}>
-                                {nextDate.getMonth() + 1}/{nextDate.getDate()}
+                  // Empty cell for days outside current month
+                  if (!item.date) {
+                    return (
+                      <View key={`empty-${globalIndex}`} style={styles.dayCell} />
+                    );
+                  }
+
+                  const dayEvents = getEventsForDate(item.date);
+                  const singleDayEvents = dayEvents.filter(e => {
+                    if (!e.startDate || !e.endDate) return true;
+                    if (e.allDay) return false;
+                    const start = new Date(e.startDate);
+                    const end = new Date(e.endDate);
+                    start.setHours(0, 0, 0, 0);
+                    end.setHours(0, 0, 0, 0);
+                    return start.getTime() === end.getTime();
+                  });
+
+                  return (
+                    <TouchableOpacity
+                      key={`${item.date.toISOString()}-${globalIndex}`}
+                      style={[
+                        styles.dayCell,
+                        isToday(item.date) && styles.todayCell,
+                        isSelected(item.date) && styles.selectedCell,
+                      ]}
+                      onPress={() => handleDateSelect(item.date!)}
+                      accessibilityRole="button">
+                      <Text
+                        style={[
+                          styles.dayText,
+                          isSunday(globalIndex) && styles.sundayText,
+                          isSaturday(globalIndex) && styles.saturdayText,
+                          isToday(item.date) && styles.todayText,
+                          isSelected(item.date) && styles.selectedText,
+                        ]}>
+                        {item.day}
+                      </Text>
+                      {/* Single-day events */}
+                      {singleDayEvents.length > 0 && (
+                        <View style={styles.singleDayEventsContainer}>
+                          {singleDayEvents.slice(0, 2).map(event => (
+                            <View
+                              key={event.id}
+                              style={[
+                                styles.singleDayEventBox,
+                                {backgroundColor: event.calendar?.color || '#007AFF'},
+                              ]}>
+                              <Text style={styles.singleDayEventTime} numberOfLines={1}>
+                                {event.startDate ? formatTime(event.startDate).slice(0, 5) : ''}
                               </Text>
-                              <Text style={styles.cellEventTimeText}>{formatTime(event.startDate)}</Text>
-                            </>
-                          );
-                        }
-
-                        if (event.allDay || !event.startDate || !event.endDate) {
-                          return <Text style={styles.cellEventTimeText}>終日</Text>;
-                        }
-                        if (!isMultiDay) {
-                          return (
-                            <>
-                              <Text style={styles.cellEventTimeText}>{formatTime(event.startDate)}</Text>
-                              <Text style={styles.cellEventTimeSeparator}>~</Text>
-                              <Text style={styles.cellEventTimeText}>{formatTime(event.endDate)}</Text>
-                            </>
-                          );
-                        }
-                        // Multi-day with times
-                        if (position === 'start') {
-                          return (
-                            <>
-                              <Text style={styles.cellEventTimeText}>{formatTime(event.startDate)}</Text>
-                              <Text style={styles.cellEventTimeSeparator}>~</Text>
-                            </>
-                          );
-                        }
-                        if (position === 'end') {
-                          return (
-                            <>
-                              <Text style={styles.cellEventTimeSeparator}>~</Text>
-                              <Text style={styles.cellEventTimeText}>{formatTime(event.endDate)}</Text>
-                            </>
-                          );
-                        }
-                        // Middle
-                        return <Text style={styles.cellEventTimeText}>終日</Text>;
-                      };
-
-                      return (
-                        <View
-                          key={event.id}
-                          style={[
-                            styles.cellEventBox,
-                            {backgroundColor: showNextEvent ? '#999' : (event.calendar?.color || '#007AFF')},
-                            isMultiDay && !showNextEvent && styles.cellMultiDayEventBox,
-                            isMultiDay && !showNextEvent && position === 'start' && styles.cellMultiDayStart,
-                            isMultiDay && !showNextEvent && position === 'end' && styles.cellMultiDayEnd,
-                            isMultiDay && !showNextEvent && position === 'middle' && styles.cellMultiDayMiddle,
-                            isMultiDay && !showNextEvent && position === 'middle' && isFirstDayOfWeek && styles.cellMultiDayWeekStart,
-                            isMultiDay && !showNextEvent && position === 'middle' && isLastDayOfWeek && styles.cellMultiDayWeekEnd,
-                            isMultiDay && !showNextEvent && position === 'start' && isLastDayOfWeek && styles.cellMultiDayWeekEnd,
-                            isMultiDay && !showNextEvent && position === 'end' && isFirstDayOfWeek && styles.cellMultiDayWeekStart,
-                          ]}>
-                          {getCellTimeContent()}
+                              <Text style={styles.singleDayEventTitle} numberOfLines={1}>
+                                {event.title}
+                              </Text>
+                            </View>
+                          ))}
+                          {singleDayEvents.length > 2 && (
+                            <Text style={styles.cellEventMore}>+{singleDayEvents.length - 2}</Text>
+                          )}
                         </View>
-                      );
-                    })}
-                    {dayEvents.length > 1 && !showNextEvent && (
-                      <Text style={styles.cellEventMore}>+{dayEvents.length - 1}</Text>
-                    )}
-                  </View>
-                )}
-              </TouchableOpacity>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+                {/* Multi-day event bars */}
+                {multiDayEventsInWeek.map(({event, startDayIndex, endDayIndex, rowIndex}) => {
+                  const startDate = weekDays[startDayIndex]?.date;
+                  const endDate = weekDays[endDayIndex]?.date;
+                  if (!startDate || !endDate) return null;
+
+                  const spanDays = endDayIndex - startDayIndex + 1;
+                  const isEventStart = (() => {
+                    if (!event.startDate) return false;
+                    const eventStart = new Date(event.startDate);
+                    eventStart.setHours(0, 0, 0, 0);
+                    const cellDate = new Date(startDate);
+                    cellDate.setHours(0, 0, 0, 0);
+                    return eventStart.getTime() === cellDate.getTime();
+                  })();
+                  const isEventEnd = (() => {
+                    if (!event.endDate) return false;
+                    const eventEnd = new Date(event.endDate);
+                    eventEnd.setHours(0, 0, 0, 0);
+                    const cellDate = new Date(endDate);
+                    cellDate.setHours(0, 0, 0, 0);
+                    return eventEnd.getTime() === cellDate.getTime();
+                  })();
+
+                  return (
+                    <TouchableOpacity
+                      key={`${event.id}-${weekIndex}`}
+                      style={[
+                        styles.multiDayEventBar,
+                        {
+                          left: startDayIndex * DAY_WIDTH + 2,
+                          width: spanDays * DAY_WIDTH - 4,
+                          top: DAY_NUMBER_HEIGHT + rowIndex * (EVENT_BAR_HEIGHT + 2),
+                          backgroundColor: event.calendar?.color || '#007AFF',
+                        },
+                        isEventStart && styles.multiDayEventBarStart,
+                        isEventEnd && styles.multiDayEventBarEnd,
+                        !isEventStart && styles.multiDayEventBarContinueLeft,
+                        !isEventEnd && styles.multiDayEventBarContinueRight,
+                      ]}
+                      onPress={() => onEventPress?.(event)}>
+                      <Text style={styles.multiDayEventTitle} numberOfLines={1}>
+                        {event.title}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
             );
           })}
         </View>
@@ -753,20 +835,25 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   calendarGrid: {
+    flexDirection: 'column',
+  },
+  weekRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
+    height: DAY_HEIGHT,
+    position: 'relative',
   },
   dayCell: {
     width: DAY_WIDTH,
     height: DAY_HEIGHT,
     alignItems: 'center',
-    paddingTop: 4,
-    borderRadius: 4,
+    paddingTop: 2,
   },
   dayText: {
     fontSize: 14,
     color: '#333',
     fontWeight: '500',
+    height: DAY_NUMBER_HEIGHT,
+    lineHeight: DAY_NUMBER_HEIGHT,
   },
   otherMonthText: {
     color: '#ccc',
@@ -789,75 +876,71 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#007AFF',
   },
-  cellEventsContainer: {
+  selectedText: {
+    color: '#007AFF',
+    fontWeight: 'bold',
+  },
+  // Multi-day event bar styles
+  multiDayEventBar: {
+    position: 'absolute',
+    height: EVENT_BAR_HEIGHT,
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    zIndex: 10,
+  },
+  multiDayEventBarStart: {
+    borderTopLeftRadius: 4,
+    borderBottomLeftRadius: 4,
+  },
+  multiDayEventBarEnd: {
+    borderTopRightRadius: 4,
+    borderBottomRightRadius: 4,
+  },
+  multiDayEventBarContinueLeft: {
+    borderTopLeftRadius: 0,
+    borderBottomLeftRadius: 0,
+    marginLeft: -2,
+    paddingLeft: 6,
+  },
+  multiDayEventBarContinueRight: {
+    borderTopRightRadius: 0,
+    borderBottomRightRadius: 0,
+    marginRight: -2,
+  },
+  multiDayEventTitle: {
+    fontSize: 11,
+    color: '#fff',
+    fontWeight: '600',
+  },
+  // Single-day event styles
+  singleDayEventsContainer: {
     flex: 1,
     width: '100%',
     paddingHorizontal: 1,
-    paddingTop: 1,
-    alignItems: 'center',
+    paddingTop: 46, // Space for multi-day events (2 rows)
+    gap: 1,
   },
-  cellEventBox: {
+  singleDayEventBox: {
     borderRadius: 3,
     paddingVertical: 2,
     paddingHorizontal: 3,
-    alignItems: 'center',
     width: '100%',
   },
-  cellMultiDayEventBox: {
-    borderRadius: 0,
-    marginHorizontal: -1,
-    width: '110%',
+  singleDayEventTime: {
+    fontSize: 9,
+    color: '#fff',
+    fontWeight: '700',
   },
-  cellMultiDayStart: {
-    borderTopLeftRadius: 3,
-    borderBottomLeftRadius: 3,
-    marginLeft: 0,
-    marginRight: -3,
-  },
-  cellMultiDayEnd: {
-    borderTopRightRadius: 3,
-    borderBottomRightRadius: 3,
-    marginRight: 0,
-    marginLeft: -3,
-  },
-  cellMultiDayMiddle: {
-    marginHorizontal: -3,
-    width: '120%',
-  },
-  cellMultiDayWeekStart: {
-    borderTopLeftRadius: 3,
-    borderBottomLeftRadius: 3,
-    marginLeft: 0,
-  },
-  cellMultiDayWeekEnd: {
-    borderTopRightRadius: 3,
-    borderBottomRightRadius: 3,
-    marginRight: 0,
-  },
-  cellNextEventDate: {
+  singleDayEventTitle: {
     fontSize: 9,
     color: '#fff',
     fontWeight: '500',
   },
-  cellEventTimeText: {
-    fontSize: 10,
-    color: '#fff',
-    fontWeight: '600',
-    lineHeight: 12,
-  },
-  cellEventTimeSeparator: {
-    fontSize: 9,
-    color: 'rgba(255,255,255,0.8)',
-    lineHeight: 10,
-  },
   cellEventMore: {
-    fontSize: 8,
+    fontSize: 9,
     color: '#666',
     marginTop: 1,
-  },
-  selectedText: {
-    color: '#007AFF',
-    fontWeight: 'bold',
+    textAlign: 'center',
   },
   eventDot: {
     width: 6,

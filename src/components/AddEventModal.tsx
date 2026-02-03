@@ -1,4 +1,4 @@
-import React, {useState, useCallback, useEffect, memo, useMemo} from 'react';
+import React, {useState, useCallback, useEffect, memo, useMemo, useRef} from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,8 @@ import {
   Platform,
   Linking,
   Dimensions,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
@@ -18,6 +20,135 @@ import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-eve
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const COPY_CALENDAR_DAY_WIDTH = Math.floor((SCREEN_WIDTH - 80) / 7);
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
+
+// Custom Month-Day Picker Constants
+const PICKER_ITEM_HEIGHT = 40;
+const PICKER_VISIBLE_ITEMS = 5;
+const PICKER_HEIGHT = PICKER_ITEM_HEIGHT * PICKER_VISIBLE_ITEMS;
+
+// Custom Month-Day Picker Component
+interface MonthDayPickerProps {
+  value: Date;
+  onChange: (date: Date) => void;
+}
+
+const MonthDayPicker: React.FC<MonthDayPickerProps> = memo(({value, onChange}) => {
+  const monthScrollRef = useRef<ScrollView>(null);
+  const dayScrollRef = useRef<ScrollView>(null);
+  const [selectedMonth, setSelectedMonth] = useState(value.getMonth());
+  const [selectedDay, setSelectedDay] = useState(value.getDate());
+  const currentYear = value.getFullYear();
+
+  // Get days in the selected month
+  const daysInMonth = useMemo(() => {
+    return new Date(currentYear, selectedMonth + 1, 0).getDate();
+  }, [currentYear, selectedMonth]);
+
+  // Generate month and day arrays
+  const months = useMemo(() => Array.from({length: 12}, (_, i) => i), []);
+  const days = useMemo(() => Array.from({length: daysInMonth}, (_, i) => i + 1), [daysInMonth]);
+
+  // Scroll to initial values on mount
+  useEffect(() => {
+    setTimeout(() => {
+      monthScrollRef.current?.scrollTo({
+        y: selectedMonth * PICKER_ITEM_HEIGHT,
+        animated: false,
+      });
+      dayScrollRef.current?.scrollTo({
+        y: (selectedDay - 1) * PICKER_ITEM_HEIGHT,
+        animated: false,
+      });
+    }, 50);
+  }, []);
+
+  // Handle month scroll end
+  const handleMonthScrollEnd = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const y = e.nativeEvent.contentOffset.y;
+    const index = Math.round(y / PICKER_ITEM_HEIGHT);
+    const newMonth = Math.max(0, Math.min(11, index));
+    setSelectedMonth(newMonth);
+
+    // Adjust day if it exceeds the new month's days
+    const newDaysInMonth = new Date(currentYear, newMonth + 1, 0).getDate();
+    const newDay = Math.min(selectedDay, newDaysInMonth);
+    if (newDay !== selectedDay) {
+      setSelectedDay(newDay);
+      dayScrollRef.current?.scrollTo({
+        y: (newDay - 1) * PICKER_ITEM_HEIGHT,
+        animated: true,
+      });
+    }
+
+    const newDate = new Date(currentYear, newMonth, newDay);
+    onChange(newDate);
+  }, [currentYear, selectedDay, onChange]);
+
+  // Handle day scroll end
+  const handleDayScrollEnd = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const y = e.nativeEvent.contentOffset.y;
+    const index = Math.round(y / PICKER_ITEM_HEIGHT);
+    const newDay = Math.max(1, Math.min(daysInMonth, index + 1));
+    setSelectedDay(newDay);
+
+    const newDate = new Date(currentYear, selectedMonth, newDay);
+    onChange(newDate);
+  }, [currentYear, selectedMonth, daysInMonth, onChange]);
+
+  const renderPickerItems = (items: number[], formatter: (item: number) => string, selectedIndex: number) => {
+    const paddingItems = Math.floor(PICKER_VISIBLE_ITEMS / 2);
+    return (
+      <>
+        {Array.from({length: paddingItems}).map((_, i) => (
+          <View key={`pad-start-${i}`} style={styles.monthDayPickerItem} />
+        ))}
+        {items.map((item, index) => (
+          <View key={item} style={styles.monthDayPickerItem}>
+            <Text style={[
+              styles.monthDayPickerItemText,
+              index === selectedIndex && styles.monthDayPickerItemTextSelected,
+            ]}>
+              {formatter(item)}
+            </Text>
+          </View>
+        ))}
+        {Array.from({length: paddingItems}).map((_, i) => (
+          <View key={`pad-end-${i}`} style={styles.monthDayPickerItem} />
+        ))}
+      </>
+    );
+  };
+
+  return (
+    <View style={styles.monthDayPickerContainer}>
+      <View style={styles.monthDayPickerColumn}>
+        <ScrollView
+          ref={monthScrollRef}
+          showsVerticalScrollIndicator={false}
+          snapToInterval={PICKER_ITEM_HEIGHT}
+          decelerationRate="fast"
+          onMomentumScrollEnd={handleMonthScrollEnd}
+          contentContainerStyle={styles.monthDayPickerScrollContent}
+        >
+          {renderPickerItems(months, (m) => `${m + 1}月`, selectedMonth)}
+        </ScrollView>
+      </View>
+      <View style={styles.monthDayPickerColumn}>
+        <ScrollView
+          ref={dayScrollRef}
+          showsVerticalScrollIndicator={false}
+          snapToInterval={PICKER_ITEM_HEIGHT}
+          decelerationRate="fast"
+          onMomentumScrollEnd={handleDayScrollEnd}
+          contentContainerStyle={styles.monthDayPickerScrollContent}
+        >
+          {renderPickerItems(days, (d) => `${d}日`, selectedDay - 1)}
+        </ScrollView>
+      </View>
+      <View style={styles.monthDayPickerHighlight} pointerEvents="none" />
+    </View>
+  );
+});
 
 // Duration options
 const DURATION_OPTIONS = [
@@ -600,12 +731,9 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                 <Text style={styles.pickerOkText}>OK</Text>
               </TouchableOpacity>
             </View>
-            <DateTimePicker
+            <MonthDayPicker
               value={tempDate}
-              mode="date"
-              display="spinner"
-              onChange={onTempDateChange}
-              locale="ja-JP"
+              onChange={(date) => setTempDate(date)}
             />
           </View>
         )}
@@ -640,12 +768,9 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                 <Text style={styles.pickerOkText}>OK</Text>
               </TouchableOpacity>
             </View>
-            <DateTimePicker
+            <MonthDayPicker
               value={tempDate}
-              mode="date"
-              display="spinner"
-              onChange={onTempDateChange}
-              locale="ja-JP"
+              onChange={(date) => setTempDate(date)}
             />
           </View>
         )}
@@ -945,6 +1070,46 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#007AFF',
+  },
+  // Custom Month-Day Picker styles
+  monthDayPickerContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    height: PICKER_HEIGHT,
+    backgroundColor: '#fff',
+  },
+  monthDayPickerColumn: {
+    width: 100,
+    height: PICKER_HEIGHT,
+    overflow: 'hidden',
+  },
+  monthDayPickerScrollContent: {
+    alignItems: 'center',
+  },
+  monthDayPickerItem: {
+    height: PICKER_ITEM_HEIGHT,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  monthDayPickerItemText: {
+    fontSize: 22,
+    color: '#999',
+  },
+  monthDayPickerItemTextSelected: {
+    fontSize: 24,
+    color: '#000',
+    fontWeight: '600',
+  },
+  monthDayPickerHighlight: {
+    position: 'absolute',
+    top: PICKER_ITEM_HEIGHT * 2,
+    left: 20,
+    right: 20,
+    height: PICKER_ITEM_HEIGHT,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: '#ddd',
+    backgroundColor: 'rgba(0, 122, 255, 0.05)',
   },
 });
 
