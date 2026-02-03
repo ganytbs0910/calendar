@@ -15,7 +15,8 @@ import {
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
-const DAY_WIDTH = Math.floor((SCREEN_WIDTH - 32) / 7);
+// Container has margin: 16 (both sides = 32) + padding: 16 (both sides = 32) = 64 total
+const DAY_WIDTH = Math.floor((SCREEN_WIDTH - 64) / 7);
 const DAY_HEIGHT = 75; // Taller cells to show event times
 
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
@@ -213,6 +214,20 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
     [eventsByDate],
   );
 
+  // Get the next upcoming event (for when today has no remaining events)
+  const nextUpcomingEvent = useMemo(() => {
+    const now = new Date();
+    const futureEvents = events
+      .filter(event => {
+        if (!event.startDate) return false;
+        return new Date(event.startDate) > now;
+      })
+      .sort((a, b) => {
+        return new Date(a.startDate!).getTime() - new Date(b.startDate!).getTime();
+      });
+    return futureEvents.length > 0 ? futureEvents[0] : null;
+  }, [events]);
+
   const goToPreviousMonth = useCallback(() => {
     setCurrentDate(new Date(currentYear, currentMonth - 1, 1));
   }, [currentYear, currentMonth]);
@@ -251,28 +266,17 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
 
   const handleDateSelect = useCallback(
     (date: Date) => {
-      // Check if this date is already selected
-      const isAlreadySelected = selectedDate &&
-        date.getDate() === selectedDate.getDate() &&
-        date.getMonth() === selectedDate.getMonth() &&
-        date.getFullYear() === selectedDate.getFullYear();
+      // Select the date and show events
+      setSelectedDate(date);
+      onDateSelect?.(date);
 
-      if (isAlreadySelected) {
-        // Double tap - open add event modal
-        onDateDoubleSelect?.(date);
-      } else {
-        // First tap - select the date and show events
-        setSelectedDate(date);
-        onDateSelect?.(date);
-
-        // Show bottom sheet with day's events
-        const dayEvents = getEventsForDate(date);
-        if (dayEvents.length > 0) {
-          openDayEventsSheet(date);
-        }
+      // Show bottom sheet with day's events
+      const dayEvents = getEventsForDate(date);
+      if (dayEvents.length > 0) {
+        openDayEventsSheet(date);
       }
     },
-    [onDateSelect, onDateDoubleSelect, selectedDate, getEventsForDate, openDayEventsSheet],
+    [onDateSelect, getEventsForDate, openDayEventsSheet],
   );
 
   const isToday = useCallback(
@@ -323,7 +327,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
     },
   })).current;
 
-  // Get events for the selected day in bottom sheet
+  // Get events for the selected day in bottom sheet (show all events including past)
   const dayEventsForSheet = useMemo(() => {
     if (!dayEventsDate) return [];
     return getEventsForDate(dayEventsDate);
@@ -432,7 +436,21 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
         {/* Calendar grid */}
         <View style={styles.calendarGrid} {...panResponder.panHandlers}>
           {calendarDays.map((item, index) => {
-            const dayEvents = getEventsForDate(item.date);
+            const allDayEvents = getEventsForDate(item.date);
+            // For today, filter out events that have already ended
+            const now = new Date();
+            const isTodayDate = isToday(item.date);
+            const todayRemainingEvents = isTodayDate
+              ? allDayEvents.filter(event => {
+                  if (event.allDay) return true;
+                  if (!event.endDate) return true;
+                  return new Date(event.endDate) > now;
+                })
+              : allDayEvents;
+
+            // If today has no remaining events, show next upcoming event
+            const showNextEvent = isTodayDate && todayRemainingEvents.length === 0 && nextUpcomingEvent;
+            const dayEvents = showNextEvent ? [nextUpcomingEvent] : todayRemainingEvents;
             const hasEvents = dayEvents.length > 0;
 
             return (
@@ -469,6 +487,19 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
 
                       // Get cell time display
                       const getCellTimeContent = () => {
+                        // Show next event with date if today has no remaining events
+                        if (showNextEvent && event.startDate) {
+                          const nextDate = new Date(event.startDate);
+                          return (
+                            <>
+                              <Text style={styles.cellNextEventDate}>
+                                {nextDate.getMonth() + 1}/{nextDate.getDate()}
+                              </Text>
+                              <Text style={styles.cellEventTimeText}>{formatTime(event.startDate)}</Text>
+                            </>
+                          );
+                        }
+
                         if (event.allDay || !event.startDate || !event.endDate) {
                           return <Text style={styles.cellEventTimeText}>終日</Text>;
                         }
@@ -507,21 +538,21 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                           key={event.id}
                           style={[
                             styles.cellEventBox,
-                            {backgroundColor: event.calendar?.color || '#007AFF'},
-                            isMultiDay && styles.cellMultiDayEventBox,
-                            isMultiDay && position === 'start' && styles.cellMultiDayStart,
-                            isMultiDay && position === 'end' && styles.cellMultiDayEnd,
-                            isMultiDay && position === 'middle' && styles.cellMultiDayMiddle,
-                            isMultiDay && position === 'middle' && isFirstDayOfWeek && styles.cellMultiDayWeekStart,
-                            isMultiDay && position === 'middle' && isLastDayOfWeek && styles.cellMultiDayWeekEnd,
-                            isMultiDay && position === 'start' && isLastDayOfWeek && styles.cellMultiDayWeekEnd,
-                            isMultiDay && position === 'end' && isFirstDayOfWeek && styles.cellMultiDayWeekStart,
+                            {backgroundColor: showNextEvent ? '#999' : (event.calendar?.color || '#007AFF')},
+                            isMultiDay && !showNextEvent && styles.cellMultiDayEventBox,
+                            isMultiDay && !showNextEvent && position === 'start' && styles.cellMultiDayStart,
+                            isMultiDay && !showNextEvent && position === 'end' && styles.cellMultiDayEnd,
+                            isMultiDay && !showNextEvent && position === 'middle' && styles.cellMultiDayMiddle,
+                            isMultiDay && !showNextEvent && position === 'middle' && isFirstDayOfWeek && styles.cellMultiDayWeekStart,
+                            isMultiDay && !showNextEvent && position === 'middle' && isLastDayOfWeek && styles.cellMultiDayWeekEnd,
+                            isMultiDay && !showNextEvent && position === 'start' && isLastDayOfWeek && styles.cellMultiDayWeekEnd,
+                            isMultiDay && !showNextEvent && position === 'end' && isFirstDayOfWeek && styles.cellMultiDayWeekStart,
                           ]}>
                           {getCellTimeContent()}
                         </View>
                       );
                     })}
-                    {dayEvents.length > 1 && (
+                    {dayEvents.length > 1 && !showNextEvent && (
                       <Text style={styles.cellEventMore}>+{dayEvents.length - 1}</Text>
                     )}
                   </View>
@@ -802,6 +833,11 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 3,
     borderBottomRightRadius: 3,
     marginRight: 0,
+  },
+  cellNextEventDate: {
+    fontSize: 9,
+    color: '#fff',
+    fontWeight: '500',
   },
   cellEventTimeText: {
     fontSize: 10,

@@ -141,6 +141,11 @@ function AppContent() {
     setShowAddModal(true);
   }, []);
 
+  const handleEventCopied = useCallback(() => {
+    calendarRef.current?.refreshEvents();
+    weekViewRef.current?.refreshEvents();
+  }, []);
+
   const handleEventDeleted = useCallback(() => {
     calendarRef.current?.refreshEvents();
     weekViewRef.current?.refreshEvents();
@@ -294,6 +299,7 @@ function AppContent() {
           onClose={handleCloseDetailModal}
           onEdit={handleEditEvent}
           onDeleted={handleEventDeleted}
+          onCopied={handleEventCopied}
         />
       </SafeAreaView>
     </SafeAreaProvider>

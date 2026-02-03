@@ -1,4 +1,4 @@
-import React, {useState, useCallback, useEffect, memo} from 'react';
+import React, {useState, useCallback, useEffect, memo, useMemo} from 'react';
 import {
   View,
   Text,
@@ -10,38 +10,25 @@ import {
   ScrollView,
   Platform,
   Linking,
+  Dimensions,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Preset storage key
-const PRESETS_STORAGE_KEY = '@calendar_presets';
+const SCREEN_WIDTH = Dimensions.get('window').width;
+const COPY_CALENDAR_DAY_WIDTH = Math.floor((SCREEN_WIDTH - 80) / 7);
+const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 
-interface EventPreset {
-  id: string;
-  title: string;
-  durationMinutes: number;
-  // Optional: for recurring presets
-  dayOfWeek?: number; // 0=日, 1=月, 2=火, 3=水, 4=木, 5=金, 6=土
-  startHour?: number;
-  startMinute?: number;
-}
-
-const WEEKDAY_NAMES = ['日', '月', '火', '水', '木', '金', '土'];
-
-// Duration options - unified list for adding time
+// Duration options
 const DURATION_OPTIONS = [
+  {label: '-1時間', minutes: -60},
+  {label: '-30分', minutes: -30},
+  {label: '-5分', minutes: -5},
   {label: '+5分', minutes: 5},
-  {label: '+10分', minutes: 10},
   {label: '+30分', minutes: 30},
   {label: '+1時間', minutes: 60},
   {label: '+3時間', minutes: 180},
-  {label: '+6時間', minutes: 6 * 60},
-  {label: '+12時間', minutes: 12 * 60},
   {label: '+1日', minutes: 24 * 60},
-  {label: '+3日', minutes: 3 * 24 * 60},
-  {label: '+1週間', minutes: 7 * 24 * 60},
 ];
 
 
@@ -62,7 +49,8 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   initialEndDate,
   editingEvent,
 }) => {
-  const isEditing = !!editingEvent;
+  const isEditing = !!(editingEvent?.id);
+  const isCopying = !!(editingEvent && !editingEvent.id);
   const [title, setTitle] = useState('');
   const [startDate, setStartDate] = useState(new Date());
   const [endDate, setEndDate] = useState(new Date());
@@ -71,148 +59,16 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   const [showEndDatePicker, setShowEndDatePicker] = useState(false);
   const [showEndTimePicker, setShowEndTimePicker] = useState(false);
   const [tempDate, setTempDate] = useState(new Date());
-  const [presets, setPresets] = useState<EventPreset[]>([]);
-  const [includeSchedule, setIncludeSchedule] = useState(false);
-
-  // Load presets from storage
-  useEffect(() => {
-    const loadPresets = async () => {
-      try {
-        const stored = await AsyncStorage.getItem(PRESETS_STORAGE_KEY);
-        if (stored) {
-          setPresets(JSON.parse(stored));
-        }
-      } catch (error) {
-        console.error('Error loading presets:', error);
-      }
-    };
-    loadPresets();
-  }, []);
-
-  // Save presets to storage
-  const savePresetsToStorage = useCallback(async (newPresets: EventPreset[]) => {
-    try {
-      await AsyncStorage.setItem(PRESETS_STORAGE_KEY, JSON.stringify(newPresets));
-    } catch (error) {
-      console.error('Error saving presets:', error);
-    }
-  }, []);
-
-  // Apply a preset
-  const applyPreset = useCallback((preset: EventPreset) => {
-    setTitle(preset.title);
-
-    let newStart = new Date(startDate);
-
-    // If preset has day of week, find the next occurrence
-    if (preset.dayOfWeek !== undefined) {
-      const today = new Date();
-      const currentDay = today.getDay();
-      let daysUntil = preset.dayOfWeek - currentDay;
-      if (daysUntil < 0) {
-        daysUntil += 7;
-      }
-      // If it's today but the time has passed, go to next week
-      if (daysUntil === 0 && preset.startHour !== undefined) {
-        const now = new Date();
-        if (now.getHours() > preset.startHour ||
-            (now.getHours() === preset.startHour && now.getMinutes() >= (preset.startMinute || 0))) {
-          daysUntil = 7;
-        }
-      }
-      newStart = new Date(today);
-      newStart.setDate(today.getDate() + daysUntil);
-    }
-
-    // If preset has start time, set it
-    if (preset.startHour !== undefined) {
-      newStart.setHours(preset.startHour, preset.startMinute || 0, 0, 0);
-    }
-
-    setStartDate(newStart);
-
-    // Ensure minimum 5 minutes duration
-    const durationMinutes = Math.max(5, preset.durationMinutes);
-    const newEnd = new Date(newStart);
-    newEnd.setMinutes(newEnd.getMinutes() + durationMinutes);
-    setEndDate(newEnd);
-  }, [startDate]);
-
-  // Save current settings as a new preset
-  const saveAsPreset = useCallback(() => {
-    const durationMs = Math.max(0, endDate.getTime() - startDate.getTime());
-    // Minimum 5 minutes for presets
-    const durationMinutes = Math.max(5, Math.round(durationMs / (1000 * 60)));
-    const presetTitle = title.trim() || '(タイトルなし)';
-    const newPreset: EventPreset = {
-      id: Date.now().toString(),
-      title: presetTitle,
-      durationMinutes,
-    };
-
-    // Include schedule if toggle is on
-    if (includeSchedule) {
-      newPreset.dayOfWeek = startDate.getDay();
-      newPreset.startHour = startDate.getHours();
-      newPreset.startMinute = startDate.getMinutes();
-    }
-
-    const newPresets = [...presets, newPreset];
-    setPresets(newPresets);
-    savePresetsToStorage(newPresets);
-
-    const scheduleInfo = includeSchedule
-      ? `（毎週${WEEKDAY_NAMES[startDate.getDay()]} ${startDate.getHours()}:${startDate.getMinutes().toString().padStart(2, '0')}）`
-      : '';
-    Alert.alert('保存完了', `「${presetTitle}」${scheduleInfo}をプリセットに追加しました`);
-    setIncludeSchedule(false);
-  }, [title, startDate, endDate, presets, savePresetsToStorage, includeSchedule]);
-
-  // Delete a preset
-  const deletePreset = useCallback((presetId: string) => {
-    const preset = presets.find(p => p.id === presetId);
-    Alert.alert(
-      'プリセットを削除',
-      `「${preset?.title}」を削除しますか？`,
-      [
-        {text: 'キャンセル', style: 'cancel'},
-        {
-          text: '削除',
-          style: 'destructive',
-          onPress: () => {
-            const newPresets = presets.filter(p => p.id !== presetId);
-            setPresets(newPresets);
-            savePresetsToStorage(newPresets);
-          },
-        },
-      ]
-    );
-  }, [presets, savePresetsToStorage]);
-
-  // Format duration for preset display
-  const formatPresetDuration = (minutes: number) => {
-    if (minutes >= 60) {
-      const hours = Math.floor(minutes / 60);
-      const mins = minutes % 60;
-      return mins > 0 ? `${hours}時間${mins}分` : `${hours}時間`;
-    }
-    return `${minutes}分`;
-  };
-
-  // Format preset info (including schedule if set)
-  const formatPresetInfo = (preset: EventPreset) => {
-    let info = formatPresetDuration(preset.durationMinutes);
-    if (preset.dayOfWeek !== undefined && preset.startHour !== undefined) {
-      const time = `${preset.startHour}:${(preset.startMinute || 0).toString().padStart(2, '0')}`;
-      info = `${WEEKDAY_NAMES[preset.dayOfWeek]} ${time}〜 ${info}`;
-    }
-    return info;
-  };
+  const [showCopyCalendar, setShowCopyCalendar] = useState(false);
+  const [copyCalendarDate, setCopyCalendarDate] = useState(new Date());
+  const [selectedCopyDates, setSelectedCopyDates] = useState<Date[]>([]);
 
   // Initialize dates when modal opens or initialDate/initialEndDate changes
   useEffect(() => {
     if (visible) {
-      if (editingEvent) {
+      const isCopying = editingEvent && !editingEvent.id;
+
+      if (editingEvent && !isCopying) {
         // Editing mode - load existing event data
         setTitle(editingEvent.title || '');
         if (editingEvent.startDate) {
@@ -221,6 +77,11 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         if (editingEvent.endDate) {
           setEndDate(new Date(editingEvent.endDate));
         }
+      } else if (isCopying && initialDate && initialEndDate) {
+        // Copy mode - use title from event but dates from initialDate/initialEndDate
+        setTitle(editingEvent.title || '');
+        setStartDate(new Date(initialDate));
+        setEndDate(new Date(initialEndDate));
       } else if (initialDate) {
         const start = new Date(initialDate);
         if (!initialEndDate) {
@@ -339,7 +200,8 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   }, [title, startDate, endDate, handleClose, onEventAdded, isEditing, editingEvent]);
 
   const formatDate = (date: Date) => {
-    return `${date.getMonth() + 1}/${date.getDate()}`;
+    const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
+    return `${date.getMonth() + 1}/${date.getDate()}(${weekdays[date.getDay()]})`;
   };
 
   const formatTime = (date: Date) => {
@@ -379,6 +241,95 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
     setEndDate(newEnd);
   }, [endDate]);
 
+  // Copy to other dates functionality
+  const handleShowCopyCalendar = useCallback(() => {
+    setCopyCalendarDate(new Date());
+    setSelectedCopyDates([]);
+    setShowCopyCalendar(true);
+  }, []);
+
+  const toggleCopyDateSelection = useCallback((targetDate: Date) => {
+    setSelectedCopyDates(prev => {
+      const dateStr = targetDate.toDateString();
+      const exists = prev.some(d => d.toDateString() === dateStr);
+      if (exists) {
+        return prev.filter(d => d.toDateString() !== dateStr);
+      } else {
+        return [...prev, targetDate];
+      }
+    });
+  }, []);
+
+  const handleCopyToSelectedDates = useCallback(async () => {
+    if (selectedCopyDates.length === 0) return;
+
+    const durationMs = endDate.getTime() - startDate.getTime();
+
+    try {
+      const calendars = await RNCalendarEvents.findCalendars();
+      const writableCalendars = calendars.filter(cal => cal.allowsModifications);
+      if (writableCalendars.length === 0) {
+        Alert.alert('エラー', '書き込み可能なカレンダーが見つかりません');
+        return;
+      }
+      const defaultCalendar = writableCalendars.find(cal => cal.isPrimary) || writableCalendars[0];
+
+      for (const targetDate of selectedCopyDates) {
+        const newStart = new Date(targetDate);
+        newStart.setHours(startDate.getHours(), startDate.getMinutes(), 0, 0);
+        const newEnd = new Date(newStart.getTime() + durationMs);
+
+        await RNCalendarEvents.saveEvent(title.trim() || '(タイトルなし)', {
+          calendarId: defaultCalendar.id,
+          startDate: newStart.toISOString(),
+          endDate: newEnd.toISOString(),
+          allDay: false,
+        });
+      }
+
+      setShowCopyCalendar(false);
+      setSelectedCopyDates([]);
+      Alert.alert('完了', `${selectedCopyDates.length}件の予定をコピーしました`);
+      onEventAdded();
+    } catch (error) {
+      console.error('Error copying event:', error);
+      Alert.alert('エラー', '予定のコピーに失敗しました');
+    }
+  }, [title, startDate, endDate, selectedCopyDates, onEventAdded]);
+
+  const goToCopyPrevMonth = useCallback(() => {
+    setCopyCalendarDate(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  }, []);
+
+  const goToCopyNextMonth = useCallback(() => {
+    setCopyCalendarDate(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  }, []);
+
+  const copyCalendarDays = useMemo(() => {
+    const year = copyCalendarDate.getFullYear();
+    const month = copyCalendarDate.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInPrevMonth = new Date(year, month, 0).getDate();
+
+    const days: Array<{day: number; isCurrentMonth: boolean; date: Date}> = [];
+
+    for (let i = firstDay - 1; i >= 0; i--) {
+      const day = daysInPrevMonth - i;
+      days.push({day, isCurrentMonth: false, date: new Date(year, month - 1, day)});
+    }
+
+    for (let i = 1; i <= daysInMonth; i++) {
+      days.push({day: i, isCurrentMonth: true, date: new Date(year, month, i)});
+    }
+
+    const remainingDays = 42 - days.length;
+    for (let i = 1; i <= remainingDays; i++) {
+      days.push({day: i, isCurrentMonth: false, date: new Date(year, month + 1, i)});
+    }
+
+    return days;
+  }, [copyCalendarDate]);
 
   const onTempDateChange = (_: any, selectedDate?: Date) => {
     if (selectedDate) {
@@ -450,7 +401,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
             <Text style={styles.cancelButton}>キャンセル</Text>
           </TouchableOpacity>
           <Text style={styles.headerTitle} accessibilityRole="header">
-            {isEditing ? '予定を編集' : '予定を追加'}
+            {isEditing ? '予定を編集' : isCopying ? '予定をコピー' : '予定を追加'}
           </Text>
           <TouchableOpacity
             onPress={handleSave}
@@ -547,45 +498,96 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
             </TouchableOpacity>
           </View>
 
-          <View style={styles.presetSection}>
-            <View style={styles.presetHeader}>
-              <Text style={styles.sectionLabel}>プリセット</Text>
-              <TouchableOpacity onPress={saveAsPreset}>
-                <Text style={styles.savePresetButton}>+ 保存</Text>
-              </TouchableOpacity>
-            </View>
-            <TouchableOpacity
-              style={styles.scheduleToggle}
-              onPress={() => setIncludeSchedule(!includeSchedule)}>
-              <View style={[styles.checkbox, includeSchedule && styles.checkboxChecked]}>
-                {includeSchedule && <Text style={styles.checkmark}>✓</Text>}
-              </View>
-              <Text style={styles.scheduleToggleText}>曜日・時間も保存（定期予定用）</Text>
-            </TouchableOpacity>
-            {presets.length > 0 ? (
-              <View style={styles.presetButtons}>
-                {presets.map((preset) => (
-                  <TouchableOpacity
-                    key={preset.id}
-                    style={[
-                      styles.presetButton,
-                      preset.dayOfWeek !== undefined && styles.presetButtonScheduled,
-                    ]}
-                    onPress={() => applyPreset(preset)}
-                    onLongPress={() => deletePreset(preset.id)}>
-                    <Text style={styles.presetButtonTitle}>{preset.title}</Text>
-                    <Text style={styles.presetButtonDuration}>{formatPresetInfo(preset)}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            ) : (
-              <Text style={styles.noPresetsText}>
-                タイトルと所要時間を設定して「+ 保存」をタップ
-              </Text>
-            )}
-          </View>
+          <TouchableOpacity
+            style={styles.copyToOtherDaysButton}
+            onPress={handleShowCopyCalendar}>
+            <Text style={styles.copyToOtherDaysButtonText}>別の日にもコピー</Text>
+          </TouchableOpacity>
 
         </ScrollView>
+
+        {/* Copy Calendar Modal */}
+        <Modal
+          visible={showCopyCalendar}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowCopyCalendar(false)}>
+          <View style={styles.copyModalOverlay}>
+            <View style={styles.copyModalContent}>
+              <View style={styles.copyModalHeader}>
+                <TouchableOpacity onPress={() => setShowCopyCalendar(false)}>
+                  <Text style={styles.copyModalCancel}>キャンセル</Text>
+                </TouchableOpacity>
+                <Text style={styles.copyModalTitle}>コピー先を選択</Text>
+                <TouchableOpacity
+                  onPress={handleCopyToSelectedDates}
+                  disabled={selectedCopyDates.length === 0}>
+                  <Text style={[
+                    styles.copyModalDone,
+                    selectedCopyDates.length === 0 && styles.copyModalDoneDisabled,
+                  ]}>
+                    コピー{selectedCopyDates.length > 0 ? `(${selectedCopyDates.length})` : ''}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.copyCalendarNav}>
+                <TouchableOpacity onPress={goToCopyPrevMonth} style={styles.copyCalendarNavBtn}>
+                  <Text style={styles.copyCalendarNavText}>{'<'}</Text>
+                </TouchableOpacity>
+                <Text style={styles.copyCalendarMonth}>
+                  {copyCalendarDate.getFullYear()}年{copyCalendarDate.getMonth() + 1}月
+                </Text>
+                <TouchableOpacity onPress={goToCopyNextMonth} style={styles.copyCalendarNavBtn}>
+                  <Text style={styles.copyCalendarNavText}>{'>'}</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.copyCalendarWeekdays}>
+                {WEEKDAYS.map((day, index) => (
+                  <Text
+                    key={day}
+                    style={[
+                      styles.copyCalendarWeekday,
+                      index === 0 && styles.copySundayText,
+                      index === 6 && styles.copySaturdayText,
+                    ]}>
+                    {day}
+                  </Text>
+                ))}
+              </View>
+
+              <View style={styles.copyCalendarGrid}>
+                {copyCalendarDays.map((item, index) => {
+                  const isToday = item.date.toDateString() === new Date().toDateString();
+                  const isSelected = selectedCopyDates.some(d => d.toDateString() === item.date.toDateString());
+                  return (
+                    <TouchableOpacity
+                      key={`${item.date.toISOString()}-${index}`}
+                      style={[
+                        styles.copyCalendarDay,
+                        isToday && styles.copyCalendarToday,
+                        isSelected && styles.copyCalendarSelected,
+                      ]}
+                      onPress={() => toggleCopyDateSelection(item.date)}>
+                      <Text
+                        style={[
+                          styles.copyCalendarDayText,
+                          !item.isCurrentMonth && styles.copyCalendarOtherMonth,
+                          isToday && !isSelected && styles.copyCalendarTodayText,
+                          isSelected && styles.copyCalendarSelectedText,
+                          index % 7 === 0 && item.isCurrentMonth && !isSelected && styles.copySundayText,
+                          index % 7 === 6 && item.isCurrentMonth && !isSelected && styles.copySaturdayText,
+                        ]}>
+                        {item.day}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          </View>
+        </Modal>
 
         {showStartDatePicker && (
           <View style={styles.pickerContainer}>
@@ -799,83 +801,122 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#999',
   },
-  presetSection: {
-    backgroundColor: '#fff',
+  copyToOtherDaysButton: {
+    backgroundColor: '#E8F4FD',
     borderRadius: 10,
     padding: 16,
+    alignItems: 'center',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#007AFF',
+  },
+  copyToOtherDaysButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#007AFF',
+  },
+  copyModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  copyModalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    width: SCREEN_WIDTH - 40,
+    padding: 16,
+  },
+  copyModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 16,
   },
-  presetHeader: {
+  copyModalCancel: {
+    fontSize: 16,
+    color: '#999',
+  },
+  copyModalTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#333',
+  },
+  copyModalDone: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#007AFF',
+  },
+  copyModalDoneDisabled: {
+    color: '#ccc',
+  },
+  copyCalendarNav: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 12,
   },
-  savePresetButton: {
-    fontSize: 14,
-    color: '#007AFF',
-    fontWeight: '500',
+  copyCalendarNavBtn: {
+    padding: 8,
   },
-  presetButtons: {
+  copyCalendarNavText: {
+    fontSize: 20,
+    color: '#007AFF',
+    fontWeight: '600',
+  },
+  copyCalendarMonth: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  copyCalendarWeekdays: {
+    flexDirection: 'row',
+    marginBottom: 8,
+  },
+  copyCalendarWeekday: {
+    width: COPY_CALENDAR_DAY_WIDTH,
+    textAlign: 'center',
+    fontSize: 12,
+    color: '#666',
+    fontWeight: '600',
+  },
+  copyCalendarGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
   },
-  presetButton: {
-    backgroundColor: '#E8F4FD',
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#007AFF',
-  },
-  presetButtonScheduled: {
-    backgroundColor: '#FFF3E8',
-    borderColor: '#FF9500',
-  },
-  presetButtonTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#007AFF',
-  },
-  presetButtonDuration: {
-    fontSize: 11,
-    color: '#666',
-    marginTop: 2,
-  },
-  noPresetsText: {
-    fontSize: 13,
-    color: '#999',
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  scheduleToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 4,
-    borderWidth: 2,
-    borderColor: '#ccc',
-    marginRight: 8,
+  copyCalendarDay: {
+    width: COPY_CALENDAR_DAY_WIDTH,
+    height: COPY_CALENDAR_DAY_WIDTH,
     justifyContent: 'center',
     alignItems: 'center',
+    borderRadius: COPY_CALENDAR_DAY_WIDTH / 2,
   },
-  checkboxChecked: {
-    backgroundColor: '#007AFF',
-    borderColor: '#007AFF',
-  },
-  checkmark: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  scheduleToggleText: {
-    fontSize: 14,
+  copyCalendarDayText: {
+    fontSize: 16,
     color: '#333',
+  },
+  copyCalendarOtherMonth: {
+    color: '#ccc',
+  },
+  copyCalendarToday: {
+    backgroundColor: '#E8F4FD',
+  },
+  copyCalendarTodayText: {
+    color: '#007AFF',
+    fontWeight: '600',
+  },
+  copyCalendarSelected: {
+    backgroundColor: '#007AFF',
+  },
+  copyCalendarSelectedText: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  copySundayText: {
+    color: '#FF3B30',
+  },
+  copySaturdayText: {
+    color: '#007AFF',
   },
   pickerContainer: {
     backgroundColor: '#fff',

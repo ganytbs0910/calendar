@@ -1,4 +1,4 @@
-import React, {useCallback, memo} from 'react';
+import React, {useCallback, memo, useState, useMemo} from 'react';
 import {
   View,
   Text,
@@ -7,9 +7,14 @@ import {
   StyleSheet,
   Alert,
   ScrollView,
+  Dimensions,
 } from 'react-native';
 import {CalendarEventReadable} from 'react-native-calendar-events';
 import RNCalendarEvents from 'react-native-calendar-events';
+
+const SCREEN_WIDTH = Dimensions.get('window').width;
+const CALENDAR_DAY_WIDTH = Math.floor((SCREEN_WIDTH - 80) / 7);
+const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 
 interface EventDetailModalProps {
   visible: boolean;
@@ -17,6 +22,7 @@ interface EventDetailModalProps {
   onClose: () => void;
   onEdit: (event: CalendarEventReadable) => void;
   onDeleted: () => void;
+  onCopied: () => void;
 }
 
 export const EventDetailModal: React.FC<EventDetailModalProps> = ({
@@ -25,7 +31,11 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
   onClose,
   onEdit,
   onDeleted,
+  onCopied,
 }) => {
+  const [showCopyCalendar, setShowCopyCalendar] = useState(false);
+  const [copyCalendarDate, setCopyCalendarDate] = useState(new Date());
+  const [selectedDates, setSelectedDates] = useState<Date[]>([]);
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
     const year = date.getFullYear();
@@ -97,6 +107,99 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
       onEdit(event);
     }
   }, [event, onClose, onEdit]);
+
+  const handleShowCopyCalendar = useCallback(() => {
+    setCopyCalendarDate(new Date());
+    setSelectedDates([]);
+    setShowCopyCalendar(true);
+  }, []);
+
+  const toggleDateSelection = useCallback((targetDate: Date) => {
+    setSelectedDates(prev => {
+      const dateStr = targetDate.toDateString();
+      const exists = prev.some(d => d.toDateString() === dateStr);
+      if (exists) {
+        return prev.filter(d => d.toDateString() !== dateStr);
+      } else {
+        return [...prev, targetDate];
+      }
+    });
+  }, []);
+
+  const handleCopyToSelectedDates = useCallback(async () => {
+    if (!event?.startDate || !event?.endDate || selectedDates.length === 0) return;
+
+    const originalStart = new Date(event.startDate);
+    const originalEnd = new Date(event.endDate);
+    const durationMs = originalEnd.getTime() - originalStart.getTime();
+
+    try {
+      const calendars = await RNCalendarEvents.findCalendars();
+      const writableCalendars = calendars.filter(cal => cal.allowsModifications);
+      if (writableCalendars.length === 0) {
+        Alert.alert('エラー', '書き込み可能なカレンダーが見つかりません');
+        return;
+      }
+      const defaultCalendar = writableCalendars.find(cal => cal.isPrimary) || writableCalendars[0];
+
+      for (const targetDate of selectedDates) {
+        const newStart = new Date(targetDate);
+        newStart.setHours(originalStart.getHours(), originalStart.getMinutes(), 0, 0);
+        const newEnd = new Date(newStart.getTime() + durationMs);
+
+        await RNCalendarEvents.saveEvent(event.title || '(タイトルなし)', {
+          calendarId: defaultCalendar.id,
+          startDate: newStart.toISOString(),
+          endDate: newEnd.toISOString(),
+          allDay: event.allDay || false,
+        });
+      }
+
+      setShowCopyCalendar(false);
+      setSelectedDates([]);
+      onClose();
+      onCopied();
+    } catch (error) {
+      console.error('Error copying event:', error);
+      Alert.alert('エラー', '予定のコピーに失敗しました');
+    }
+  }, [event, selectedDates, onClose, onCopied]);
+
+  // Calendar navigation for copy
+  const goToPrevMonth = useCallback(() => {
+    setCopyCalendarDate(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  }, []);
+
+  const goToNextMonth = useCallback(() => {
+    setCopyCalendarDate(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  }, []);
+
+  // Generate calendar days for copy modal
+  const copyCalendarDays = useMemo(() => {
+    const year = copyCalendarDate.getFullYear();
+    const month = copyCalendarDate.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInPrevMonth = new Date(year, month, 0).getDate();
+
+    const days: Array<{day: number; isCurrentMonth: boolean; date: Date}> = [];
+
+    for (let i = firstDay - 1; i >= 0; i--) {
+      const day = daysInPrevMonth - i;
+      days.push({day, isCurrentMonth: false, date: new Date(year, month - 1, day)});
+    }
+
+    for (let i = 1; i <= daysInMonth; i++) {
+      days.push({day: i, isCurrentMonth: true, date: new Date(year, month, i)});
+    }
+
+    const remainingDays = 42 - days.length;
+    for (let i = 1; i <= remainingDays; i++) {
+      days.push({day: i, isCurrentMonth: false, date: new Date(year, month + 1, i)});
+    }
+
+    return days;
+  }, [copyCalendarDate]);
 
   if (!event) return null;
 
@@ -207,6 +310,97 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
               </View>
             )}
           </View>
+
+          <TouchableOpacity
+            style={styles.copyButton}
+            onPress={handleShowCopyCalendar}
+            accessibilityLabel="別の日にコピー"
+            accessibilityRole="button">
+            <Text style={styles.copyButtonText}>別の日にコピー</Text>
+          </TouchableOpacity>
+
+          {/* Copy Calendar Modal */}
+          <Modal
+            visible={showCopyCalendar}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setShowCopyCalendar(false)}>
+            <View style={styles.copyModalOverlay}>
+              <View style={styles.copyModalContent}>
+                <View style={styles.copyModalHeader}>
+                  <TouchableOpacity onPress={() => setShowCopyCalendar(false)}>
+                    <Text style={styles.copyModalCancel}>キャンセル</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.copyModalTitle}>コピー先を選択</Text>
+                  <TouchableOpacity
+                    onPress={handleCopyToSelectedDates}
+                    disabled={selectedDates.length === 0}>
+                    <Text style={[
+                      styles.copyModalDone,
+                      selectedDates.length === 0 && styles.copyModalDoneDisabled,
+                    ]}>
+                      コピー{selectedDates.length > 0 ? `(${selectedDates.length})` : ''}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.copyCalendarNav}>
+                  <TouchableOpacity onPress={goToPrevMonth} style={styles.copyCalendarNavBtn}>
+                    <Text style={styles.copyCalendarNavText}>{'<'}</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.copyCalendarMonth}>
+                    {copyCalendarDate.getFullYear()}年{copyCalendarDate.getMonth() + 1}月
+                  </Text>
+                  <TouchableOpacity onPress={goToNextMonth} style={styles.copyCalendarNavBtn}>
+                    <Text style={styles.copyCalendarNavText}>{'>'}</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.copyCalendarWeekdays}>
+                  {WEEKDAYS.map((day, index) => (
+                    <Text
+                      key={day}
+                      style={[
+                        styles.copyCalendarWeekday,
+                        index === 0 && styles.sundayText,
+                        index === 6 && styles.saturdayText,
+                      ]}>
+                      {day}
+                    </Text>
+                  ))}
+                </View>
+
+                <View style={styles.copyCalendarGrid}>
+                  {copyCalendarDays.map((item, index) => {
+                    const isToday = item.date.toDateString() === new Date().toDateString();
+                    const isSelected = selectedDates.some(d => d.toDateString() === item.date.toDateString());
+                    return (
+                      <TouchableOpacity
+                        key={`${item.date.toISOString()}-${index}`}
+                        style={[
+                          styles.copyCalendarDay,
+                          isToday && styles.copyCalendarToday,
+                          isSelected && styles.copyCalendarSelected,
+                        ]}
+                        onPress={() => toggleDateSelection(item.date)}>
+                        <Text
+                          style={[
+                            styles.copyCalendarDayText,
+                            !item.isCurrentMonth && styles.copyCalendarOtherMonth,
+                            isToday && !isSelected && styles.copyCalendarTodayText,
+                            isSelected && styles.copyCalendarSelectedText,
+                            index % 7 === 0 && item.isCurrentMonth && !isSelected && styles.sundayText,
+                            index % 7 === 6 && item.isCurrentMonth && !isSelected && styles.saturdayText,
+                          ]}>
+                          {item.day}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            </View>
+          </Modal>
 
           <TouchableOpacity
             style={styles.deleteButton}
@@ -328,6 +522,18 @@ const styles = StyleSheet.create({
     marginTop: 8,
     lineHeight: 22,
   },
+  copyButton: {
+    backgroundColor: '#007AFF',
+    borderRadius: 10,
+    padding: 16,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  copyButtonText: {
+    fontSize: 17,
+    color: '#fff',
+    fontWeight: '600',
+  },
   deleteButton: {
     backgroundColor: '#fff',
     borderRadius: 10,
@@ -338,6 +544,109 @@ const styles = StyleSheet.create({
   deleteButtonText: {
     fontSize: 17,
     color: '#FF3B30',
+  },
+  sundayText: {
+    color: '#FF3B30',
+  },
+  saturdayText: {
+    color: '#007AFF',
+  },
+  copyModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  copyModalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    width: SCREEN_WIDTH - 40,
+    padding: 16,
+  },
+  copyModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  copyModalCancel: {
+    fontSize: 16,
+    color: '#999',
+  },
+  copyModalTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#333',
+  },
+  copyModalDone: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#007AFF',
+  },
+  copyModalDoneDisabled: {
+    color: '#ccc',
+  },
+  copyCalendarNav: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  copyCalendarNavBtn: {
+    padding: 8,
+  },
+  copyCalendarNavText: {
+    fontSize: 20,
+    color: '#007AFF',
+    fontWeight: '600',
+  },
+  copyCalendarMonth: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  copyCalendarWeekdays: {
+    flexDirection: 'row',
+    marginBottom: 8,
+  },
+  copyCalendarWeekday: {
+    width: CALENDAR_DAY_WIDTH,
+    textAlign: 'center',
+    fontSize: 12,
+    color: '#666',
+    fontWeight: '600',
+  },
+  copyCalendarGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  copyCalendarDay: {
+    width: CALENDAR_DAY_WIDTH,
+    height: CALENDAR_DAY_WIDTH,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: CALENDAR_DAY_WIDTH / 2,
+  },
+  copyCalendarDayText: {
+    fontSize: 16,
+    color: '#333',
+  },
+  copyCalendarOtherMonth: {
+    color: '#ccc',
+  },
+  copyCalendarToday: {
+    backgroundColor: '#E8F4FD',
+  },
+  copyCalendarTodayText: {
+    color: '#007AFF',
+    fontWeight: '600',
+  },
+  copyCalendarSelected: {
+    backgroundColor: '#007AFF',
+  },
+  copyCalendarSelectedText: {
+    color: '#fff',
+    fontWeight: '600',
   },
 });
 

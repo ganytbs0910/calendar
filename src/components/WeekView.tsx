@@ -85,15 +85,13 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
   useEffect(() => { draggingEventRef.current = draggingEvent; }, [draggingEvent]);
 
   // Get the week's start date (Sunday)
-  const getWeekStart = useCallback((date: Date) => {
-    const d = new Date(date);
+  const weekStart = useMemo(() => {
+    const d = new Date(currentDate);
     const day = d.getDay();
     d.setDate(d.getDate() - day);
     d.setHours(0, 0, 0, 0);
     return d;
-  }, []);
-
-  const weekStart = getWeekStart(currentDate);
+  }, [currentDate]);
   const weekStartRef = useRef(weekStart);
   useEffect(() => { weekStartRef.current = weekStart; }, [weekStart]);
 
@@ -733,20 +731,29 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
             ))}
           </View>
 
-          {/* Day columns */}
-          <View style={styles.daysContainer}>
-            {/* Current time indicator */}
-            {isTodayInWeek && (
+          {/* Current time indicator - spans from time column to today's column */}
+          {isTodayInWeek && (() => {
+            const todayIndex = weekDays.findIndex(day => isToday(day));
+            const lineWidth = TIME_COLUMN_WIDTH + (todayIndex + 1) * DAY_WIDTH;
+            return (
               <View
                 style={[
-                  styles.currentTimeIndicator,
+                  styles.currentTimeIndicatorFull,
                   {top: currentTimePosition},
                 ]}
                 pointerEvents="none">
-                <View style={styles.currentTimeDot} />
-                <View style={styles.currentTimeLine} />
+                <View style={styles.currentTimeLabel}>
+                  <Text style={styles.currentTimeLabelText}>
+                    {currentTime.getHours().toString().padStart(2, '0')}:{currentTime.getMinutes().toString().padStart(2, '0')}
+                  </Text>
+                </View>
+                <View style={[styles.currentTimeLine, {width: lineWidth - 44}]} />
               </View>
-            )}
+            );
+          })()}
+
+          {/* Day columns */}
+          <View style={styles.daysContainer}>
             {weekDays.map((date, dayIndex) => (
               <View key={dayIndex} style={styles.dayColumn}>
                 {/* Hour cells */}
@@ -1035,23 +1042,26 @@ const styles = StyleSheet.create({
   newEventBlockMiddle: {
     borderRadius: 0,
   },
-  currentTimeIndicator: {
+  currentTimeIndicatorFull: {
     position: 'absolute',
     left: 0,
-    right: 0,
     flexDirection: 'row',
     alignItems: 'center',
     zIndex: 50,
   },
-  currentTimeDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+  currentTimeLabel: {
     backgroundColor: '#FF3B30',
-    marginLeft: -4,
+    borderRadius: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    marginRight: 0,
+  },
+  currentTimeLabelText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#fff',
   },
   currentTimeLine: {
-    flex: 1,
     height: 2,
     backgroundColor: '#FF3B30',
   },
