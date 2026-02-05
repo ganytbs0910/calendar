@@ -16,6 +16,54 @@ import {
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// Color options for events
+const EVENT_COLORS = [
+  {name: 'blue', color: '#007AFF'},
+  {name: 'red', color: '#FF3B30'},
+  {name: 'orange', color: '#FF9500'},
+  {name: 'yellow', color: '#FFCC00'},
+  {name: 'green', color: '#34C759'},
+  {name: 'purple', color: '#AF52DE'},
+  {name: 'pink', color: '#FF2D92'},
+];
+
+const EVENT_COLOR_STORAGE_KEY = '@event_colors';
+
+// Helper functions for event colors
+export const getEventColor = async (eventId: string): Promise<string | null> => {
+  try {
+    const colorsJson = await AsyncStorage.getItem(EVENT_COLOR_STORAGE_KEY);
+    if (colorsJson) {
+      const colors = JSON.parse(colorsJson);
+      return colors[eventId] || null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+};
+
+export const setEventColor = async (eventId: string, color: string): Promise<void> => {
+  try {
+    const colorsJson = await AsyncStorage.getItem(EVENT_COLOR_STORAGE_KEY);
+    const colors = colorsJson ? JSON.parse(colorsJson) : {};
+    colors[eventId] = color;
+    await AsyncStorage.setItem(EVENT_COLOR_STORAGE_KEY, JSON.stringify(colors));
+  } catch (error) {
+    console.error('Error saving event color:', error);
+  }
+};
+
+export const getAllEventColors = async (): Promise<Record<string, string>> => {
+  try {
+    const colorsJson = await AsyncStorage.getItem(EVENT_COLOR_STORAGE_KEY);
+    return colorsJson ? JSON.parse(colorsJson) : {};
+  } catch {
+    return {};
+  }
+};
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const COPY_CALENDAR_DAY_WIDTH = Math.floor((SCREEN_WIDTH - 80) / 7);
@@ -193,6 +241,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   const [showCopyCalendar, setShowCopyCalendar] = useState(false);
   const [copyCalendarDate, setCopyCalendarDate] = useState(new Date());
   const [selectedCopyDates, setSelectedCopyDates] = useState<Date[]>([]);
+  const [selectedColor, setSelectedColor] = useState<string>(EVENT_COLORS[0].color);
 
   // Initialize dates when modal opens or initialDate/initialEndDate changes
   useEffect(() => {
@@ -208,11 +257,25 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         if (editingEvent.endDate) {
           setEndDate(new Date(editingEvent.endDate));
         }
+        // Load saved color for this event
+        if (editingEvent.id) {
+          getEventColor(editingEvent.id).then(color => {
+            setSelectedColor(color || editingEvent.calendar?.color || EVENT_COLORS[0].color);
+          });
+        }
       } else if (isCopying && initialDate && initialEndDate) {
         // Copy mode - use title from event but dates from initialDate/initialEndDate
         setTitle(editingEvent.title || '');
         setStartDate(new Date(initialDate));
         setEndDate(new Date(initialEndDate));
+        // Copy color from original event if available
+        if (editingEvent.id) {
+          getEventColor(editingEvent.id).then(color => {
+            setSelectedColor(color || editingEvent.calendar?.color || EVENT_COLORS[0].color);
+          });
+        } else {
+          setSelectedColor(EVENT_COLORS[0].color);
+        }
       } else if (initialDate) {
         const start = new Date(initialDate);
         if (!initialEndDate) {
@@ -229,6 +292,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           setEndDate(end);
         }
         setTitle('');
+        setSelectedColor(EVENT_COLORS[0].color);
       } else {
         const now = new Date();
         now.setMinutes(0);
@@ -238,6 +302,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         end.setHours(end.getHours() + 1);
         setEndDate(end);
         setTitle('');
+        setSelectedColor(EVENT_COLORS[0].color);
       }
     }
   }, [visible, initialDate, initialEndDate, editingEvent]);
@@ -292,6 +357,8 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           endDate: finalEndDate.toISOString(),
           allDay: false,
         });
+        // Save custom color
+        await setEventColor(editingEvent.id, selectedColor);
       } else {
         // Create new event
         const calendars = await RNCalendarEvents.findCalendars();
@@ -313,13 +380,17 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         const defaultCalendar = writableCalendars.find(cal => cal.isPrimary) || writableCalendars[0];
         console.log('Using calendar:', defaultCalendar.title, 'allowsModifications:', defaultCalendar.allowsModifications);
 
-        await RNCalendarEvents.saveEvent(title.trim() || '(タイトルなし)', {
+        const eventId = await RNCalendarEvents.saveEvent(title.trim() || '(タイトルなし)', {
           calendarId: defaultCalendar.id,
           startDate: startDate.toISOString(),
           endDate: finalEndDate.toISOString(),
           allDay: false,
         });
-        console.log('Event saved successfully');
+        console.log('Event saved successfully with id:', eventId);
+        // Save custom color for new event
+        if (eventId) {
+          await setEventColor(eventId, selectedColor);
+        }
       }
 
       handleClose();
@@ -328,7 +399,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
       console.error('Error saving event:', error);
       Alert.alert('エラー', isEditing ? '予定の更新に失敗しました' : '予定の保存に失敗しました');
     }
-  }, [title, startDate, endDate, handleClose, onEventAdded, isEditing, editingEvent]);
+  }, [title, startDate, endDate, handleClose, onEventAdded, isEditing, editingEvent, selectedColor]);
 
   const formatDate = (date: Date) => {
     const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
@@ -410,12 +481,16 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         newStart.setHours(startDate.getHours(), startDate.getMinutes(), 0, 0);
         const newEnd = new Date(newStart.getTime() + durationMs);
 
-        await RNCalendarEvents.saveEvent(title.trim() || '(タイトルなし)', {
+        const eventId = await RNCalendarEvents.saveEvent(title.trim() || '(タイトルなし)', {
           calendarId: defaultCalendar.id,
           startDate: newStart.toISOString(),
           endDate: newEnd.toISOString(),
           allDay: false,
         });
+        // Save custom color for copied event
+        if (eventId) {
+          await setEventColor(eventId, selectedColor);
+        }
       }
 
       setShowCopyCalendar(false);
@@ -544,18 +619,31 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
 
         <ScrollView style={styles.form}>
           <View style={styles.inputGroup}>
-            <TextInput
-              style={styles.titleInput}
-              placeholder="タイトル"
-              value={title}
-              onChangeText={setTitle}
-              placeholderTextColor="#999"
-              accessibilityLabel="予定のタイトル"
-              accessibilityHint="予定のタイトルを入力してください"
-            />
+            <View style={styles.titleInputContainer}>
+              <TextInput
+                style={styles.titleInput}
+                placeholder="タイトル"
+                value={title}
+                onChangeText={setTitle}
+                placeholderTextColor="#999"
+                accessibilityLabel="予定のタイトル"
+                accessibilityHint="予定のタイトルを入力してください"
+              />
+              {title.length > 0 && (
+                <TouchableOpacity
+                  style={styles.titleClearButton}
+                  onPress={() => setTitle('')}
+                  accessibilityLabel="タイトルをクリア">
+                  <Text style={styles.titleClearButtonText}>×</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
 
           <View style={styles.dateTimeSection}>
+            <Text style={styles.selectedDateDisplay}>
+              {startDate.getMonth() + 1}月{startDate.getDate()}日（{WEEKDAYS[startDate.getDay()]}）
+            </Text>
             <View style={styles.dateTimeCompactRow}>
               <TouchableOpacity
                 style={styles.compactDateButton}
@@ -627,6 +715,26 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
               }}>
               <Text style={styles.resetDurationText}>リセット（0分）</Text>
             </TouchableOpacity>
+          </View>
+
+          <View style={styles.colorSection}>
+            <Text style={styles.sectionLabel}>色</Text>
+            <View style={styles.colorButtons}>
+              {EVENT_COLORS.map((colorOption) => (
+                <TouchableOpacity
+                  key={colorOption.name}
+                  style={[
+                    styles.colorButton,
+                    {backgroundColor: colorOption.color},
+                    selectedColor === colorOption.color && styles.colorButtonSelected,
+                  ]}
+                  onPress={() => setSelectedColor(colorOption.color)}>
+                  {selectedColor === colorOption.color && (
+                    <Text style={styles.colorButtonCheck}>✓</Text>
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
 
           <TouchableOpacity
@@ -836,10 +944,26 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginBottom: 16,
   },
+  titleInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   titleInput: {
+    flex: 1,
     fontSize: 17,
     padding: 16,
     color: '#333',
+  },
+  titleClearButton: {
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  titleClearButtonText: {
+    fontSize: 20,
+    color: '#999',
+    fontWeight: '300',
   },
   dateTimeSection: {
     backgroundColor: '#fff',
@@ -851,6 +975,13 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#666',
     marginBottom: 12,
+  },
+  selectedDateDisplay: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#333',
+    textAlign: 'center',
+    marginBottom: 16,
   },
   dateTimeCompactRow: {
     flexDirection: 'row',
@@ -890,6 +1021,38 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 16,
     marginBottom: 16,
+  },
+  colorSection: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 16,
+    marginBottom: 16,
+  },
+  colorButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 12,
+  },
+  colorButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  colorButtonSelected: {
+    borderWidth: 3,
+    borderColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  colorButtonCheck: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
   durationHeader: {
     flexDirection: 'row',

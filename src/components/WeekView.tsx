@@ -14,6 +14,7 @@ import {
   Alert,
 } from 'react-native';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
+import {getAllEventColors} from './AddEventModal';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const HOUR_HEIGHT = 60;
@@ -70,6 +71,7 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
   const [error, setError] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [draggingEvent, setDraggingEvent] = useState<DraggingEvent | null>(null);
+  const [eventColors, setEventColors] = useState<Record<string, string>>({});
   const scrollViewRef = useRef<ScrollView>(null);
   const hasScrolledToCurrentTime = useRef(false);
   const draggingEventRef = useRef<DraggingEvent | null>(null);
@@ -84,11 +86,9 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
   useEffect(() => { onTimeRangeSelectRef.current = onTimeRangeSelect; }, [onTimeRangeSelect]);
   useEffect(() => { draggingEventRef.current = draggingEvent; }, [draggingEvent]);
 
-  // Get the week's start date (Sunday)
+  // Get the week's start date (currentDate is always 1st column)
   const weekStart = useMemo(() => {
     const d = new Date(currentDate);
-    const day = d.getDay();
-    d.setDate(d.getDate() - day);
     d.setHours(0, 0, 0, 0);
     return d;
   }, [currentDate]);
@@ -118,11 +118,15 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
       const endDate = new Date(weekStart);
       endDate.setDate(endDate.getDate() + 7);
 
-      const calendarEvents = await RNCalendarEvents.fetchAllEvents(
-        startDate.toISOString(),
-        endDate.toISOString(),
-      );
+      const [calendarEvents, colors] = await Promise.all([
+        RNCalendarEvents.fetchAllEvents(
+          startDate.toISOString(),
+          endDate.toISOString(),
+        ),
+        getAllEventColors(),
+      ]);
       setEvents(calendarEvents);
+      setEventColors(colors);
     } catch (err) {
       console.error('Error fetching events:', err);
       setError('予定の読み込みに失敗しました');
@@ -577,10 +581,11 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
     })
   ).current;
 
-  // Get events for a specific day
+  // Get events for a specific day (exclude all-day events like holidays)
   const getEventsForDay = (date: Date) => {
     return events.filter(event => {
       if (!event.startDate || !event.endDate) return false;
+      if (event.allDay) return false; // Hide all-day events (holidays etc)
       const eventStart = new Date(event.startDate);
       const eventEnd = new Date(event.endDate);
       const dayStart = new Date(date);
@@ -665,26 +670,29 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
       {/* Header with days */}
       <View style={styles.header} {...headerPanResponder.panHandlers}>
         <View style={styles.timeColumnHeader} />
-        {weekDays.map((date, index) => (
-          <View
-            key={index}
-            style={[
-              styles.dayHeader,
-              isToday(date) && styles.todayHeader,
-            ]}>
-            <Text style={[styles.dayName, index === 0 && styles.sundayText, index === 6 && styles.saturdayText]}>
-              {WEEKDAYS[index]}
-            </Text>
-            <Text style={[
-              styles.dayNumber,
-              isToday(date) && styles.todayText,
-              index === 0 && styles.sundayText,
-              index === 6 && styles.saturdayText,
-            ]}>
-              {date.getDate()}
-            </Text>
-          </View>
-        ))}
+        {weekDays.map((date, index) => {
+          const dayOfWeek = date.getDay();
+          return (
+            <View
+              key={index}
+              style={[
+                styles.dayHeader,
+                isToday(date) && styles.todayHeader,
+              ]}>
+              <Text style={[styles.dayName, dayOfWeek === 0 && styles.sundayText, dayOfWeek === 6 && styles.saturdayText]}>
+                {WEEKDAYS[dayOfWeek]}
+              </Text>
+              <Text style={[
+                styles.dayNumber,
+                isToday(date) && styles.todayText,
+                dayOfWeek === 0 && styles.sundayText,
+                dayOfWeek === 6 && styles.saturdayText,
+              ]}>
+                {date.getDate()}
+              </Text>
+            </View>
+          );
+        })}
       </View>
 
       {/* Loading indicator */}
@@ -794,6 +802,9 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
                   // Hide original event if it's being dragged
                   const isBeingDragged = draggingEvent?.event.id === event.id;
 
+                  // Use custom color if available, otherwise use calendar color
+                  const displayColor = (event.id && eventColors[event.id]) || event.calendar?.color || '#007AFF';
+
                   return (
                     <TouchableOpacity
                       key={event.id}
@@ -802,7 +813,7 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
                         {
                           top: (event.allDay ? 0 : startHour) * HOUR_HEIGHT,
                           height: duration * HOUR_HEIGHT - 2,
-                          backgroundColor: event.calendar?.color || '#007AFF',
+                          backgroundColor: displayColor,
                           opacity: isBeingDragged ? 0.3 : 1,
                         },
                       ]}
@@ -825,7 +836,7 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
                       {
                         top: draggingEvent.currentHour * HOUR_HEIGHT,
                         height: draggingEvent.duration * HOUR_HEIGHT - 2,
-                        backgroundColor: draggingEvent.event.calendar?.color || '#007AFF',
+                        backgroundColor: (draggingEvent.event.id && eventColors[draggingEvent.event.id]) || draggingEvent.event.calendar?.color || '#007AFF',
                       },
                     ]}
                     pointerEvents="none">

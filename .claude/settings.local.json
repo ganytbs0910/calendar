@@ -28,7 +28,10 @@
       "Bash(npx eslint:*)",
       "Bash(xcodebuild:*)",
       "WebFetch(domain:x.com)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(npx react-native start:*)",
+      "Bash(open:*)",
+      "Bash(sudo ln:*)"
     ]
   }
 }

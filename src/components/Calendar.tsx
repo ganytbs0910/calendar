@@ -13,12 +13,15 @@ import {
   PanResponder,
 } from 'react-native';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
+import {getAllEventColors} from './AddEventModal';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 // Container has margin: 16 (both sides = 32) + padding: 16 (both sides = 32) = 64 total
 const DAY_WIDTH = Math.floor((SCREEN_WIDTH - 64) / 7);
-const DAY_HEIGHT = 115; // Taller cells for better event display
-const EVENT_BAR_HEIGHT = 22; // Height of multi-day event bar
+const SCREEN_HEIGHT = Dimensions.get('window').height;
+// Calculate day height to fill screen (subtract header, weekday row, margins, safe area)
+const DAY_HEIGHT = Math.floor((SCREEN_HEIGHT - 220) / 5); // 5 weeks average
+const EVENT_BAR_HEIGHT = 24; // Height of multi-day event bar
 const DAY_NUMBER_HEIGHT = 20; // Space for day number
 
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
@@ -48,6 +51,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
   const [showDayEvents, setShowDayEvents] = useState(false);
   const [dayEventsDate, setDayEventsDate] = useState<Date | null>(null);
   const bottomSheetAnim = useState(new Animated.Value(0))[0];
+  const [eventColors, setEventColors] = useState<Record<string, string>>({});
 
   // Swipe gesture for month navigation
   const swipeStartX = useRef(0);
@@ -111,11 +115,15 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       const startDate = new Date(currentYear, currentMonth, 1);
       const endDate = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59);
 
-      const calendarEvents = await RNCalendarEvents.fetchAllEvents(
-        startDate.toISOString(),
-        endDate.toISOString(),
-      );
+      const [calendarEvents, colors] = await Promise.all([
+        RNCalendarEvents.fetchAllEvents(
+          startDate.toISOString(),
+          endDate.toISOString(),
+        ),
+        getAllEventColors(),
+      ]);
       setEvents(calendarEvents);
+      setEventColors(colors);
     } catch (err) {
       console.error('Error fetching events:', err);
       setError('予定の読み込みに失敗しました');
@@ -380,13 +388,18 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       setSelectedDate(date);
       onDateSelect?.(date);
 
-      // Show bottom sheet with day's events
-      const dayEvents = getEventsForDate(date);
+      // Get events for the day (excluding all-day events)
+      const dayEvents = getEventsForDate(date).filter(e => !e.allDay);
+
       if (dayEvents.length > 0) {
+        // Show bottom sheet with day's events
         openDayEventsSheet(date);
+      } else {
+        // No events - open add event modal
+        onDateDoubleSelect?.(date);
       }
     },
-    [onDateSelect, getEventsForDate, openDayEventsSheet],
+    [onDateSelect, onDateDoubleSelect, getEventsForDate, openDayEventsSheet],
   );
 
   const isToday = useCallback(
@@ -452,6 +465,14 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
   const formatTime = (dateString: string) => {
     const date = new Date(dateString);
     return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+  };
+
+  // Compact time format for calendar cells (no leading zero on hours)
+  const formatTimeCompact = (dateString: string) => {
+    const date = new Date(dateString);
+    const h = date.getHours();
+    const m = date.getMinutes();
+    return `${h}:${m.toString().padStart(2, '0')}`;
   };
 
   // Navigate to previous day in bottom sheet
@@ -562,9 +583,10 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                   }
 
                   const dayEvents = getEventsForDate(item.date);
+                  // Filter: only show timed events (not all-day), single-day only
                   const singleDayEvents = dayEvents.filter(e => {
-                    if (!e.startDate || !e.endDate) return true;
-                    if (e.allDay) return false;
+                    if (!e.startDate || !e.endDate) return false;
+                    if (e.allDay) return false; // Hide all-day events (holidays etc)
                     const start = new Date(e.startDate);
                     const end = new Date(e.endDate);
                     start.setHours(0, 0, 0, 0);
@@ -592,23 +614,27 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                         ]}>
                         {item.day}
                       </Text>
-                      {/* Single-day events */}
+                      {/* Single-day events (max 2) */}
                       {singleDayEvents.length > 0 && (
                         <View style={styles.singleDayEventsContainer}>
                           {singleDayEvents.slice(0, 2).map(event => (
-                            <View
+                            <TouchableOpacity
                               key={event.id}
                               style={[
                                 styles.singleDayEventBox,
-                                {backgroundColor: event.calendar?.color || '#007AFF'},
-                              ]}>
-                              <Text style={styles.singleDayEventTime} numberOfLines={1}>
-                                {event.startDate ? formatTime(event.startDate).slice(0, 5) : ''}
+                                {backgroundColor: (event.id && eventColors[event.id]) || event.calendar?.color || '#007AFF'},
+                              ]}
+                              onPress={() => onEventPress?.(event)}>
+                              <Text style={styles.singleDayEventTime}>
+                                {event.startDate && formatTimeCompact(event.startDate)}
+                              </Text>
+                              <Text style={styles.singleDayEventTime}>
+                                {event.endDate && formatTimeCompact(event.endDate)}
                               </Text>
                               <Text style={styles.singleDayEventTitle} numberOfLines={1}>
                                 {event.title}
                               </Text>
-                            </View>
+                            </TouchableOpacity>
                           ))}
                           {singleDayEvents.length > 2 && (
                             <Text style={styles.cellEventMore}>+{singleDayEvents.length - 2}</Text>
@@ -618,53 +644,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                     </TouchableOpacity>
                   );
                 })}
-                {/* Multi-day event bars */}
-                {multiDayEventsInWeek.map(({event, startDayIndex, endDayIndex, rowIndex}) => {
-                  const startDate = weekDays[startDayIndex]?.date;
-                  const endDate = weekDays[endDayIndex]?.date;
-                  if (!startDate || !endDate) return null;
-
-                  const spanDays = endDayIndex - startDayIndex + 1;
-                  const isEventStart = (() => {
-                    if (!event.startDate) return false;
-                    const eventStart = new Date(event.startDate);
-                    eventStart.setHours(0, 0, 0, 0);
-                    const cellDate = new Date(startDate);
-                    cellDate.setHours(0, 0, 0, 0);
-                    return eventStart.getTime() === cellDate.getTime();
-                  })();
-                  const isEventEnd = (() => {
-                    if (!event.endDate) return false;
-                    const eventEnd = new Date(event.endDate);
-                    eventEnd.setHours(0, 0, 0, 0);
-                    const cellDate = new Date(endDate);
-                    cellDate.setHours(0, 0, 0, 0);
-                    return eventEnd.getTime() === cellDate.getTime();
-                  })();
-
-                  return (
-                    <TouchableOpacity
-                      key={`${event.id}-${weekIndex}`}
-                      style={[
-                        styles.multiDayEventBar,
-                        {
-                          left: startDayIndex * DAY_WIDTH + 2,
-                          width: spanDays * DAY_WIDTH - 4,
-                          top: DAY_NUMBER_HEIGHT + rowIndex * (EVENT_BAR_HEIGHT + 2),
-                          backgroundColor: event.calendar?.color || '#007AFF',
-                        },
-                        isEventStart && styles.multiDayEventBarStart,
-                        isEventEnd && styles.multiDayEventBarEnd,
-                        !isEventStart && styles.multiDayEventBarContinueLeft,
-                        !isEventEnd && styles.multiDayEventBarContinueRight,
-                      ]}
-                      onPress={() => onEventPress?.(event)}>
-                      <Text style={styles.multiDayEventTitle} numberOfLines={1}>
-                        {event.title}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
+{/* Multi-day event bars - hidden */}
               </View>
             );
           })}
@@ -755,7 +735,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                       <View
                         style={[
                           styles.bottomSheetEventColor,
-                          {backgroundColor: event.calendar?.color || '#007AFF'},
+                          {backgroundColor: (event.id && eventColors[event.id]) || event.calendar?.color || '#007AFF'},
                         ]}
                       />
                       <View style={styles.bottomSheetEventContent}>
@@ -944,7 +924,7 @@ const styles = StyleSheet.create({
     marginRight: -2,
   },
   multiDayEventTitle: {
-    fontSize: 11,
+    fontSize: 12,
     color: '#fff',
     fontWeight: '600',
   },
@@ -953,29 +933,38 @@ const styles = StyleSheet.create({
     flex: 1,
     width: '100%',
     paddingHorizontal: 1,
-    paddingTop: 46, // Space for multi-day events (2 rows)
+    paddingTop: 2,
     gap: 1,
   },
   singleDayEventBox: {
     borderRadius: 3,
     paddingVertical: 2,
-    paddingHorizontal: 3,
+    paddingHorizontal: 2,
     width: '100%',
+    alignItems: 'center',
   },
   singleDayEventTime: {
     fontSize: 9,
     color: '#fff',
     fontWeight: '700',
+    textAlign: 'center',
+    lineHeight: 11,
+  },
+  singleDayEventSeparator: {
+    fontSize: 9,
+    color: 'rgba(255,255,255,0.7)',
   },
   singleDayEventTitle: {
-    fontSize: 9,
+    fontSize: 8,
     color: '#fff',
     fontWeight: '500',
+    textAlign: 'center',
+    width: '100%',
   },
   cellEventMore: {
-    fontSize: 9,
+    fontSize: 10,
     color: '#666',
-    marginTop: 1,
+    marginTop: 2,
     textAlign: 'center',
   },
   eventDot: {

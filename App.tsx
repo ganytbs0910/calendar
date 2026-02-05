@@ -119,10 +119,16 @@ function AppContent() {
     weekViewRef.current?.refreshEvents();
   }, []);
 
-  // Handle event tap to show details
+  // Handle event tap to directly open edit modal
   const handleEventPress = useCallback((event: CalendarEventReadable) => {
-    setSelectedEvent(event);
-    setShowDetailModal(true);
+    setEditingEvent(event);
+    if (event.startDate) {
+      setInitialStartDate(new Date(event.startDate));
+    }
+    if (event.endDate) {
+      setInitialEndDate(new Date(event.endDate));
+    }
+    setShowAddModal(true);
   }, []);
 
   const handleCloseDetailModal = useCallback(() => {
@@ -181,10 +187,9 @@ function AppContent() {
   }, []);
 
   const formatWeekRange = (date: Date) => {
+    // currentDate is always in 1st column, so range is date to (date + 6)
     const start = new Date(date);
-    const day = start.getDay();
-    start.setDate(start.getDate() - day);
-    const end = new Date(start);
+    const end = new Date(date);
     end.setDate(end.getDate() + 6);
 
     const formatDate = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}`;
