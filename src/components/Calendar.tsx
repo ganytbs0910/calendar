@@ -38,6 +38,7 @@ interface CalendarProps {
 
 export interface CalendarRef {
   refreshEvents: () => void;
+  goToToday: () => void;
 }
 
 export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, onDateDoubleSelect, onEventPress}, ref) => {
@@ -139,6 +140,10 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
   // Expose refreshEvents to parent
   useImperativeHandle(ref, () => ({
     refreshEvents: fetchEvents,
+    goToToday: () => {
+      setCurrentDate(new Date());
+      setSelectedDate(new Date());
+    },
   }), [fetchEvents]);
 
   const getDaysInMonth = useCallback((year: number, month: number) => {

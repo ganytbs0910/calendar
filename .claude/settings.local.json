@@ -31,7 +31,8 @@
       "Bash(curl:*)",
       "Bash(npx react-native start:*)",
       "Bash(open:*)",
-      "Bash(sudo ln:*)"
+      "Bash(sudo ln:*)",
+      "Bash(npx react-native-asset:*)"
     ]
   }
 }

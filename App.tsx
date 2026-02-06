@@ -7,6 +7,9 @@ import {
   TouchableOpacity,
   Alert,
   Linking,
+  Modal,
+  TextInput,
+  FlatList,
 } from 'react-native';
 import {SafeAreaProvider, SafeAreaView} from 'react-native-safe-area-context';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
@@ -15,6 +18,44 @@ import WeekView, {WeekViewRef} from './src/components/WeekView';
 import AddEventModal from './src/components/AddEventModal';
 import EventDetailModal from './src/components/EventDetailModal';
 import {ThemeProvider, useTheme} from './src/theme/ThemeContext';
+
+// Custom Search Icon Component
+const SearchIcon = ({size = 20, color = '#666'}: {size?: number; color?: string}) => {
+  const circleSize = size * 0.65;
+  const handleLength = size * 0.35;
+  const strokeWidth = size * 0.12;
+
+  return (
+    <View style={{width: size, height: size, position: 'relative'}}>
+      {/* Circle (lens) */}
+      <View
+        style={{
+          width: circleSize,
+          height: circleSize,
+          borderRadius: circleSize / 2,
+          borderWidth: strokeWidth,
+          borderColor: color,
+          position: 'absolute',
+          top: 0,
+          left: 0,
+        }}
+      />
+      {/* Handle */}
+      <View
+        style={{
+          width: handleLength,
+          height: strokeWidth,
+          backgroundColor: color,
+          position: 'absolute',
+          bottom: size * 0.08,
+          right: size * 0.05,
+          transform: [{rotate: '45deg'}],
+          borderRadius: strokeWidth / 2,
+        }}
+      />
+    </View>
+  );
+};
 
 type ViewMode = 'month' | 'week';
 
@@ -30,6 +71,10 @@ function AppContent() {
   const [viewMode, setViewMode] = useState<ViewMode>('month');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [hasPermission, setHasPermission] = useState(false);
+  const [showSearchModal, setShowSearchModal] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<CalendarEventReadable[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
   const calendarRef = useRef<CalendarRef>(null);
   const weekViewRef = useRef<WeekViewRef>(null);
 
@@ -178,8 +223,72 @@ function AppContent() {
   }, []);
 
   const goToToday = useCallback(() => {
-    setCurrentDate(new Date());
+    const today = new Date();
+    setCurrentDate(today);
+    if (viewMode === 'month') {
+      calendarRef.current?.goToToday();
+    }
+  }, [viewMode]);
+
+  // Search functionality
+  const handleSearch = useCallback(async (query: string) => {
+    if (!query.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    setIsSearching(true);
+    try {
+      // Search in a wide range (1 year back to 1 year ahead)
+      const startDate = new Date();
+      startDate.setFullYear(startDate.getFullYear() - 1);
+      const endDate = new Date();
+      endDate.setFullYear(endDate.getFullYear() + 1);
+
+      const events = await RNCalendarEvents.fetchAllEvents(
+        startDate.toISOString(),
+        endDate.toISOString(),
+      );
+
+      const filtered = events.filter(event =>
+        event.title?.toLowerCase().includes(query.toLowerCase())
+      );
+
+      // Sort by start date (nearest first)
+      filtered.sort((a, b) => {
+        const dateA = new Date(a.startDate || 0).getTime();
+        const dateB = new Date(b.startDate || 0).getTime();
+        return dateA - dateB;
+      });
+
+      setSearchResults(filtered.slice(0, 50)); // Limit to 50 results
+    } catch (error) {
+      console.error('Search error:', error);
+    } finally {
+      setIsSearching(false);
+    }
   }, []);
+
+  const handleSearchResultPress = useCallback((event: CalendarEventReadable) => {
+    setShowSearchModal(false);
+    setSearchQuery('');
+    setSearchResults([]);
+
+    // Navigate to the event's date
+    if (event.startDate) {
+      const eventDate = new Date(event.startDate);
+      setCurrentDate(eventDate);
+      if (viewMode === 'month') {
+        calendarRef.current?.goToToday(); // This will refresh, then we navigate
+        setTimeout(() => {
+          setCurrentDate(eventDate);
+        }, 100);
+      }
+    }
+
+    // Open the event for editing
+    handleEventPress(event);
+  }, [viewMode, handleEventPress]);
 
   // Handler for swipe navigation in WeekView
   const handleWeekChange = useCallback((newDate: Date) => {
@@ -204,10 +313,6 @@ function AppContent() {
     header: {
       ...styles.header,
     },
-    title: {
-      ...styles.title,
-      color: colors.text,
-    },
     weekNavigation: {
       ...styles.weekNavigation,
       backgroundColor: colors.surface,
@@ -224,7 +329,22 @@ function AppContent() {
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
       <SafeAreaView style={dynamicStyles.container}>
         <View style={dynamicStyles.header}>
-          <Text style={dynamicStyles.title}>理想のカレンダー</Text>
+          <View style={styles.headerLeft}>
+            <TouchableOpacity
+              style={styles.todayBtn}
+              onPress={goToToday}
+              accessibilityLabel="今日に移動"
+              accessibilityRole="button">
+              <Text style={styles.todayBtnText}>今日</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.searchBtn}
+              onPress={() => setShowSearchModal(true)}
+              accessibilityLabel="予定を検索"
+              accessibilityRole="button">
+              <SearchIcon size={18} color="#666" />
+            </TouchableOpacity>
+          </View>
           <View style={styles.headerRight}>
             <TouchableOpacity
               style={styles.viewToggle}
@@ -306,6 +426,86 @@ function AppContent() {
           onDeleted={handleEventDeleted}
           onCopied={handleEventCopied}
         />
+
+        {/* Search Modal */}
+        <Modal
+          visible={showSearchModal}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={() => {
+            setShowSearchModal(false);
+            setSearchQuery('');
+            setSearchResults([]);
+          }}>
+          <View style={styles.searchModalContainer}>
+            <View style={styles.searchHeader}>
+              <TouchableOpacity
+                onPress={() => {
+                  setShowSearchModal(false);
+                  setSearchQuery('');
+                  setSearchResults([]);
+                }}>
+                <Text style={styles.searchCancelBtn}>キャンセル</Text>
+              </TouchableOpacity>
+              <Text style={styles.searchTitle}>予定を検索</Text>
+              <View style={{width: 80}} />
+            </View>
+            <View style={styles.searchInputContainer}>
+              <TextInput
+                style={styles.searchInput}
+                placeholder="予定のタイトルを入力..."
+                value={searchQuery}
+                onChangeText={(text) => {
+                  setSearchQuery(text);
+                  handleSearch(text);
+                }}
+                autoFocus
+                placeholderTextColor="#999"
+              />
+              {searchQuery.length > 0 && (
+                <TouchableOpacity
+                  style={styles.searchClearBtn}
+                  onPress={() => {
+                    setSearchQuery('');
+                    setSearchResults([]);
+                  }}>
+                  <Text style={styles.searchClearBtnText}>×</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            {isSearching ? (
+              <View style={styles.searchLoading}>
+                <Text style={styles.searchLoadingText}>検索中...</Text>
+              </View>
+            ) : searchResults.length > 0 ? (
+              <FlatList
+                data={searchResults}
+                keyExtractor={(item) => item.id || Math.random().toString()}
+                renderItem={({item}) => {
+                  const startDate = item.startDate ? new Date(item.startDate) : null;
+                  const formatDate = (date: Date) => {
+                    return `${date.getMonth() + 1}/${date.getDate()} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+                  };
+                  return (
+                    <TouchableOpacity
+                      style={styles.searchResultItem}
+                      onPress={() => handleSearchResultPress(item)}>
+                      <Text style={styles.searchResultTitle}>{item.title}</Text>
+                      {startDate && (
+                        <Text style={styles.searchResultDate}>{formatDate(startDate)}</Text>
+                      )}
+                    </TouchableOpacity>
+                  );
+                }}
+                style={styles.searchResultsList}
+              />
+            ) : searchQuery.length > 0 ? (
+              <View style={styles.searchNoResults}>
+                <Text style={styles.searchNoResultsText}>該当する予定がありません</Text>
+              </View>
+            ) : null}
+          </View>
+        </Modal>
       </SafeAreaView>
     </SafeAreaProvider>
   );
@@ -321,12 +521,31 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 8,
   },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#333',
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  todayBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#007AFF',
+  },
+  todayBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  searchBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   headerRight: {
     flexDirection: 'row',
@@ -387,6 +606,89 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#333',
+  },
+  // Search Modal styles
+  searchModalContainer: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+  },
+  searchHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 12,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  searchCancelBtn: {
+    fontSize: 17,
+    color: '#007AFF',
+    width: 80,
+  },
+  searchTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#333',
+  },
+  searchInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    margin: 16,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 17,
+    paddingVertical: 12,
+    color: '#333',
+  },
+  searchClearBtn: {
+    width: 30,
+    height: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  searchClearBtnText: {
+    fontSize: 20,
+    color: '#999',
+  },
+  searchLoading: {
+    padding: 20,
+    alignItems: 'center',
+  },
+  searchLoadingText: {
+    fontSize: 15,
+    color: '#666',
+  },
+  searchResultsList: {
+    flex: 1,
+  },
+  searchResultItem: {
+    backgroundColor: '#fff',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  searchResultTitle: {
+    fontSize: 16,
+    color: '#333',
+    marginBottom: 4,
+  },
+  searchResultDate: {
+    fontSize: 13,
+    color: '#666',
+  },
+  searchNoResults: {
+    padding: 40,
+    alignItems: 'center',
+  },
+  searchNoResultsText: {
+    fontSize: 15,
+    color: '#999',
   },
 });
 
