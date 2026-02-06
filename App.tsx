@@ -57,11 +57,50 @@ const SearchIcon = ({size = 20, color = '#666'}: {size?: number; color?: string}
   );
 };
 
+// Custom Settings Icon Component (gear)
+const SettingsIcon = ({size = 20, color = '#666'}: {size?: number; color?: string}) => {
+  const strokeWidth = size * 0.12;
+  const innerSize = size * 0.4;
+  const toothSize = size * 0.15;
+
+  return (
+    <View style={{width: size, height: size, justifyContent: 'center', alignItems: 'center'}}>
+      {/* Center circle */}
+      <View
+        style={{
+          width: innerSize,
+          height: innerSize,
+          borderRadius: innerSize / 2,
+          borderWidth: strokeWidth,
+          borderColor: color,
+        }}
+      />
+      {/* Gear teeth */}
+      {[0, 45, 90, 135, 180, 225, 270, 315].map((angle) => (
+        <View
+          key={angle}
+          style={{
+            position: 'absolute',
+            width: toothSize,
+            height: strokeWidth,
+            backgroundColor: color,
+            transform: [
+              {rotate: `${angle}deg`},
+              {translateX: size * 0.32},
+            ],
+          }}
+        />
+      ))}
+    </View>
+  );
+};
+
 type ViewMode = 'month' | 'week';
 
 function AppContent() {
-  const {colors, isDark} = useTheme();
+  const {colors, isDark, themeMode, setThemeMode} = useTheme();
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEventReadable | null>(null);
   const [editingEvent, setEditingEvent] = useState<CalendarEventReadable | null>(null);
@@ -338,11 +377,18 @@ function AppContent() {
               <Text style={styles.todayBtnText}>今日</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={styles.searchBtn}
+              style={styles.iconBtn}
               onPress={() => setShowSearchModal(true)}
               accessibilityLabel="予定を検索"
               accessibilityRole="button">
-              <SearchIcon size={18} color="#666" />
+              <SearchIcon size={18} color="#007AFF" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.iconBtn}
+              onPress={() => setShowSettingsModal(true)}
+              accessibilityLabel="設定"
+              accessibilityRole="button">
+              <SettingsIcon size={20} color="#007AFF" />
             </TouchableOpacity>
           </View>
           <View style={styles.headerRight}>
@@ -397,6 +443,7 @@ function AppContent() {
             onDateSelect={handleDateSelect}
             onDateDoubleSelect={handleDateDoubleSelect}
             onEventPress={handleEventPress}
+            onDateRangeSelect={handleTimeRangeSelect}
           />
         ) : (
           <WeekView
@@ -506,6 +553,135 @@ function AppContent() {
             ) : null}
           </View>
         </Modal>
+
+        {/* Settings Modal */}
+        <Modal
+          visible={showSettingsModal}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={() => setShowSettingsModal(false)}>
+          <View style={styles.settingsContainer}>
+            <View style={styles.settingsHeader}>
+              <View style={{width: 80}} />
+              <Text style={styles.settingsTitle}>設定</Text>
+              <TouchableOpacity onPress={() => setShowSettingsModal(false)}>
+                <Text style={styles.settingsDoneBtn}>完了</Text>
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              style={styles.settingsContent}
+              data={[{key: 'settings'}]}
+              renderItem={() => (
+                <>
+                  {/* Theme Settings */}
+                  <View style={styles.settingsSection}>
+                    <Text style={styles.settingsSectionTitle}>外観</Text>
+                    <View style={styles.settingsItem}>
+                      <Text style={styles.settingsItemLabel}>テーマ</Text>
+                      <View style={styles.themeSelector}>
+                        <TouchableOpacity
+                          style={[
+                            styles.themeSelectorBtn,
+                            themeMode === 'system' && styles.themeSelectorBtnActive,
+                          ]}
+                          onPress={() => setThemeMode('system')}>
+                          <Text style={[
+                            styles.themeSelectorText,
+                            themeMode === 'system' && styles.themeSelectorTextActive,
+                          ]}>自動</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[
+                            styles.themeSelectorBtn,
+                            themeMode === 'light' && styles.themeSelectorBtnActive,
+                          ]}
+                          onPress={() => setThemeMode('light')}>
+                          <Text style={[
+                            styles.themeSelectorText,
+                            themeMode === 'light' && styles.themeSelectorTextActive,
+                          ]}>ライト</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[
+                            styles.themeSelectorBtn,
+                            themeMode === 'dark' && styles.themeSelectorBtnActive,
+                          ]}
+                          onPress={() => setThemeMode('dark')}>
+                          <Text style={[
+                            styles.themeSelectorText,
+                            themeMode === 'dark' && styles.themeSelectorTextActive,
+                          ]}>ダーク</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Calendar Settings */}
+                  <View style={styles.settingsSection}>
+                    <Text style={styles.settingsSectionTitle}>カレンダー</Text>
+                    <TouchableOpacity
+                      style={styles.settingsItem}
+                      onPress={() => Linking.openSettings()}>
+                      <Text style={styles.settingsItemLabel}>カレンダーの権限</Text>
+                      <Text style={styles.settingsItemLink}>設定を開く →</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.settingsItem}
+                      onPress={() => {
+                        calendarRef.current?.refreshEvents();
+                        weekViewRef.current?.refreshEvents();
+                        Alert.alert('完了', 'カレンダーを更新しました');
+                      }}>
+                      <Text style={styles.settingsItemLabel}>カレンダーを更新</Text>
+                      <Text style={styles.settingsItemLink}>今すぐ更新</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Notification Settings */}
+                  <View style={styles.settingsSection}>
+                    <Text style={styles.settingsSectionTitle}>通知</Text>
+                    <TouchableOpacity
+                      style={styles.settingsItem}
+                      onPress={() => Linking.openSettings()}>
+                      <Text style={styles.settingsItemLabel}>通知設定</Text>
+                      <Text style={styles.settingsItemLink}>設定を開く →</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* About */}
+                  <View style={styles.settingsSection}>
+                    <Text style={styles.settingsSectionTitle}>アプリについて</Text>
+                    <View style={styles.settingsItem}>
+                      <Text style={styles.settingsItemLabel}>バージョン</Text>
+                      <Text style={styles.settingsItemValue}>0.0.2</Text>
+                    </View>
+                    <View style={styles.settingsItem}>
+                      <Text style={styles.settingsItemLabel}>ビルド</Text>
+                      <Text style={styles.settingsItemValue}>React Native 0.83</Text>
+                    </View>
+                  </View>
+
+                  {/* Tips */}
+                  <View style={styles.settingsSection}>
+                    <Text style={styles.settingsSectionTitle}>使い方のヒント</Text>
+                    <View style={styles.settingsTipItem}>
+                      <Text style={styles.settingsTipText}>• 日付をダブルタップで新規予定作成</Text>
+                    </View>
+                    <View style={styles.settingsTipItem}>
+                      <Text style={styles.settingsTipText}>• 日付を長押し+ドラッグで複数日選択</Text>
+                    </View>
+                    <View style={styles.settingsTipItem}>
+                      <Text style={styles.settingsTipText}>• 左右スワイプで月を移動</Text>
+                    </View>
+                    <View style={styles.settingsTipItem}>
+                      <Text style={styles.settingsTipText}>• 色ボタンを長押しで色を削除</Text>
+                    </View>
+                  </View>
+                </>
+              )}
+            />
+          </View>
+        </Modal>
       </SafeAreaView>
     </SafeAreaProvider>
   );
@@ -526,36 +702,35 @@ const styles = StyleSheet.create({
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
   todayBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: '#007AFF',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 16,
+    backgroundColor: '#E8F4FD',
   },
   todayBtnText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#fff',
+    color: '#007AFF',
   },
-  searchBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#f0f0f0',
+  iconBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
   },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 8,
   },
   viewToggle: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 16,
     backgroundColor: '#E8F4FD',
   },
   viewToggleText: {
@@ -689,6 +864,106 @@ const styles = StyleSheet.create({
   searchNoResultsText: {
     fontSize: 15,
     color: '#999',
+  },
+  // Settings Modal styles
+  settingsContainer: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+  },
+  settingsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 12,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  settingsTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#333',
+  },
+  settingsDoneBtn: {
+    fontSize: 17,
+    color: '#007AFF',
+    fontWeight: '600',
+    width: 80,
+    textAlign: 'right',
+  },
+  settingsContent: {
+    flex: 1,
+    paddingTop: 20,
+  },
+  settingsSection: {
+    backgroundColor: '#fff',
+    marginBottom: 20,
+  },
+  settingsSectionTitle: {
+    fontSize: 13,
+    color: '#666',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    textTransform: 'uppercase',
+  },
+  settingsItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+  },
+  settingsItemLabel: {
+    fontSize: 16,
+    color: '#333',
+  },
+  settingsItemValue: {
+    fontSize: 16,
+    color: '#999',
+  },
+  settingsItemLink: {
+    fontSize: 16,
+    color: '#007AFF',
+  },
+  themeSelector: {
+    flexDirection: 'row',
+    backgroundColor: '#f0f0f0',
+    borderRadius: 8,
+    padding: 2,
+  },
+  themeSelectorBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+  },
+  themeSelectorBtnActive: {
+    backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 1},
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  themeSelectorText: {
+    fontSize: 13,
+    color: '#666',
+  },
+  themeSelectorTextActive: {
+    color: '#007AFF',
+    fontWeight: '600',
+  },
+  settingsTipItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+  },
+  settingsTipText: {
+    fontSize: 14,
+    color: '#666',
+    lineHeight: 20,
   },
 });
 

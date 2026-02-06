@@ -32,7 +32,8 @@
       "Bash(npx react-native start:*)",
       "Bash(open:*)",
       "Bash(sudo ln:*)",
-      "Bash(npx react-native-asset:*)"
+      "Bash(npx react-native-asset:*)",
+      "Bash(git checkout:*)"
     ]
   }
 }

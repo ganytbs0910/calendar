@@ -16,8 +16,8 @@ import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-eve
 import {getAllEventColors} from './AddEventModal';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
-// Container has margin: 16 (both sides = 32) + padding: 16 (both sides = 32) = 64 total
-const DAY_WIDTH = Math.floor((SCREEN_WIDTH - 64) / 7);
+// Container has paddingHorizontal: 12 (both sides = 24) total
+const DAY_WIDTH = Math.floor((SCREEN_WIDTH - 24) / 7);
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 // Calculate day height to fill screen (subtract header, weekday row, margins, safe area)
 const DAY_HEIGHT = Math.floor((SCREEN_HEIGHT - 220) / 5); // 5 weeks average
@@ -34,6 +34,7 @@ interface CalendarProps {
   onDateSelect?: (date: Date) => void;
   onDateDoubleSelect?: (date: Date) => void;
   onEventPress?: (event: CalendarEventReadable) => void;
+  onDateRangeSelect?: (startDate: Date, endDate: Date) => void;
 }
 
 export interface CalendarRef {
@@ -41,7 +42,7 @@ export interface CalendarRef {
   goToToday: () => void;
 }
 
-export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, onDateDoubleSelect, onEventPress}, ref) => {
+export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, onDateDoubleSelect, onEventPress, onDateRangeSelect}, ref) => {
   const today = useMemo(() => new Date(), []);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -54,34 +55,153 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
   const bottomSheetAnim = useState(new Animated.Value(0))[0];
   const [eventColors, setEventColors] = useState<Record<string, string>>({});
 
-  // Swipe gesture for month navigation
+  // Drag selection state
+  const [dragStartDate, setDragStartDate] = useState<Date | null>(null);
+  const [dragEndDate, setDragEndDate] = useState<Date | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const gridLayoutRef = useRef<{x: number; y: number; width: number; height: number} | null>(null);
+  const calendarDaysRef = useRef<Array<{day: number; date: Date | null; isCurrentMonth: boolean}>>([]);
+  const numberOfWeeksRef = useRef(5);
+
+  // Swipe gesture for month navigation and drag selection
   const swipeStartX = useRef(0);
   const swipeStartY = useRef(0);
   const currentDateRef = useRef(currentDate);
+  const isDraggingRef = useRef(false);
+  const dragStartDateRef = useRef<Date | null>(null);
+  const onDateRangeSelectRef = useRef(onDateRangeSelect);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => { currentDateRef.current = currentDate; }, [currentDate]);
+  useEffect(() => { onDateRangeSelectRef.current = onDateRangeSelect; }, [onDateRangeSelect]);
+
+  // Get date from touch position
+  const getDateFromPosition = useCallback((pageX: number, pageY: number): Date | null => {
+    const layout = gridLayoutRef.current;
+    if (!layout) return null;
+
+    const x = pageX - layout.x;
+    const y = pageY - layout.y;
+
+    if (x < 0 || y < 0 || x > layout.width || y > layout.height) return null;
+
+    const dayIndex = Math.floor(x / DAY_WIDTH);
+    const weekIndex = Math.floor(y / DAY_HEIGHT);
+    const cellIndex = weekIndex * 7 + dayIndex;
+
+    const days = calendarDaysRef.current;
+    if (cellIndex >= 0 && cellIndex < days.length && days[cellIndex]?.date) {
+      return days[cellIndex].date;
+    }
+    return null;
+  }, []);
 
   const panResponder = useRef(PanResponder.create({
-    onStartShouldSetPanResponder: () => false,
-    onMoveShouldSetPanResponder: (_, gestureState) => {
-      // Only respond to horizontal swipes (more horizontal than vertical)
-      return Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && Math.abs(gestureState.dx) > 20;
-    },
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: () => true,
     onPanResponderGrant: (evt) => {
       swipeStartX.current = evt.nativeEvent.pageX;
       swipeStartY.current = evt.nativeEvent.pageY;
+      isDraggingRef.current = false;
+
+      // Start long press timer for drag selection
+      longPressTimer.current = setTimeout(() => {
+        const date = getDateFromPosition(evt.nativeEvent.pageX, evt.nativeEvent.pageY);
+        if (date) {
+          isDraggingRef.current = true;
+          dragStartDateRef.current = date;
+          setDragStartDate(date);
+          setDragEndDate(date);
+          setIsDragging(true);
+        }
+      }, 300);
     },
-    onPanResponderRelease: (_, gestureState) => {
-      const SWIPE_THRESHOLD = 50;
-      const current = currentDateRef.current;
-      if (gestureState.dx > SWIPE_THRESHOLD) {
-        // Swipe right - go to previous month
-        setCurrentDate(new Date(current.getFullYear(), current.getMonth() - 1, 1));
-      } else if (gestureState.dx < -SWIPE_THRESHOLD) {
-        // Swipe left - go to next month
-        setCurrentDate(new Date(current.getFullYear(), current.getMonth() + 1, 1));
+    onPanResponderMove: (evt, gestureState) => {
+      // Cancel long press if moved too much before timer fires
+      if (!isDraggingRef.current && (Math.abs(gestureState.dx) > 10 || Math.abs(gestureState.dy) > 10)) {
+        if (longPressTimer.current) {
+          clearTimeout(longPressTimer.current);
+          longPressTimer.current = null;
+        }
+      }
+
+      // If dragging, update end date
+      if (isDraggingRef.current) {
+        const date = getDateFromPosition(evt.nativeEvent.pageX, evt.nativeEvent.pageY);
+        if (date) {
+          setDragEndDate(date);
+        }
       }
     },
+    onPanResponderRelease: (_, gestureState) => {
+      if (longPressTimer.current) {
+        clearTimeout(longPressTimer.current);
+        longPressTimer.current = null;
+      }
+
+      // If was dragging, call onDateRangeSelect
+      if (isDraggingRef.current && dragStartDateRef.current) {
+        const startDate = dragStartDateRef.current;
+        const endDate = dragEndDate || startDate;
+
+        // Ensure start is before end
+        const [finalStart, finalEnd] = startDate <= endDate
+          ? [startDate, endDate]
+          : [endDate, startDate];
+
+        // Set end of day for the end date
+        const endWithTime = new Date(finalEnd);
+        endWithTime.setHours(23, 59, 59, 999);
+
+        if (onDateRangeSelectRef.current) {
+          onDateRangeSelectRef.current(finalStart, endWithTime);
+        }
+
+        setDragStartDate(null);
+        setDragEndDate(null);
+        setIsDragging(false);
+        isDraggingRef.current = false;
+        dragStartDateRef.current = null;
+        return;
+      }
+
+      // Normal swipe handling
+      const SWIPE_THRESHOLD = 50;
+      const current = currentDateRef.current;
+      if (Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && Math.abs(gestureState.dx) > SWIPE_THRESHOLD) {
+        if (gestureState.dx > 0) {
+          setCurrentDate(new Date(current.getFullYear(), current.getMonth() - 1, 1));
+        } else {
+          setCurrentDate(new Date(current.getFullYear(), current.getMonth() + 1, 1));
+        }
+      }
+    },
+    onPanResponderTerminate: () => {
+      if (longPressTimer.current) {
+        clearTimeout(longPressTimer.current);
+        longPressTimer.current = null;
+      }
+      setDragStartDate(null);
+      setDragEndDate(null);
+      setIsDragging(false);
+      isDraggingRef.current = false;
+      dragStartDateRef.current = null;
+    },
   })).current;
+
+  // Check if date is in drag selection range
+  const isInDragRange = useCallback((date: Date): boolean => {
+    if (!dragStartDate || !dragEndDate) return false;
+    const start = dragStartDate <= dragEndDate ? dragStartDate : dragEndDate;
+    const end = dragStartDate <= dragEndDate ? dragEndDate : dragStartDate;
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
+    const s = new Date(start);
+    s.setHours(0, 0, 0, 0);
+    const e = new Date(end);
+    e.setHours(0, 0, 0, 0);
+    return d >= s && d <= e;
+  }, [dragStartDate, dragEndDate]);
 
   const currentYear = currentDate.getFullYear();
   const currentMonth = currentDate.getMonth();
@@ -195,6 +315,12 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
   const numberOfWeeks = useMemo(() => {
     return Math.ceil(calendarDays.length / 7);
   }, [calendarDays]);
+
+  // Update refs for drag selection
+  useEffect(() => {
+    calendarDaysRef.current = calendarDays;
+    numberOfWeeksRef.current = numberOfWeeks;
+  }, [calendarDays, numberOfWeeks]);
 
   // Pre-compute events by date for O(1) lookup instead of O(n) filtering
   const eventsByDate = useMemo(() => {
@@ -569,7 +695,14 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
         </View>
 
         {/* Calendar grid - render by weeks */}
-        <View style={styles.calendarGrid} {...panResponder.panHandlers}>
+        <View
+          style={styles.calendarGrid}
+          {...panResponder.panHandlers}
+          onLayout={(e) => {
+            e.target.measure((x, y, width, height, pageX, pageY) => {
+              gridLayoutRef.current = {x: pageX, y: pageY, width, height};
+            });
+          }}>
           {Array.from({length: numberOfWeeks}).map((_, weekIndex) => {
             const weekDays = calendarDays.slice(weekIndex * 7, (weekIndex + 1) * 7);
             const multiDayEventsInWeek = multiDayEventsByWeek[weekIndex] || [];
@@ -599,6 +732,8 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                     return start.getTime() === end.getTime();
                   });
 
+                  const inDragRange = item.date && isInDragRange(item.date);
+
                   return (
                     <TouchableOpacity
                       key={`${item.date.toISOString()}-${globalIndex}`}
@@ -606,6 +741,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                         styles.dayCell,
                         isToday(item.date) && styles.todayCell,
                         isSelected(item.date) && styles.selectedCell,
+                        inDragRange && styles.dragRangeCell,
                       ]}
                       onPress={() => handleDateSelect(item.date!)}
                       accessibilityRole="button">
@@ -790,14 +926,9 @@ const styles = StyleSheet.create({
   },
   container: {
     backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    margin: 16,
-    shadowColor: '#000',
-    shadowOffset: {width: 0, height: 2},
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    flex: 1,
   },
   header: {
     flexDirection: 'row',
@@ -843,12 +974,17 @@ const styles = StyleSheet.create({
   },
   weekdayRow: {
     flexDirection: 'row',
-    marginBottom: 8,
+    borderLeftWidth: 0.5,
+    borderTopWidth: 0.5,
+    borderColor: '#e0e0e0',
   },
   weekdayCell: {
     width: DAY_WIDTH,
     alignItems: 'center',
     paddingVertical: 8,
+    borderRightWidth: 0.5,
+    borderBottomWidth: 0.5,
+    borderColor: '#e0e0e0',
   },
   weekdayText: {
     fontSize: 12,
@@ -857,6 +993,9 @@ const styles = StyleSheet.create({
   },
   calendarGrid: {
     flexDirection: 'column',
+    borderLeftWidth: 0.5,
+    borderTopWidth: 0.5,
+    borderColor: '#e0e0e0',
   },
   weekRow: {
     flexDirection: 'row',
@@ -868,6 +1007,9 @@ const styles = StyleSheet.create({
     height: DAY_HEIGHT,
     alignItems: 'center',
     paddingTop: 2,
+    borderRightWidth: 0.5,
+    borderBottomWidth: 0.5,
+    borderColor: '#e0e0e0',
   },
   dayText: {
     fontSize: 14,
@@ -900,6 +1042,9 @@ const styles = StyleSheet.create({
   selectedText: {
     color: '#007AFF',
     fontWeight: 'bold',
+  },
+  dragRangeCell: {
+    backgroundColor: '#B3E5FC',
   },
   // Multi-day event bar styles
   multiDayEventBar: {
