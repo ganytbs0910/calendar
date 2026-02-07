@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>ウィジェットに今日の予定を表示するためにカレンダーへのアクセスが必要です</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>ウィジェットに今日の予定を表示するためにカレンダーへのアクセスが必要です</string>
+	<key>NSExtension</key>
+	<dict>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.widgetkit-extension</string>
+	</dict>
+	<key>RCTNewArchEnabled</key>
+	<true/>
+</dict>
+</plist>

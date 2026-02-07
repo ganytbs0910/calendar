@@ -14,13 +14,14 @@ import {
 } from 'react-native';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
 import {getAllEventColors} from './AddEventModal';
+import {fetchWeather, WeatherDay} from '../services/weatherService';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 // Container has paddingHorizontal: 12 (both sides = 24) total
 const DAY_WIDTH = Math.floor((SCREEN_WIDTH - 24) / 7);
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 // Calculate day height to fill screen (subtract header, weekday row, margins, safe area)
-const DAY_HEIGHT = Math.floor((SCREEN_HEIGHT - 220) / 5); // 5 weeks average
+const CALENDAR_AVAILABLE_HEIGHT = SCREEN_HEIGHT - 300;
 const EVENT_BAR_HEIGHT = 24; // Height of multi-day event bar
 const DAY_NUMBER_HEIGHT = 20; // Space for day number
 
@@ -60,6 +61,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
   const [dayEventsDate, setDayEventsDate] = useState<Date | null>(null);
   const bottomSheetAnim = useState(new Animated.Value(0))[0];
   const [eventColors, setEventColors] = useState<Record<string, string>>({});
+  const [weatherData, setWeatherData] = useState<Map<string, WeatherDay>>(new Map());
 
   // Drag selection state
   const [dragStartDate, setDragStartDate] = useState<Date | null>(null);
@@ -69,21 +71,12 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
   const calendarDaysRef = useRef<Array<{day: number; date: Date | null; isCurrentMonth: boolean}>>([]);
   const numberOfWeeksRef = useRef(5);
 
-  // Swipe animation for month navigation
-  const swipeAnim = useRef(new Animated.Value(0)).current;
-  const fadeAnim = useRef(new Animated.Value(1)).current;
-  const [swipeDirection, setSwipeDirection] = useState<'left' | 'right' | null>(null);
-  const swipeDirectionRef = useRef<'left' | 'right' | null>(null);
-
   // Swipe gesture for month navigation and drag selection
-  const swipeStartX = useRef(0);
-  const swipeStartY = useRef(0);
   const currentDateRef = useRef(currentDate);
   const isDraggingRef = useRef(false);
   const dragStartDateRef = useRef<Date | null>(null);
   const onDateRangeSelectRef = useRef(onDateRangeSelect);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isSwipingRef = useRef(false);
 
   useEffect(() => { currentDateRef.current = currentDate; }, [currentDate]);
   useEffect(() => { onDateRangeSelectRef.current = onDateRangeSelect; }, [onDateRangeSelect]);
@@ -99,7 +92,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
     if (x < 0 || y < 0 || x > layout.width || y > layout.height) return null;
 
     const dayIndex = Math.floor(x / DAY_WIDTH);
-    const weekIndex = Math.floor(y / DAY_HEIGHT);
+    const weekIndex = Math.floor(y / dayHeight);
     const cellIndex = weekIndex * 7 + dayIndex;
 
     const days = calendarDaysRef.current;
@@ -107,23 +100,21 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       return days[cellIndex].date;
     }
     return null;
-  }, []);
+  }, [dayHeight]);
 
   const panResponder = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: (_, gestureState) => {
-      // Respond to horizontal swipes
       return Math.abs(gestureState.dx) > 5 || isDraggingRef.current;
     },
     onPanResponderGrant: (evt) => {
-      swipeStartX.current = evt.nativeEvent.pageX;
-      swipeStartY.current = evt.nativeEvent.pageY;
+      const startPageX = evt.nativeEvent.pageX;
+      const startPageY = evt.nativeEvent.pageY;
       isDraggingRef.current = false;
-      isSwipingRef.current = false;
 
       // Start long press timer for drag selection
       longPressTimer.current = setTimeout(() => {
-        const date = getDateFromPosition(evt.nativeEvent.pageX, evt.nativeEvent.pageY);
+        const date = getDateFromPosition(startPageX, startPageY);
         if (date) {
           isDraggingRef.current = true;
           dragStartDateRef.current = date;
@@ -151,20 +142,6 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
         return;
       }
 
-      // Horizontal swipe for month navigation - animate the calendar
-      if (Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && Math.abs(gestureState.dx) > 10) {
-        isSwipingRef.current = true;
-        // Update animation value based on drag distance (limit to screen width)
-        const clampedDx = Math.max(-SCREEN_WIDTH, Math.min(SCREEN_WIDTH, gestureState.dx));
-        swipeAnim.setValue(clampedDx);
-
-        // Set swipe direction for rendering next/prev month
-        const newDirection = gestureState.dx > 0 ? 'right' : 'left';
-        if (swipeDirectionRef.current !== newDirection) {
-          swipeDirectionRef.current = newDirection;
-          setSwipeDirection(newDirection);
-        }
-      }
     },
     onPanResponderRelease: (_, gestureState) => {
       if (longPressTimer.current) {
@@ -177,12 +154,10 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
         const startDate = dragStartDateRef.current;
         const endDate = dragEndDate || startDate;
 
-        // Ensure start is before end
         const [finalStart, finalEnd] = startDate <= endDate
           ? [startDate, endDate]
           : [endDate, startDate];
 
-        // Set end of day for the end date
         const endWithTime = new Date(finalEnd);
         endWithTime.setHours(23, 59, 59, 999);
 
@@ -197,56 +172,6 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
         dragStartDateRef.current = null;
         return;
       }
-
-      // Swipe animation handling
-      const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.25;
-      const current = currentDateRef.current;
-      const swipedRight = gestureState.dx > 0;
-
-      if (isSwipingRef.current && Math.abs(gestureState.dx) > SWIPE_THRESHOLD) {
-        // Swipe far enough - animate to completion then change month
-        const toValue = swipedRight ? SCREEN_WIDTH : -SCREEN_WIDTH;
-        const newDate = swipedRight
-          ? new Date(current.getFullYear(), current.getMonth() - 1, 1)
-          : new Date(current.getFullYear(), current.getMonth() + 1, 1);
-
-        Animated.spring(swipeAnim, {
-          toValue,
-          useNativeDriver: true,
-          tension: 120,
-          friction: 14,
-          velocity: gestureState.vx,
-        }).start(({finished}) => {
-          if (finished) {
-            // Quick fade out, change month, fade in
-            fadeAnim.setValue(0);
-            swipeAnim.setValue(0);
-            swipeDirectionRef.current = null;
-            setSwipeDirection(null);
-            setCurrentDate(newDate);
-
-            // Fade back in
-            Animated.timing(fadeAnim, {
-              toValue: 1,
-              duration: 150,
-              useNativeDriver: true,
-            }).start();
-          }
-        });
-      } else if (isSwipingRef.current) {
-        // Didn't swipe far enough - snap back
-        Animated.spring(swipeAnim, {
-          toValue: 0,
-          useNativeDriver: true,
-          tension: 100,
-          friction: 10,
-        }).start(() => {
-          setSwipeDirection(null);
-          swipeDirectionRef.current = null;
-        });
-      }
-
-      isSwipingRef.current = false;
     },
     onPanResponderTerminate: () => {
       if (longPressTimer.current) {
@@ -258,18 +183,8 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       setIsDragging(false);
       isDraggingRef.current = false;
       dragStartDateRef.current = null;
-      isSwipingRef.current = false;
-
-      // Reset swipe animation
-      Animated.spring(swipeAnim, {
-        toValue: 0,
-        useNativeDriver: true,
-      }).start(() => {
-        setSwipeDirection(null);
-        swipeDirectionRef.current = null;
-      });
     },
-  }), [swipeAnim, getDateFromPosition]);
+  }), [getDateFromPosition]);
 
   // Check if date is in drag selection range
   const isInDragRange = useCallback((date: Date): boolean => {
@@ -306,6 +221,13 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       }
     };
     requestPermission();
+  }, []);
+
+  // Fetch weather data on mount
+  useEffect(() => {
+    fetchWeather()
+      .then(data => setWeatherData(data))
+      .catch(err => console.error('Weather fetch failed:', err));
   }, []);
 
   // Helper to get cache key for a month
@@ -513,25 +435,15 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
     return getCalendarDaysForMonth(currentYear, currentMonth);
   }, [currentYear, currentMonth, getCalendarDaysForMonth]);
 
-  // Calculate adjacent month days for swipe preview
-  const prevMonthDays = useMemo(() => {
-    if (swipeDirection !== 'right') return [];
-    const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1;
-    const prevYear = currentMonth === 0 ? currentYear - 1 : currentYear;
-    return getCalendarDaysForMonth(prevYear, prevMonth);
-  }, [swipeDirection, currentYear, currentMonth, getCalendarDaysForMonth]);
-
-  const nextMonthDays = useMemo(() => {
-    if (swipeDirection !== 'left') return [];
-    const nextMonth = currentMonth === 11 ? 0 : currentMonth + 1;
-    const nextYear = currentMonth === 11 ? currentYear + 1 : currentYear;
-    return getCalendarDaysForMonth(nextYear, nextMonth);
-  }, [swipeDirection, currentYear, currentMonth, getCalendarDaysForMonth]);
-
   // Calculate number of weeks to display
   const numberOfWeeks = useMemo(() => {
     return Math.ceil(calendarDays.length / 7);
   }, [calendarDays]);
+
+  // Dynamic day height based on number of weeks
+  const dayHeight = useMemo(() => {
+    return Math.floor(CALENDAR_AVAILABLE_HEIGHT / numberOfWeeks);
+  }, [numberOfWeeks]);
 
   // Update refs for drag selection
   useEffect(() => {
@@ -913,71 +825,21 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
 
         {/* Calendar grid container with swipe */}
         <View
-          style={[styles.calendarGridContainer, {height: numberOfWeeks * DAY_HEIGHT}]}
+          style={[styles.calendarGridContainer, {height: numberOfWeeks * dayHeight}]}
           {...panResponder.panHandlers}
           onLayout={(e) => {
             e.target.measure((x, y, width, height, pageX, pageY) => {
               gridLayoutRef.current = {x: pageX, y: pageY, width, height};
             });
           }}>
-          {/* Previous month (shown during right swipe) */}
-          {swipeDirection === 'right' && (
-            <Animated.View
-              style={[
-                styles.calendarGridAnimated,
-                styles.adjacentMonth,
-                {
-                  left: -SCREEN_WIDTH,
-                  transform: [{ translateX: swipeAnim }],
-                },
-              ]}>
-              <View style={styles.calendarGrid}>
-                {Array.from({length: Math.ceil(prevMonthDays.length / 7)}).map((_, weekIndex) => {
-                  const weekDays = prevMonthDays.slice(weekIndex * 7, (weekIndex + 1) * 7);
-                  return (
-                    <View key={weekIndex} style={styles.weekRow}>
-                      {weekDays.map((item, dayIndex) => {
-                        const globalIndex = weekIndex * 7 + dayIndex;
-                        return (
-                          <View
-                            key={`prev-${globalIndex}`}
-                            style={[styles.dayCell, item.date && isToday(item.date) && styles.todayCell]}>
-                            {item.day > 0 && (
-                              <Text
-                                style={[
-                                  styles.dayText,
-                                  isSunday(globalIndex) && styles.sundayText,
-                                  isSaturday(globalIndex) && styles.saturdayText,
-                                  item.date && isToday(item.date) && styles.todayText,
-                                ]}>
-                                {item.day}
-                              </Text>
-                            )}
-                          </View>
-                        );
-                      })}
-                    </View>
-                  );
-                })}
-              </View>
-            </Animated.View>
-          )}
-
           {/* Current month */}
-          <Animated.View
-            style={[
-              styles.calendarGridAnimated,
-              { opacity: fadeAnim },
-              swipeDirection !== null && {
-                transform: [{ translateX: swipeAnim }],
-              },
-            ]}>
+          <View style={styles.calendarGridAnimated}>
             <View style={styles.calendarGrid}>
               {Array.from({length: numberOfWeeks}).map((_, weekIndex) => {
                 const weekDays = calendarDays.slice(weekIndex * 7, (weekIndex + 1) * 7);
 
                 return (
-                  <View key={weekIndex} style={styles.weekRow}>
+                  <View key={weekIndex} style={[styles.weekRow, {height: dayHeight}]}>
                     {/* Day cells */}
                     {weekDays.map((item, dayIndex) => {
                       const globalIndex = weekIndex * 7 + dayIndex;
@@ -985,7 +847,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                       // Empty cell for days outside current month
                       if (!item.date) {
                         return (
-                          <View key={`empty-${globalIndex}`} style={styles.dayCell} />
+                          <View key={`empty-${globalIndex}`} style={[styles.dayCell, {height: dayHeight}]} />
                         );
                       }
 
@@ -1008,6 +870,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                           key={`${item.date.toISOString()}-${globalIndex}`}
                           style={[
                             styles.dayCell,
+                            {height: dayHeight},
                             isToday(item.date) && styles.todayCell,
                             isSelected(item.date) && styles.selectedCell,
                             inDragRange && styles.dragRangeCell,
@@ -1024,6 +887,19 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                             ]}>
                             {item.day}
                           </Text>
+                          {/* Weather icon */}
+                          {(() => {
+                            if (!item.date) return null;
+                            const dateKey = `${item.date.getFullYear()}-${String(item.date.getMonth() + 1).padStart(2, '0')}-${String(item.date.getDate()).padStart(2, '0')}`;
+                            const weather = weatherData.get(dateKey);
+                            if (!weather) return null;
+                            return (
+                              <View style={styles.weatherContainer}>
+                                <Text style={styles.weatherIcon}>{weather.icon}</Text>
+                                <Text style={styles.weatherTemp}>{weather.tempMax}°</Text>
+                              </View>
+                            );
+                          })()}
                           {/* Single-day events (max 2) */}
                           {singleDayEvents.length > 0 && (
                             <View style={styles.singleDayEventsContainer}>
@@ -1058,50 +934,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                 );
               })}
             </View>
-          </Animated.View>
-
-          {/* Next month (shown during left swipe) */}
-          {swipeDirection === 'left' && (
-            <Animated.View
-              style={[
-                styles.calendarGridAnimated,
-                styles.adjacentMonth,
-                {
-                  left: SCREEN_WIDTH,
-                  transform: [{ translateX: swipeAnim }],
-                },
-              ]}>
-              <View style={styles.calendarGrid}>
-                {Array.from({length: Math.ceil(nextMonthDays.length / 7)}).map((_, weekIndex) => {
-                  const weekDays = nextMonthDays.slice(weekIndex * 7, (weekIndex + 1) * 7);
-                  return (
-                    <View key={weekIndex} style={styles.weekRow}>
-                      {weekDays.map((item, dayIndex) => {
-                        const globalIndex = weekIndex * 7 + dayIndex;
-                        return (
-                          <View
-                            key={`next-${globalIndex}`}
-                            style={[styles.dayCell, item.date && isToday(item.date) && styles.todayCell]}>
-                            {item.day > 0 && (
-                              <Text
-                                style={[
-                                  styles.dayText,
-                                  isSunday(globalIndex) && styles.sundayText,
-                                  isSaturday(globalIndex) && styles.saturdayText,
-                                  item.date && isToday(item.date) && styles.todayText,
-                                ]}>
-                                {item.day}
-                              </Text>
-                            )}
-                          </View>
-                        );
-                      })}
-                    </View>
-                  );
-                })}
-              </View>
-            </Animated.View>
-          )}
+          </View>
         </View>
 
       </View>
@@ -1313,13 +1146,6 @@ const styles = StyleSheet.create({
     width: '100%',
     backgroundColor: '#fff',
   },
-  adjacentMonth: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: '#fff',
-  },
   calendarGrid: {
     flexDirection: 'column',
     borderLeftWidth: 0.5,
@@ -1328,12 +1154,10 @@ const styles = StyleSheet.create({
   },
   weekRow: {
     flexDirection: 'row',
-    height: DAY_HEIGHT,
     position: 'relative',
   },
   dayCell: {
     width: DAY_WIDTH,
-    height: DAY_HEIGHT,
     alignItems: 'center',
     paddingTop: 2,
     borderRightWidth: 0.5,
@@ -1734,6 +1558,20 @@ const styles = StyleSheet.create({
   bottomSheetEventLocation: {
     fontSize: 13,
     color: '#999',
+  },
+  weatherContainer: {
+    position: 'absolute',
+    right: 1,
+    bottom: 1,
+    alignItems: 'center',
+  },
+  weatherIcon: {
+    fontSize: 10,
+  },
+  weatherTemp: {
+    fontSize: 8,
+    color: '#666',
+    fontWeight: '600',
   },
 });
 

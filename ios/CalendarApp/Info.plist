@@ -38,7 +38,7 @@
 	<key>NSCalendarsUsageDescription</key>
 	<string>カレンダーの予定を表示するためにアクセスが必要です</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string/>
+	<string>天気予報を表示するために現在地を使用します</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
