@@ -1,4 +1,8 @@
 {
   "name": "CalendarApp",
-  "displayName": "CalendarApp"
+  "displayName": "CalendarApp",
+  "react-native-google-mobile-ads": {
+    "android_app_id": "ca-app-pub-4317478239934902~1648918071",
+    "ios_app_id": "ca-app-pub-4317478239934902~1648918071"
+  }
 }

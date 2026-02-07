@@ -849,36 +849,43 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           </View>
 
           <View style={styles.colorSection}>
-            <View style={styles.colorHeader}>
-              <Text style={styles.sectionLabel}>色</Text>
-              <TouchableOpacity onPress={() => handleLabelPress(selectedColor)}>
-                <Text style={styles.colorLabel}>
-                  {colorOptions.find(c => c.color === selectedColor)?.label || ''} ✎
-                </Text>
-              </TouchableOpacity>
-            </View>
+            <Text style={styles.sectionLabel}>色</Text>
             <View style={styles.colorButtons}>
               {colorOptions.map((colorOption) => (
-                <TouchableOpacity
-                  key={colorOption.name}
-                  style={[
-                    styles.colorButton,
-                    {backgroundColor: colorOption.color},
-                    selectedColor === colorOption.color && styles.colorButtonSelected,
-                  ]}
-                  onPress={() => setSelectedColor(colorOption.color)}
-                  onLongPress={() => handleRemoveColor(colorOption.color)}>
-                  {selectedColor === colorOption.color && (
-                    <Text style={styles.colorButtonCheck}>✓</Text>
-                  )}
-                </TouchableOpacity>
+                <View key={colorOption.name} style={styles.colorButtonWrapper}>
+                  <TouchableOpacity
+                    style={[
+                      styles.colorButton,
+                      {backgroundColor: colorOption.color},
+                      selectedColor === colorOption.color && styles.colorButtonSelected,
+                    ]}
+                    onPress={() => setSelectedColor(colorOption.color)}
+                    onLongPress={() => handleRemoveColor(colorOption.color)}>
+                    {selectedColor === colorOption.color && (
+                      <Text style={styles.colorButtonCheck}>✓</Text>
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => handleLabelPress(colorOption.color)}>
+                    <Text
+                      style={[
+                        styles.colorButtonLabel,
+                        selectedColor === colorOption.color && styles.colorButtonLabelSelected,
+                      ]}
+                      numberOfLines={1}>
+                      {colorOption.label}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
               ))}
               {availableColorsToAdd.length > 0 && (
-                <TouchableOpacity
-                  style={styles.addColorButton}
-                  onPress={() => setShowAddColor(true)}>
-                  <Text style={styles.addColorButtonText}>+</Text>
-                </TouchableOpacity>
+                <View style={styles.colorButtonWrapper}>
+                  <TouchableOpacity
+                    style={styles.addColorButton}
+                    onPress={() => setShowAddColor(true)}>
+                    <Text style={styles.addColorButtonText}>+</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.colorButtonLabel}> </Text>
+                </View>
               )}
             </View>
           </View>
@@ -1277,9 +1284,8 @@ const styles = StyleSheet.create({
   },
   colorButtons: {
     flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 18,
-    marginTop: 10,
+    justifyContent: 'space-around',
+    marginTop: 8,
   },
   colorButton: {
     width: 40,
@@ -1301,6 +1307,20 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  colorButtonWrapper: {
+    alignItems: 'center',
+    gap: 4,
+    flex: 1,
+  },
+  colorButtonLabel: {
+    fontSize: 11,
+    color: '#666',
+    textAlign: 'center',
+  },
+  colorButtonLabelSelected: {
+    color: '#007AFF',
+    fontWeight: '600',
   },
   addColorButton: {
     width: 40,

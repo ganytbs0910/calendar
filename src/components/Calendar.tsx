@@ -46,10 +46,16 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
   const today = useMemo(() => new Date(), []);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [events, setEvents] = useState<CalendarEventReadable[]>([]);
   const [hasPermission, setHasPermission] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Cache version - increment to trigger re-render when cache updates
+  const [cacheVersion, setCacheVersion] = useState(0);
+
+  // Event cache by month key (e.g., "2026-2" for March 2026)
+  const eventsCache = useRef<Map<string, CalendarEventReadable[]>>(new Map());
+  const eventColorsCache = useRef<Record<string, string> | null>(null);
+  const isFetching = useRef(false);
   const [showDayEvents, setShowDayEvents] = useState(false);
   const [dayEventsDate, setDayEventsDate] = useState<Date | null>(null);
   const bottomSheetAnim = useState(new Animated.Value(0))[0];
@@ -63,6 +69,12 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
   const calendarDaysRef = useRef<Array<{day: number; date: Date | null; isCurrentMonth: boolean}>>([]);
   const numberOfWeeksRef = useRef(5);
 
+  // Swipe animation for month navigation
+  const swipeAnim = useRef(new Animated.Value(0)).current;
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+  const [swipeDirection, setSwipeDirection] = useState<'left' | 'right' | null>(null);
+  const swipeDirectionRef = useRef<'left' | 'right' | null>(null);
+
   // Swipe gesture for month navigation and drag selection
   const swipeStartX = useRef(0);
   const swipeStartY = useRef(0);
@@ -71,6 +83,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
   const dragStartDateRef = useRef<Date | null>(null);
   const onDateRangeSelectRef = useRef(onDateRangeSelect);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isSwipingRef = useRef(false);
 
   useEffect(() => { currentDateRef.current = currentDate; }, [currentDate]);
   useEffect(() => { onDateRangeSelectRef.current = onDateRangeSelect; }, [onDateRangeSelect]);
@@ -96,13 +109,17 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
     return null;
   }, []);
 
-  const panResponder = useRef(PanResponder.create({
+  const panResponder = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: (_, gestureState) => {
+      // Respond to horizontal swipes
+      return Math.abs(gestureState.dx) > 5 || isDraggingRef.current;
+    },
     onPanResponderGrant: (evt) => {
       swipeStartX.current = evt.nativeEvent.pageX;
       swipeStartY.current = evt.nativeEvent.pageY;
       isDraggingRef.current = false;
+      isSwipingRef.current = false;
 
       // Start long press timer for drag selection
       longPressTimer.current = setTimeout(() => {
@@ -125,11 +142,27 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
         }
       }
 
-      // If dragging, update end date
+      // If dragging for date selection, update end date
       if (isDraggingRef.current) {
         const date = getDateFromPosition(evt.nativeEvent.pageX, evt.nativeEvent.pageY);
         if (date) {
           setDragEndDate(date);
+        }
+        return;
+      }
+
+      // Horizontal swipe for month navigation - animate the calendar
+      if (Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && Math.abs(gestureState.dx) > 10) {
+        isSwipingRef.current = true;
+        // Update animation value based on drag distance (limit to screen width)
+        const clampedDx = Math.max(-SCREEN_WIDTH, Math.min(SCREEN_WIDTH, gestureState.dx));
+        swipeAnim.setValue(clampedDx);
+
+        // Set swipe direction for rendering next/prev month
+        const newDirection = gestureState.dx > 0 ? 'right' : 'left';
+        if (swipeDirectionRef.current !== newDirection) {
+          swipeDirectionRef.current = newDirection;
+          setSwipeDirection(newDirection);
         }
       }
     },
@@ -139,7 +172,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
         longPressTimer.current = null;
       }
 
-      // If was dragging, call onDateRangeSelect
+      // If was dragging for date selection, call onDateRangeSelect
       if (isDraggingRef.current && dragStartDateRef.current) {
         const startDate = dragStartDateRef.current;
         const endDate = dragEndDate || startDate;
@@ -165,16 +198,55 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
         return;
       }
 
-      // Normal swipe handling
-      const SWIPE_THRESHOLD = 50;
+      // Swipe animation handling
+      const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.25;
       const current = currentDateRef.current;
-      if (Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && Math.abs(gestureState.dx) > SWIPE_THRESHOLD) {
-        if (gestureState.dx > 0) {
-          setCurrentDate(new Date(current.getFullYear(), current.getMonth() - 1, 1));
-        } else {
-          setCurrentDate(new Date(current.getFullYear(), current.getMonth() + 1, 1));
-        }
+      const swipedRight = gestureState.dx > 0;
+
+      if (isSwipingRef.current && Math.abs(gestureState.dx) > SWIPE_THRESHOLD) {
+        // Swipe far enough - animate to completion then change month
+        const toValue = swipedRight ? SCREEN_WIDTH : -SCREEN_WIDTH;
+        const newDate = swipedRight
+          ? new Date(current.getFullYear(), current.getMonth() - 1, 1)
+          : new Date(current.getFullYear(), current.getMonth() + 1, 1);
+
+        Animated.spring(swipeAnim, {
+          toValue,
+          useNativeDriver: true,
+          tension: 120,
+          friction: 14,
+          velocity: gestureState.vx,
+        }).start(({finished}) => {
+          if (finished) {
+            // Quick fade out, change month, fade in
+            fadeAnim.setValue(0);
+            swipeAnim.setValue(0);
+            swipeDirectionRef.current = null;
+            setSwipeDirection(null);
+            setCurrentDate(newDate);
+
+            // Fade back in
+            Animated.timing(fadeAnim, {
+              toValue: 1,
+              duration: 150,
+              useNativeDriver: true,
+            }).start();
+          }
+        });
+      } else if (isSwipingRef.current) {
+        // Didn't swipe far enough - snap back
+        Animated.spring(swipeAnim, {
+          toValue: 0,
+          useNativeDriver: true,
+          tension: 100,
+          friction: 10,
+        }).start(() => {
+          setSwipeDirection(null);
+          swipeDirectionRef.current = null;
+        });
       }
+
+      isSwipingRef.current = false;
     },
     onPanResponderTerminate: () => {
       if (longPressTimer.current) {
@@ -186,8 +258,18 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       setIsDragging(false);
       isDraggingRef.current = false;
       dragStartDateRef.current = null;
+      isSwipingRef.current = false;
+
+      // Reset swipe animation
+      Animated.spring(swipeAnim, {
+        toValue: 0,
+        useNativeDriver: true,
+      }).start(() => {
+        setSwipeDirection(null);
+        swipeDirectionRef.current = null;
+      });
     },
-  })).current;
+  }), [swipeAnim, getDateFromPosition]);
 
   // Check if date is in drag selection range
   const isInDragRange = useCallback((date: Date): boolean => {
@@ -226,45 +308,160 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
     requestPermission();
   }, []);
 
-  // Fetch events for the current month
-  const fetchEvents = useCallback(async () => {
+  // Helper to get cache key for a month
+  const getMonthKey = useCallback((year: number, month: number) => `${year}-${month}`, []);
+
+  // Get current month's events from cache (derived state)
+  // This re-computes when currentYear, currentMonth, or cacheVersion changes
+  const events = useMemo(() => {
+    const cacheKey = getMonthKey(currentYear, currentMonth);
+    return eventsCache.current.get(cacheKey) || [];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentYear, currentMonth, cacheVersion, getMonthKey]);
+
+  // Fetch events for a specific month (with caching)
+  const fetchMonthEvents = useCallback(async (year: number, month: number, forceRefresh = false): Promise<CalendarEventReadable[]> => {
+    const cacheKey = getMonthKey(year, month);
+
+    // Return cached data if available and not forcing refresh
+    if (!forceRefresh && eventsCache.current.has(cacheKey)) {
+      return eventsCache.current.get(cacheKey)!;
+    }
+
+    const startDate = new Date(year, month, 1);
+    const endDate = new Date(year, month + 1, 0, 23, 59, 59);
+
+    const calendarEvents = await RNCalendarEvents.fetchAllEvents(
+      startDate.toISOString(),
+      endDate.toISOString(),
+    );
+
+    // Store in cache
+    eventsCache.current.set(cacheKey, calendarEvents);
+    return calendarEvents;
+  }, [getMonthKey]);
+
+  // Prefetch multiple months around the given month
+  const prefetchMonths = useCallback(async (year: number, month: number, range: number = 2) => {
     if (!hasPermission) return;
 
+    const monthsToFetch: Array<{year: number; month: number}> = [];
+
+    for (let i = -range; i <= range; i++) {
+      if (i === 0) continue; // Skip current month
+      let targetMonth = month + i;
+      let targetYear = year;
+
+      while (targetMonth < 0) {
+        targetMonth += 12;
+        targetYear -= 1;
+      }
+      while (targetMonth > 11) {
+        targetMonth -= 12;
+        targetYear += 1;
+      }
+
+      // Only fetch if not already cached
+      const cacheKey = getMonthKey(targetYear, targetMonth);
+      if (!eventsCache.current.has(cacheKey)) {
+        monthsToFetch.push({year: targetYear, month: targetMonth});
+      }
+    }
+
+    console.log(`[prefetchMonths] Months to prefetch:`, monthsToFetch.map(m => `${m.year}-${m.month + 1}`));
+
+    if (monthsToFetch.length > 0) {
+      await Promise.all(
+        monthsToFetch.map(({year: y, month: m}) => fetchMonthEvents(y, m))
+      );
+      console.log(`[prefetchMonths] Prefetch complete. Cache keys:`, Array.from(eventsCache.current.keys()));
+    }
+  }, [hasPermission, fetchMonthEvents, getMonthKey]);
+
+  // Track if initial load is complete
+  const initialLoadComplete = useRef(false);
+  // Track the last fetched month to avoid redundant fetches
+  const lastFetchedMonth = useRef<string | null>(null);
+
+  // Fetch events for the current month (only if not in cache)
+  const fetchEvents = useCallback(async (forceRefresh = false) => {
+    if (!hasPermission) return;
+
+    const currentCacheKey = getMonthKey(currentYear, currentMonth);
+
+    // Prevent redundant fetches for the same month
+    if (!forceRefresh && lastFetchedMonth.current === currentCacheKey) {
+      return;
+    }
+
+    // Check cache first
+    if (eventsCache.current.has(currentCacheKey) && !forceRefresh) {
+      // Cache hit - data is already available via useMemo
+      if (eventColorsCache.current) {
+        setEventColors(eventColorsCache.current);
+      }
+      lastFetchedMonth.current = currentCacheKey;
+      // Prefetch in background
+      prefetchMonths(currentYear, currentMonth, 2);
+      return;
+    }
+
+    // Prevent concurrent fetches
+    if (isFetching.current && !forceRefresh) return;
+
+    isFetching.current = true;
     setIsLoading(true);
     setError(null);
-    try {
-      const startDate = new Date(currentYear, currentMonth, 1);
-      const endDate = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59);
 
-      const [calendarEvents, colors] = await Promise.all([
-        RNCalendarEvents.fetchAllEvents(
-          startDate.toISOString(),
-          endDate.toISOString(),
-        ),
-        getAllEventColors(),
-      ]);
-      setEvents(calendarEvents);
-      setEventColors(colors);
+    try {
+      // Fetch colors if not cached
+      if (!eventColorsCache.current || forceRefresh) {
+        const colors = await getAllEventColors();
+        eventColorsCache.current = colors;
+        setEventColors(colors);
+      }
+
+      // Fetch current month events (this also stores in cache)
+      await fetchMonthEvents(currentYear, currentMonth, forceRefresh);
+      // Trigger re-render to pick up cached data
+      setCacheVersion(v => v + 1);
+      lastFetchedMonth.current = currentCacheKey;
+
+      // Prefetch adjacent months and WAIT for completion
+      await prefetchMonths(currentYear, currentMonth, 3);
+      initialLoadComplete.current = true;
     } catch (err) {
       console.error('Error fetching events:', err);
       setError('予定の読み込みに失敗しました');
     } finally {
       setIsLoading(false);
+      isFetching.current = false;
     }
-  }, [hasPermission, currentYear, currentMonth]);
+  }, [hasPermission, currentYear, currentMonth, getMonthKey, fetchMonthEvents, prefetchMonths]);
 
+  // Run fetchEvents whenever month changes
   useEffect(() => {
     fetchEvents();
   }, [fetchEvents]);
 
+  // Clear cache on permission change or when explicitly refreshing
+  const clearCache = useCallback(() => {
+    eventsCache.current.clear();
+    eventColorsCache.current = null;
+    initialLoadComplete.current = false;
+  }, []);
+
   // Expose refreshEvents to parent
   useImperativeHandle(ref, () => ({
-    refreshEvents: fetchEvents,
+    refreshEvents: () => {
+      clearCache();
+      fetchEvents(true);
+    },
     goToToday: () => {
       setCurrentDate(new Date());
       setSelectedDate(new Date());
     },
-  }), [fetchEvents]);
+  }), [fetchEvents, clearCache]);
 
   const getDaysInMonth = useCallback((year: number, month: number) => {
     return new Date(year, month + 1, 0).getDate();
@@ -274,9 +471,10 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
     return new Date(year, month, 1).getDay();
   }, []);
 
-  const calendarDays = useMemo(() => {
-    const daysInMonth = getDaysInMonth(currentYear, currentMonth);
-    const firstDay = getFirstDayOfMonth(currentYear, currentMonth);
+  // Helper function to calculate days for any month
+  const getCalendarDaysForMonth = useCallback((year: number, month: number) => {
+    const daysInMonth = getDaysInMonth(year, month);
+    const firstDay = getFirstDayOfMonth(year, month);
 
     const days: Array<{day: number; isCurrentMonth: boolean; date: Date | null}> = [];
 
@@ -294,7 +492,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       days.push({
         day: i,
         isCurrentMonth: true,
-        date: new Date(currentYear, currentMonth, i),
+        date: new Date(year, month, i),
       });
     }
 
@@ -309,7 +507,26 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
     }
 
     return days;
-  }, [currentYear, currentMonth, getDaysInMonth, getFirstDayOfMonth]);
+  }, [getDaysInMonth, getFirstDayOfMonth]);
+
+  const calendarDays = useMemo(() => {
+    return getCalendarDaysForMonth(currentYear, currentMonth);
+  }, [currentYear, currentMonth, getCalendarDaysForMonth]);
+
+  // Calculate adjacent month days for swipe preview
+  const prevMonthDays = useMemo(() => {
+    if (swipeDirection !== 'right') return [];
+    const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+    const prevYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+    return getCalendarDaysForMonth(prevYear, prevMonth);
+  }, [swipeDirection, currentYear, currentMonth, getCalendarDaysForMonth]);
+
+  const nextMonthDays = useMemo(() => {
+    if (swipeDirection !== 'left') return [];
+    const nextMonth = currentMonth === 11 ? 0 : currentMonth + 1;
+    const nextYear = currentMonth === 11 ? currentYear + 1 : currentYear;
+    return getCalendarDaysForMonth(nextYear, nextMonth);
+  }, [swipeDirection, currentYear, currentMonth, getCalendarDaysForMonth]);
 
   // Calculate number of weeks to display
   const numberOfWeeks = useMemo(() => {
@@ -672,7 +889,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
 
         {/* Error display */}
         {error && (
-          <TouchableOpacity style={styles.errorContainer} onPress={fetchEvents}>
+          <TouchableOpacity style={styles.errorContainer} onPress={() => fetchEvents(true)}>
             <Text style={styles.errorText}>{error}</Text>
             <Text style={styles.retryText}>タップして再読み込み</Text>
           </TouchableOpacity>
@@ -694,101 +911,197 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
           ))}
         </View>
 
-        {/* Calendar grid - render by weeks */}
+        {/* Calendar grid container with swipe */}
         <View
-          style={styles.calendarGrid}
+          style={[styles.calendarGridContainer, {height: numberOfWeeks * DAY_HEIGHT}]}
           {...panResponder.panHandlers}
           onLayout={(e) => {
             e.target.measure((x, y, width, height, pageX, pageY) => {
               gridLayoutRef.current = {x: pageX, y: pageY, width, height};
             });
           }}>
-          {Array.from({length: numberOfWeeks}).map((_, weekIndex) => {
-            const weekDays = calendarDays.slice(weekIndex * 7, (weekIndex + 1) * 7);
-            const multiDayEventsInWeek = multiDayEventsByWeek[weekIndex] || [];
-
-            return (
-              <View key={weekIndex} style={styles.weekRow}>
-                {/* Day cells */}
-                {weekDays.map((item, dayIndex) => {
-                  const globalIndex = weekIndex * 7 + dayIndex;
-
-                  // Empty cell for days outside current month
-                  if (!item.date) {
-                    return (
-                      <View key={`empty-${globalIndex}`} style={styles.dayCell} />
-                    );
-                  }
-
-                  const dayEvents = getEventsForDate(item.date);
-                  // Filter: only show timed events (not all-day), single-day only
-                  const singleDayEvents = dayEvents.filter(e => {
-                    if (!e.startDate || !e.endDate) return false;
-                    if (e.allDay) return false; // Hide all-day events (holidays etc)
-                    const start = new Date(e.startDate);
-                    const end = new Date(e.endDate);
-                    start.setHours(0, 0, 0, 0);
-                    end.setHours(0, 0, 0, 0);
-                    return start.getTime() === end.getTime();
-                  });
-
-                  const inDragRange = item.date && isInDragRange(item.date);
-
+          {/* Previous month (shown during right swipe) */}
+          {swipeDirection === 'right' && (
+            <Animated.View
+              style={[
+                styles.calendarGridAnimated,
+                styles.adjacentMonth,
+                {
+                  left: -SCREEN_WIDTH,
+                  transform: [{ translateX: swipeAnim }],
+                },
+              ]}>
+              <View style={styles.calendarGrid}>
+                {Array.from({length: Math.ceil(prevMonthDays.length / 7)}).map((_, weekIndex) => {
+                  const weekDays = prevMonthDays.slice(weekIndex * 7, (weekIndex + 1) * 7);
                   return (
-                    <TouchableOpacity
-                      key={`${item.date.toISOString()}-${globalIndex}`}
-                      style={[
-                        styles.dayCell,
-                        isToday(item.date) && styles.todayCell,
-                        isSelected(item.date) && styles.selectedCell,
-                        inDragRange && styles.dragRangeCell,
-                      ]}
-                      onPress={() => handleDateSelect(item.date!)}
-                      accessibilityRole="button">
-                      <Text
-                        style={[
-                          styles.dayText,
-                          isSunday(globalIndex) && styles.sundayText,
-                          isSaturday(globalIndex) && styles.saturdayText,
-                          isToday(item.date) && styles.todayText,
-                          isSelected(item.date) && styles.selectedText,
-                        ]}>
-                        {item.day}
-                      </Text>
-                      {/* Single-day events (max 2) */}
-                      {singleDayEvents.length > 0 && (
-                        <View style={styles.singleDayEventsContainer}>
-                          {singleDayEvents.slice(0, 2).map(event => (
-                            <TouchableOpacity
-                              key={event.id}
-                              style={[
-                                styles.singleDayEventBox,
-                                {backgroundColor: (event.id && eventColors[event.id]) || event.calendar?.color || '#007AFF'},
-                              ]}
-                              onPress={() => onEventPress?.(event)}>
-                              <Text style={styles.singleDayEventTime}>
-                                {event.startDate && formatTimeCompact(event.startDate)}
+                    <View key={weekIndex} style={styles.weekRow}>
+                      {weekDays.map((item, dayIndex) => {
+                        const globalIndex = weekIndex * 7 + dayIndex;
+                        return (
+                          <View
+                            key={`prev-${globalIndex}`}
+                            style={[styles.dayCell, item.date && isToday(item.date) && styles.todayCell]}>
+                            {item.day > 0 && (
+                              <Text
+                                style={[
+                                  styles.dayText,
+                                  isSunday(globalIndex) && styles.sundayText,
+                                  isSaturday(globalIndex) && styles.saturdayText,
+                                  item.date && isToday(item.date) && styles.todayText,
+                                ]}>
+                                {item.day}
                               </Text>
-                              <Text style={styles.singleDayEventTime}>
-                                {event.endDate && formatTimeCompact(event.endDate)}
-                              </Text>
-                              <Text style={styles.singleDayEventTitle} numberOfLines={1}>
-                                {event.title}
-                              </Text>
-                            </TouchableOpacity>
-                          ))}
-                          {singleDayEvents.length > 2 && (
-                            <Text style={styles.cellEventMore}>+{singleDayEvents.length - 2}</Text>
-                          )}
-                        </View>
-                      )}
-                    </TouchableOpacity>
+                            )}
+                          </View>
+                        );
+                      })}
+                    </View>
                   );
                 })}
-{/* Multi-day event bars - hidden */}
               </View>
-            );
-          })}
+            </Animated.View>
+          )}
+
+          {/* Current month */}
+          <Animated.View
+            style={[
+              styles.calendarGridAnimated,
+              { opacity: fadeAnim },
+              swipeDirection !== null && {
+                transform: [{ translateX: swipeAnim }],
+              },
+            ]}>
+            <View style={styles.calendarGrid}>
+              {Array.from({length: numberOfWeeks}).map((_, weekIndex) => {
+                const weekDays = calendarDays.slice(weekIndex * 7, (weekIndex + 1) * 7);
+
+                return (
+                  <View key={weekIndex} style={styles.weekRow}>
+                    {/* Day cells */}
+                    {weekDays.map((item, dayIndex) => {
+                      const globalIndex = weekIndex * 7 + dayIndex;
+
+                      // Empty cell for days outside current month
+                      if (!item.date) {
+                        return (
+                          <View key={`empty-${globalIndex}`} style={styles.dayCell} />
+                        );
+                      }
+
+                      const dayEvents = getEventsForDate(item.date);
+                      // Filter: only show timed events (not all-day), single-day only
+                      const singleDayEvents = dayEvents.filter(e => {
+                        if (!e.startDate || !e.endDate) return false;
+                        if (e.allDay) return false; // Hide all-day events (holidays etc)
+                        const start = new Date(e.startDate);
+                        const end = new Date(e.endDate);
+                        start.setHours(0, 0, 0, 0);
+                        end.setHours(0, 0, 0, 0);
+                        return start.getTime() === end.getTime();
+                      });
+
+                      const inDragRange = item.date && isInDragRange(item.date);
+
+                      return (
+                        <TouchableOpacity
+                          key={`${item.date.toISOString()}-${globalIndex}`}
+                          style={[
+                            styles.dayCell,
+                            isToday(item.date) && styles.todayCell,
+                            isSelected(item.date) && styles.selectedCell,
+                            inDragRange && styles.dragRangeCell,
+                          ]}
+                          onPress={() => handleDateSelect(item.date!)}
+                          accessibilityRole="button">
+                          <Text
+                            style={[
+                              styles.dayText,
+                              isSunday(globalIndex) && styles.sundayText,
+                              isSaturday(globalIndex) && styles.saturdayText,
+                              isToday(item.date) && styles.todayText,
+                              isSelected(item.date) && styles.selectedText,
+                            ]}>
+                            {item.day}
+                          </Text>
+                          {/* Single-day events (max 2) */}
+                          {singleDayEvents.length > 0 && (
+                            <View style={styles.singleDayEventsContainer}>
+                              {singleDayEvents.slice(0, 2).map(event => (
+                                <TouchableOpacity
+                                  key={event.id}
+                                  style={[
+                                    styles.singleDayEventBox,
+                                    {backgroundColor: (event.id && eventColors[event.id]) || event.calendar?.color || '#007AFF'},
+                                  ]}
+                                  onPress={() => onEventPress?.(event)}>
+                                  <Text style={styles.singleDayEventTime}>
+                                    {event.startDate && formatTimeCompact(event.startDate)}
+                                  </Text>
+                                  <Text style={styles.singleDayEventTime}>
+                                    {event.endDate && formatTimeCompact(event.endDate)}
+                                  </Text>
+                                  <Text style={styles.singleDayEventTitle} numberOfLines={1}>
+                                    {event.title}
+                                  </Text>
+                                </TouchableOpacity>
+                              ))}
+                              {singleDayEvents.length > 2 && (
+                                <Text style={styles.cellEventMore}>+{singleDayEvents.length - 2}</Text>
+                              )}
+                            </View>
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                );
+              })}
+            </View>
+          </Animated.View>
+
+          {/* Next month (shown during left swipe) */}
+          {swipeDirection === 'left' && (
+            <Animated.View
+              style={[
+                styles.calendarGridAnimated,
+                styles.adjacentMonth,
+                {
+                  left: SCREEN_WIDTH,
+                  transform: [{ translateX: swipeAnim }],
+                },
+              ]}>
+              <View style={styles.calendarGrid}>
+                {Array.from({length: Math.ceil(nextMonthDays.length / 7)}).map((_, weekIndex) => {
+                  const weekDays = nextMonthDays.slice(weekIndex * 7, (weekIndex + 1) * 7);
+                  return (
+                    <View key={weekIndex} style={styles.weekRow}>
+                      {weekDays.map((item, dayIndex) => {
+                        const globalIndex = weekIndex * 7 + dayIndex;
+                        return (
+                          <View
+                            key={`next-${globalIndex}`}
+                            style={[styles.dayCell, item.date && isToday(item.date) && styles.todayCell]}>
+                            {item.day > 0 && (
+                              <Text
+                                style={[
+                                  styles.dayText,
+                                  isSunday(globalIndex) && styles.sundayText,
+                                  isSaturday(globalIndex) && styles.saturdayText,
+                                  item.date && isToday(item.date) && styles.todayText,
+                                ]}>
+                                {item.day}
+                              </Text>
+                            )}
+                          </View>
+                        );
+                      })}
+                    </View>
+                  );
+                })}
+              </View>
+            </Animated.View>
+          )}
         </View>
 
       </View>
@@ -990,6 +1303,22 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: '#666',
+  },
+  calendarGridContainer: {
+    overflow: 'hidden',
+    position: 'relative',
+    backgroundColor: '#fff',
+  },
+  calendarGridAnimated: {
+    width: '100%',
+    backgroundColor: '#fff',
+  },
+  adjacentMonth: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#fff',
   },
   calendarGrid: {
     flexDirection: 'column',

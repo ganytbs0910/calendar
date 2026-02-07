@@ -18,6 +18,9 @@ import WeekView, {WeekViewRef} from './src/components/WeekView';
 import AddEventModal from './src/components/AddEventModal';
 import EventDetailModal from './src/components/EventDetailModal';
 import {ThemeProvider, useTheme} from './src/theme/ThemeContext';
+import {BannerAd, BannerAdSize, TestIds} from 'react-native-google-mobile-ads';
+
+const adUnitId = __DEV__ ? TestIds.ADAPTIVE_BANNER : 'ca-app-pub-4317478239934902/3522055335';
 
 // Custom Search Icon Component
 const SearchIcon = ({size = 20, color = '#666'}: {size?: number; color?: string}) => {
@@ -366,7 +369,7 @@ function AppContent() {
   return (
     <SafeAreaProvider>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
-      <SafeAreaView style={dynamicStyles.container}>
+      <SafeAreaView style={[dynamicStyles.container, {paddingBottom: 0}]}>
         <View style={dynamicStyles.header}>
           <View style={styles.headerLeft}>
             <TouchableOpacity
@@ -683,6 +686,12 @@ function AppContent() {
           </View>
         </Modal>
       </SafeAreaView>
+      <View style={styles.bannerContainer}>
+        <BannerAd
+          unitId={adUnitId}
+          size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
+        />
+      </View>
     </SafeAreaProvider>
   );
 }
@@ -964,6 +973,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     lineHeight: 20,
+  },
+  bannerContainer: {
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
   },
 });
 
