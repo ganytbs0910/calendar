@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
 import {getAllEventColors} from './AddEventModal';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import {fetchWeather, WeatherDay} from '../services/weatherService';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -171,6 +172,17 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
         isDraggingRef.current = false;
         dragStartDateRef.current = null;
         return;
+      }
+
+      // Swipe to change month
+      const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.2;
+      if (Math.abs(gestureState.dx) > SWIPE_THRESHOLD && Math.abs(gestureState.dx) > Math.abs(gestureState.dy)) {
+        const current = currentDateRef.current;
+        if (gestureState.dx > 0) {
+          setCurrentDate(new Date(current.getFullYear(), current.getMonth() - 1, 1));
+        } else {
+          setCurrentDate(new Date(current.getFullYear(), current.getMonth() + 1, 1));
+        }
       }
     },
     onPanResponderTerminate: () => {
@@ -895,8 +907,8 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                             if (!weather) return null;
                             return (
                               <View style={styles.weatherContainer}>
-                                <Text style={styles.weatherIcon}>{weather.icon}</Text>
-                                <Text style={styles.weatherTemp}>{weather.tempMax}°</Text>
+                                <Ionicons name={weather.iconName} size={12} color={weather.iconColor} />
+                                <Text style={[styles.weatherTemp, {color: weather.iconColor}]}>{weather.tempMax}°</Text>
                               </View>
                             );
                           })()}
@@ -1564,9 +1576,6 @@ const styles = StyleSheet.create({
     right: 1,
     bottom: 1,
     alignItems: 'center',
-  },
-  weatherIcon: {
-    fontSize: 10,
   },
   weatherTemp: {
     fontSize: 8,
