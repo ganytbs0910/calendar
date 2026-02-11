@@ -119,6 +119,7 @@ function AppContent() {
   const [isSearching, setIsSearching] = useState(false);
   const calendarRef = useRef<CalendarRef>(null);
   const weekViewRef = useRef<WeekViewRef>(null);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Request calendar permission
   useEffect(() => {
@@ -507,7 +508,12 @@ function AppContent() {
                 value={searchQuery}
                 onChangeText={(text) => {
                   setSearchQuery(text);
-                  handleSearch(text);
+                  if (searchTimerRef.current) {
+                    clearTimeout(searchTimerRef.current);
+                  }
+                  searchTimerRef.current = setTimeout(() => {
+                    handleSearch(text);
+                  }, 300);
                 }}
                 autoFocus
                 placeholderTextColor="#999"

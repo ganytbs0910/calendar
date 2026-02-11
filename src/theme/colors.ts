@@ -1,6 +1,7 @@
 export const lightColors = {
   background: '#f5f5f5',
   surface: '#ffffff',
+  surfaceSecondary: '#f8f9fa',
   primary: '#007AFF',
   text: '#333333',
   textSecondary: '#666666',
@@ -11,12 +12,17 @@ export const lightColors = {
   saturday: '#007AFF',
   today: '#E8F4FD',
   selected: '#E3F2FD',
+  dragRange: '#B3E5FC',
   error: '#FF3B30',
+  overlay: 'rgba(0, 0, 0, 0.4)',
+  inputBackground: '#f0f0f0',
+  delete: '#FF3B30',
 };
 
 export const darkColors = {
   background: '#000000',
   surface: '#1c1c1e',
+  surfaceSecondary: '#2c2c2e',
   primary: '#0A84FF',
   text: '#ffffff',
   textSecondary: '#ababab',
@@ -27,7 +33,11 @@ export const darkColors = {
   saturday: '#0A84FF',
   today: '#1c3a4d',
   selected: '#1c3a4d',
+  dragRange: '#1c3a4d',
   error: '#FF453A',
+  overlay: 'rgba(0, 0, 0, 0.6)',
+  inputBackground: '#2c2c2e',
+  delete: '#FF453A',
 };
 
 export type ThemeColors = typeof lightColors;

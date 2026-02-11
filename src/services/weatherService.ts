@@ -90,7 +90,7 @@ export async function fetchWeather(): Promise<Map<string, WeatherDay>> {
   try {
     const {latitude, longitude} = await getCurrentPosition();
 
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=Asia/Tokyo&forecast_days=7`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=Asia/Tokyo&forecast_days=16`;
 
     const response = await fetch(url);
     if (!response.ok) {

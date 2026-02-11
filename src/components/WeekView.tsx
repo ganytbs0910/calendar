@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
 import {getAllEventColors} from './AddEventModal';
+import {useTheme} from '../theme/ThemeContext';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const HOUR_HEIGHT = 60;
@@ -72,6 +73,7 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
   const [currentTime, setCurrentTime] = useState(new Date());
   const [draggingEvent, setDraggingEvent] = useState<DraggingEvent | null>(null);
   const [eventColors, setEventColors] = useState<Record<string, string>>({});
+  const {colors} = useTheme();
   const scrollViewRef = useRef<ScrollView>(null);
   const hasScrolledToCurrentTime = useRef(false);
   const draggingEventRef = useRef<DraggingEvent | null>(null);
@@ -666,9 +668,9 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
   ).current;
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, {backgroundColor: colors.surface}]}>
       {/* Header with days */}
-      <View style={styles.header} {...headerPanResponder.panHandlers}>
+      <View style={[styles.header, {borderBottomColor: colors.border}]} {...headerPanResponder.panHandlers}>
         <View style={styles.timeColumnHeader} />
         {weekDays.map((date, index) => {
           const dayOfWeek = date.getDay();
@@ -678,15 +680,20 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
               style={[
                 styles.dayHeader,
                 isToday(date) && styles.todayHeader,
+                isToday(date) && {backgroundColor: colors.today},
               ]}>
-              <Text style={[styles.dayName, dayOfWeek === 0 && styles.sundayText, dayOfWeek === 6 && styles.saturdayText]}>
+              <Text style={[styles.dayName, {color: colors.textSecondary}, dayOfWeek === 0 && styles.sundayText, dayOfWeek === 0 && {color: colors.sunday}, dayOfWeek === 6 && styles.saturdayText, dayOfWeek === 6 && {color: colors.saturday}]}>
                 {WEEKDAYS[dayOfWeek]}
               </Text>
               <Text style={[
                 styles.dayNumber,
+                {color: colors.text},
                 isToday(date) && styles.todayText,
+                isToday(date) && {color: colors.primary},
                 dayOfWeek === 0 && styles.sundayText,
+                dayOfWeek === 0 && {color: colors.sunday},
                 dayOfWeek === 6 && styles.saturdayText,
+                dayOfWeek === 6 && {color: colors.saturday},
               ]}>
                 {date.getDate()}
               </Text>
@@ -698,16 +705,16 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
       {/* Loading indicator */}
       {(isLoading || isSaving) && (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="small" color="#007AFF" />
-          {isSaving && <Text style={styles.savingText}>保存中...</Text>}
+          <ActivityIndicator size="small" color={colors.primary} />
+          {isSaving && <Text style={[styles.savingText, {color: colors.primary}]}>保存中...</Text>}
         </View>
       )}
 
       {/* Error display */}
       {error && (
-        <TouchableOpacity style={styles.errorContainer} onPress={fetchEvents}>
-          <Text style={styles.errorText}>{error}</Text>
-          <Text style={styles.retryText}>タップして再読み込み</Text>
+        <TouchableOpacity style={[styles.errorContainer, {backgroundColor: colors.surface, borderColor: colors.error}]} onPress={fetchEvents}>
+          <Text style={[styles.errorText, {color: colors.error}]}>{error}</Text>
+          <Text style={[styles.retryText, {color: colors.textSecondary}]}>タップして再読み込み</Text>
         </TouchableOpacity>
       )}
 
@@ -725,14 +732,14 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
         }}>
         <View
           ref={gridContainerRef}
-          style={styles.gridContainer}
+          style={[styles.gridContainer, {backgroundColor: colors.surface}]}
           onLayout={handleGridLayout}
           {...panResponder.panHandlers}>
           {/* Time labels */}
           <View style={styles.timeColumn}>
             {Array.from({length: 24}, (_, hour) => (
               <View key={hour} style={styles.timeSlot}>
-                <Text style={styles.timeText}>
+                <Text style={[styles.timeText, {color: colors.textTertiary}]}>
                   {hour.toString().padStart(2, '0')}:00
                 </Text>
               </View>
@@ -763,10 +770,10 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
           {/* Day columns */}
           <View style={styles.daysContainer}>
             {weekDays.map((date, dayIndex) => (
-              <View key={dayIndex} style={styles.dayColumn}>
+              <View key={dayIndex} style={[styles.dayColumn, {borderLeftColor: colors.borderLight}]}>
                 {/* Hour cells */}
                 {Array.from({length: 24}, (_, hour) => (
-                  <View key={hour} style={styles.hourCell} />
+                  <View key={hour} style={[styles.hourCell, {borderBottomColor: colors.borderLight}]} />
                 ))}
 
                 {/* Existing events */}

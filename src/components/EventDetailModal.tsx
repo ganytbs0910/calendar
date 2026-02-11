@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import {CalendarEventReadable} from 'react-native-calendar-events';
 import RNCalendarEvents from 'react-native-calendar-events';
+import {useTheme} from '../theme/ThemeContext';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const CALENDAR_DAY_WIDTH = Math.floor((SCREEN_WIDTH - 80) / 7);
@@ -36,6 +37,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
   const [showCopyCalendar, setShowCopyCalendar] = useState(false);
   const [copyCalendarDate, setCopyCalendarDate] = useState(new Date());
   const [selectedDates, setSelectedDates] = useState<Date[]>([]);
+  const {colors} = useTheme();
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
     const year = date.getFullYear();
@@ -218,101 +220,101 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
       animationType="slide"
       presentationStyle="pageSheet"
       onRequestClose={onClose}>
-      <View style={styles.container}>
-        <View style={styles.header}>
+      <View style={[styles.container, {backgroundColor: colors.background}]}>
+        <View style={[styles.header, {backgroundColor: colors.surface, borderBottomColor: colors.border}]}>
           <TouchableOpacity
             onPress={onClose}
             accessibilityLabel="閉じる"
             accessibilityRole="button">
-            <Text style={styles.closeButton}>閉じる</Text>
+            <Text style={[styles.closeButton, {color: colors.primary}]}>閉じる</Text>
           </TouchableOpacity>
           <View style={styles.headerSpacer} />
           <TouchableOpacity
             onPress={handleEdit}
             accessibilityLabel="編集"
             accessibilityRole="button">
-            <Text style={styles.editButton}>編集</Text>
+            <Text style={[styles.editButton, {color: colors.primary}]}>編集</Text>
           </TouchableOpacity>
         </View>
 
         <ScrollView style={styles.content}>
-          <View style={styles.titleSection}>
+          <View style={[styles.titleSection, {backgroundColor: colors.surface}]}>
             <View
               style={[
                 styles.colorDot,
-                {backgroundColor: event.calendar?.color || '#007AFF'},
+                {backgroundColor: event.calendar?.color || colors.primary},
               ]}
             />
-            <Text style={styles.title}>{event.title}</Text>
+            <Text style={[styles.title, {color: colors.text}]}>{event.title}</Text>
           </View>
 
-          <View style={styles.infoSection}>
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>開始</Text>
+          <View style={[styles.infoSection, {backgroundColor: colors.surface}]}>
+            <View style={[styles.infoRow, {borderBottomColor: colors.borderLight}]}>
+              <Text style={[styles.infoLabel, {color: colors.textSecondary}]}>開始</Text>
               <View style={styles.infoValue}>
-                <Text style={styles.infoDate}>
+                <Text style={[styles.infoDate, {color: colors.text}]}>
                   {event.startDate && formatDate(event.startDate)}
                 </Text>
                 {!event.allDay && event.startDate && (
-                  <Text style={styles.infoTime}>
+                  <Text style={[styles.infoTime, {color: colors.primary}]}>
                     {formatTime(event.startDate)}
                   </Text>
                 )}
               </View>
             </View>
 
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>終了</Text>
+            <View style={[styles.infoRow, {borderBottomColor: colors.borderLight}]}>
+              <Text style={[styles.infoLabel, {color: colors.textSecondary}]}>終了</Text>
               <View style={styles.infoValue}>
                 {!isSameDay && event.endDate && (
-                  <Text style={styles.infoDate}>
+                  <Text style={[styles.infoDate, {color: colors.text}]}>
                     {formatDate(event.endDate)}
                   </Text>
                 )}
                 {!event.allDay && event.endDate && (
-                  <Text style={styles.infoTime}>
+                  <Text style={[styles.infoTime, {color: colors.primary}]}>
                     {formatTime(event.endDate)}
                   </Text>
                 )}
                 {isSameDay && event.allDay && (
-                  <Text style={styles.infoDate}>終日</Text>
+                  <Text style={[styles.infoDate, {color: colors.text}]}>終日</Text>
                 )}
               </View>
             </View>
 
             {!event.allDay && event.startDate && event.endDate && (
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>所要時間</Text>
-                <Text style={styles.infoDuration}>
+              <View style={[styles.infoRow, {borderBottomColor: colors.borderLight}]}>
+                <Text style={[styles.infoLabel, {color: colors.textSecondary}]}>所要時間</Text>
+                <Text style={[styles.infoDuration, {color: colors.text}]}>
                   {formatDuration(event.startDate, event.endDate)}
                 </Text>
               </View>
             )}
 
             {event.calendar && (
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>カレンダー</Text>
-                <Text style={styles.infoCalendar}>{event.calendar.title}</Text>
+              <View style={[styles.infoRow, {borderBottomColor: colors.borderLight}]}>
+                <Text style={[styles.infoLabel, {color: colors.textSecondary}]}>カレンダー</Text>
+                <Text style={[styles.infoCalendar, {color: colors.text}]}>{event.calendar.title}</Text>
               </View>
             )}
 
             {event.location && (
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>場所</Text>
-                <Text style={styles.infoLocation}>{event.location}</Text>
+              <View style={[styles.infoRow, {borderBottomColor: colors.borderLight}]}>
+                <Text style={[styles.infoLabel, {color: colors.textSecondary}]}>場所</Text>
+                <Text style={[styles.infoLocation, {color: colors.text}]}>{event.location}</Text>
               </View>
             )}
 
             {event.notes && (
               <View style={styles.notesSection}>
-                <Text style={styles.infoLabel}>メモ</Text>
-                <Text style={styles.notes}>{event.notes}</Text>
+                <Text style={[styles.infoLabel, {color: colors.textSecondary}]}>メモ</Text>
+                <Text style={[styles.notes, {color: colors.text}]}>{event.notes}</Text>
               </View>
             )}
           </View>
 
           <TouchableOpacity
-            style={styles.copyButton}
+            style={[styles.copyButton, {backgroundColor: colors.primary}]}
             onPress={handleShowCopyCalendar}
             accessibilityLabel="別の日にコピー"
             accessibilityRole="button">
@@ -325,18 +327,19 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
             transparent
             animationType="fade"
             onRequestClose={() => setShowCopyCalendar(false)}>
-            <View style={styles.copyModalOverlay}>
-              <View style={styles.copyModalContent}>
+            <View style={[styles.copyModalOverlay, {backgroundColor: colors.overlay}]}>
+              <View style={[styles.copyModalContent, {backgroundColor: colors.surface}]}>
                 <View style={styles.copyModalHeader}>
                   <TouchableOpacity onPress={() => setShowCopyCalendar(false)}>
-                    <Text style={styles.copyModalCancel}>キャンセル</Text>
+                    <Text style={[styles.copyModalCancel, {color: colors.textTertiary}]}>キャンセル</Text>
                   </TouchableOpacity>
-                  <Text style={styles.copyModalTitle}>コピー先を選択</Text>
+                  <Text style={[styles.copyModalTitle, {color: colors.text}]}>コピー先を選択</Text>
                   <TouchableOpacity
                     onPress={handleCopyToSelectedDates}
                     disabled={selectedDates.length === 0}>
                     <Text style={[
                       styles.copyModalDone,
+                      {color: colors.primary},
                       selectedDates.length === 0 && styles.copyModalDoneDisabled,
                     ]}>
                       コピー{selectedDates.length > 0 ? `(${selectedDates.length})` : ''}
@@ -346,13 +349,13 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
 
                 <View style={styles.copyCalendarNav}>
                   <TouchableOpacity onPress={goToPrevMonth} style={styles.copyCalendarNavBtn}>
-                    <Text style={styles.copyCalendarNavText}>{'<'}</Text>
+                    <Text style={[styles.copyCalendarNavText, {color: colors.primary}]}>{'<'}</Text>
                   </TouchableOpacity>
-                  <Text style={styles.copyCalendarMonth}>
+                  <Text style={[styles.copyCalendarMonth, {color: colors.text}]}>
                     {copyCalendarDate.getFullYear()}年{copyCalendarDate.getMonth() + 1}月
                   </Text>
                   <TouchableOpacity onPress={goToNextMonth} style={styles.copyCalendarNavBtn}>
-                    <Text style={styles.copyCalendarNavText}>{'>'}</Text>
+                    <Text style={[styles.copyCalendarNavText, {color: colors.primary}]}>{'>'}</Text>
                   </TouchableOpacity>
                 </View>
 
@@ -362,8 +365,9 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
                       key={day}
                       style={[
                         styles.copyCalendarWeekday,
-                        index === 0 && styles.sundayText,
-                        index === 6 && styles.saturdayText,
+                        {color: colors.textSecondary},
+                        index === 0 && {color: colors.sunday},
+                        index === 6 && {color: colors.saturday},
                       ]}>
                       {day}
                     </Text>
@@ -379,18 +383,19 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
                         key={`${item.date.toISOString()}-${index}`}
                         style={[
                           styles.copyCalendarDay,
-                          isToday && styles.copyCalendarToday,
-                          isSelected && styles.copyCalendarSelected,
+                          isToday && {backgroundColor: colors.today},
+                          isSelected && {backgroundColor: colors.primary},
                         ]}
                         onPress={() => toggleDateSelection(item.date)}>
                         <Text
                           style={[
                             styles.copyCalendarDayText,
-                            !item.isCurrentMonth && styles.copyCalendarOtherMonth,
-                            isToday && !isSelected && styles.copyCalendarTodayText,
+                            {color: colors.text},
+                            !item.isCurrentMonth && {color: colors.textTertiary},
+                            isToday && !isSelected && {color: colors.primary, fontWeight: '600'},
                             isSelected && styles.copyCalendarSelectedText,
-                            index % 7 === 0 && item.isCurrentMonth && !isSelected && styles.sundayText,
-                            index % 7 === 6 && item.isCurrentMonth && !isSelected && styles.saturdayText,
+                            index % 7 === 0 && item.isCurrentMonth && !isSelected && {color: colors.sunday},
+                            index % 7 === 6 && item.isCurrentMonth && !isSelected && {color: colors.saturday},
                           ]}>
                           {item.day}
                         </Text>
@@ -403,12 +408,12 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
           </Modal>
 
           <TouchableOpacity
-            style={styles.deleteButton}
+            style={[styles.deleteButton, {backgroundColor: colors.surface}]}
             onPress={handleDelete}
             accessibilityLabel="予定を削除"
             accessibilityRole="button"
             accessibilityHint="この予定を削除します">
-            <Text style={styles.deleteButtonText}>予定を削除</Text>
+            <Text style={[styles.deleteButtonText, {color: colors.delete}]}>予定を削除</Text>
           </TouchableOpacity>
         </ScrollView>
       </View>

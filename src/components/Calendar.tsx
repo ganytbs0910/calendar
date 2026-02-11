@@ -16,6 +16,7 @@ import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-eve
 import {getAllEventColors} from './AddEventModal';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {fetchWeather, WeatherDay} from '../services/weatherService';
+import {useTheme} from '../theme/ThemeContext';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 // Container has paddingHorizontal: 12 (both sides = 24) total
@@ -45,6 +46,7 @@ export interface CalendarRef {
 }
 
 export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, onDateDoubleSelect, onEventPress, onDateRangeSelect}, ref) => {
+  const {colors} = useTheme();
   const today = useMemo(() => new Date(), []);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -350,9 +352,9 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
     try {
       // Fetch colors if not cached
       if (!eventColorsCache.current || forceRefresh) {
-        const colors = await getAllEventColors();
-        eventColorsCache.current = colors;
-        setEventColors(colors);
+        const fetchedColors = await getAllEventColors();
+        eventColorsCache.current = fetchedColors;
+        setEventColors(fetchedColors);
       }
 
       // Fetch current month events (this also stores in cache)
@@ -775,7 +777,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
 
   return (
     <ScrollView style={styles.scrollView}>
-      <View style={styles.container}>
+      <View style={[styles.container, {backgroundColor: colors.surface}]}>
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity
@@ -783,14 +785,14 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
             style={styles.navButton}
             accessibilityLabel="前の月"
             accessibilityRole="button">
-            <Text style={styles.navButtonText}>{'<'}</Text>
+            <Text style={[styles.navButtonText, {color: colors.primary}]}>{'<'}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             onPress={goToToday}
             accessibilityLabel="今日に移動"
             accessibilityRole="button">
-            <Text style={styles.headerTitle}>
+            <Text style={[styles.headerTitle, {color: colors.text}]}>
               {currentYear}年 {MONTHS[currentMonth]}
             </Text>
           </TouchableOpacity>
@@ -800,34 +802,35 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
             style={styles.navButton}
             accessibilityLabel="次の月"
             accessibilityRole="button">
-            <Text style={styles.navButtonText}>{'>'}</Text>
+            <Text style={[styles.navButtonText, {color: colors.primary}]}>{'>'}</Text>
           </TouchableOpacity>
         </View>
 
         {/* Loading indicator */}
         {isLoading && (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="small" color="#007AFF" />
+            <ActivityIndicator size="small" color={colors.primary} />
           </View>
         )}
 
         {/* Error display */}
         {error && (
-          <TouchableOpacity style={styles.errorContainer} onPress={() => fetchEvents(true)}>
-            <Text style={styles.errorText}>{error}</Text>
-            <Text style={styles.retryText}>タップして再読み込み</Text>
+          <TouchableOpacity style={[styles.errorContainer, {borderColor: colors.error}]} onPress={() => fetchEvents(true)}>
+            <Text style={[styles.errorText, {color: colors.error}]}>{error}</Text>
+            <Text style={[styles.retryText, {color: colors.textSecondary}]}>タップして再読み込み</Text>
           </TouchableOpacity>
         )}
 
         {/* Weekday headers */}
-        <View style={styles.weekdayRow}>
+        <View style={[styles.weekdayRow, {borderColor: colors.border}]}>
           {WEEKDAYS.map((day, index) => (
-            <View key={day} style={styles.weekdayCell}>
+            <View key={day} style={[styles.weekdayCell, {borderColor: colors.border}]}>
               <Text
                 style={[
                   styles.weekdayText,
-                  index === 0 && styles.sundayText,
-                  index === 6 && styles.saturdayText,
+                  {color: colors.textSecondary},
+                  index === 0 && {color: colors.sunday},
+                  index === 6 && {color: colors.saturday},
                 ]}>
                 {day}
               </Text>
@@ -837,7 +840,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
 
         {/* Calendar grid container with swipe */}
         <View
-          style={[styles.calendarGridContainer, {height: numberOfWeeks * dayHeight}]}
+          style={[styles.calendarGridContainer, {height: numberOfWeeks * dayHeight, backgroundColor: colors.surface}]}
           {...panResponder.panHandlers}
           onLayout={(e) => {
             e.target.measure((x, y, width, height, pageX, pageY) => {
@@ -845,8 +848,8 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
             });
           }}>
           {/* Current month */}
-          <View style={styles.calendarGridAnimated}>
-            <View style={styles.calendarGrid}>
+          <View style={[styles.calendarGridAnimated, {backgroundColor: colors.surface}]}>
+            <View style={[styles.calendarGrid, {borderColor: colors.border}]}>
               {Array.from({length: numberOfWeeks}).map((_, weekIndex) => {
                 const weekDays = calendarDays.slice(weekIndex * 7, (weekIndex + 1) * 7);
 
@@ -859,7 +862,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                       // Empty cell for days outside current month
                       if (!item.date) {
                         return (
-                          <View key={`empty-${globalIndex}`} style={[styles.dayCell, {height: dayHeight}]} />
+                          <View key={`empty-${globalIndex}`} style={[styles.dayCell, {height: dayHeight, borderColor: colors.border}]} />
                         );
                       }
 
@@ -882,20 +885,21 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                           key={`${item.date.toISOString()}-${globalIndex}`}
                           style={[
                             styles.dayCell,
-                            {height: dayHeight},
-                            isToday(item.date) && styles.todayCell,
-                            isSelected(item.date) && styles.selectedCell,
-                            inDragRange && styles.dragRangeCell,
+                            {height: dayHeight, borderColor: colors.border},
+                            isToday(item.date) && {backgroundColor: colors.today},
+                            isSelected(item.date) && {backgroundColor: colors.selected, borderColor: colors.primary},
+                            inDragRange && {backgroundColor: colors.dragRange},
                           ]}
                           onPress={() => handleDateSelect(item.date!)}
                           accessibilityRole="button">
                           <Text
                             style={[
                               styles.dayText,
-                              isSunday(globalIndex) && styles.sundayText,
-                              isSaturday(globalIndex) && styles.saturdayText,
-                              isToday(item.date) && styles.todayText,
-                              isSelected(item.date) && styles.selectedText,
+                              {color: colors.text},
+                              isSunday(globalIndex) && {color: colors.sunday},
+                              isSaturday(globalIndex) && {color: colors.saturday},
+                              isToday(item.date) && {color: colors.primary, fontWeight: 'bold'},
+                              isSelected(item.date) && {color: colors.primary, fontWeight: 'bold'},
                             ]}>
                             {item.day}
                           </Text>
@@ -920,7 +924,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                                   key={event.id}
                                   style={[
                                     styles.singleDayEventBox,
-                                    {backgroundColor: (event.id && eventColors[event.id]) || event.calendar?.color || '#007AFF'},
+                                    {backgroundColor: (event.id && eventColors[event.id]) || event.calendar?.color || colors.primary},
                                   ]}
                                   onPress={() => onEventPress?.(event)}>
                                   <Text style={styles.singleDayEventTime}>
@@ -935,7 +939,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                                 </TouchableOpacity>
                               ))}
                               {singleDayEvents.length > 2 && (
-                                <Text style={styles.cellEventMore}>+{singleDayEvents.length - 2}</Text>
+                                <Text style={[styles.cellEventMore, {color: colors.textSecondary}]}>+{singleDayEvents.length - 2}</Text>
                               )}
                             </View>
                           )}
@@ -959,13 +963,14 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
         onRequestClose={closeDayEventsSheet}>
         <View style={styles.bottomSheetOverlay}>
           <TouchableOpacity
-            style={styles.bottomSheetBackdrop}
+            style={[styles.bottomSheetBackdrop, {backgroundColor: colors.overlay}]}
             activeOpacity={1}
             onPress={closeDayEventsSheet}
           />
           <Animated.View
             style={[
               styles.bottomSheetContainer,
+              {backgroundColor: colors.surface},
               {
                 transform: [{
                   translateY: bottomSheetAnim.interpolate({
@@ -976,24 +981,24 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
               },
             ]}
             {...bottomSheetPanResponder.panHandlers}>
-            <View style={styles.bottomSheetHandle} />
+            <View style={[styles.bottomSheetHandle, {backgroundColor: colors.border}]} />
             <View style={styles.bottomSheetHeader}>
               <TouchableOpacity
                 style={styles.bottomSheetNavButton}
                 onPress={goToPreviousDay}>
-                <Text style={styles.bottomSheetNavButtonText}>{'<'}</Text>
+                <Text style={[styles.bottomSheetNavButtonText, {color: colors.primary}]}>{'<'}</Text>
               </TouchableOpacity>
-              <Text style={styles.bottomSheetTitle}>
+              <Text style={[styles.bottomSheetTitle, {color: colors.text}]}>
                 {dayEventsDate && formatSheetDate(dayEventsDate)}
               </Text>
               <TouchableOpacity
                 style={styles.bottomSheetNavButton}
                 onPress={goToNextDay}>
-                <Text style={styles.bottomSheetNavButtonText}>{'>'}</Text>
+                <Text style={[styles.bottomSheetNavButtonText, {color: colors.primary}]}>{'>'}</Text>
               </TouchableOpacity>
             </View>
             <TouchableOpacity
-              style={styles.bottomSheetAddButton}
+              style={[styles.bottomSheetAddButton, {backgroundColor: colors.primary}]}
               onPress={() => {
                 const dateToAdd = dayEventsDate;
                 Animated.timing(bottomSheetAnim, {
@@ -1012,10 +1017,10 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
             </TouchableOpacity>
             <ScrollView style={styles.bottomSheetContent}>
               {dayEventsForSheet.length === 0 ? (
-                <Text style={styles.bottomSheetNoEvents}>予定はありません</Text>
+                <Text style={[styles.bottomSheetNoEvents, {color: colors.textTertiary}]}>予定はありません</Text>
               ) : (
                 dayEventsForSheet.map((event) => (
-                  <View key={event.id} style={styles.bottomSheetEventItem}>
+                  <View key={event.id} style={[styles.bottomSheetEventItem, {backgroundColor: colors.surfaceSecondary}]}>
                     <TouchableOpacity
                       style={styles.bottomSheetEventTouchable}
                       onPress={() => {
@@ -1034,14 +1039,14 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                       <View
                         style={[
                           styles.bottomSheetEventColor,
-                          {backgroundColor: (event.id && eventColors[event.id]) || event.calendar?.color || '#007AFF'},
+                          {backgroundColor: (event.id && eventColors[event.id]) || event.calendar?.color || colors.primary},
                         ]}
                       />
                       <View style={styles.bottomSheetEventContent}>
-                        <Text style={styles.bottomSheetEventTitle} numberOfLines={1}>
+                        <Text style={[styles.bottomSheetEventTitle, {color: colors.text}]} numberOfLines={1}>
                           {event.title}
                         </Text>
-                        <Text style={styles.bottomSheetEventTime}>
+                        <Text style={[styles.bottomSheetEventTime, {color: colors.textSecondary}]}>
                           {event.allDay
                             ? '終日'
                             : event.startDate && event.endDate
@@ -1049,7 +1054,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                               : ''}
                         </Text>
                         {event.location && (
-                          <Text style={styles.bottomSheetEventLocation} numberOfLines={1}>
+                          <Text style={[styles.bottomSheetEventLocation, {color: colors.textTertiary}]} numberOfLines={1}>
                             📍 {event.location}
                           </Text>
                         )}
@@ -1060,12 +1065,15 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                       onPress={async () => {
                         try {
                           await RNCalendarEvents.removeEvent(event.id!);
-                          fetchEvents();
+                          // Clear cache for current month so deleted event is removed
+                          const cacheKey = getMonthKey(currentYear, currentMonth);
+                          eventsCache.current.delete(cacheKey);
+                          fetchEvents(true);
                         } catch (err) {
                           console.error('Error deleting event:', err);
                         }
                       }}>
-                      <Text style={styles.bottomSheetDeleteButtonText}>×</Text>
+                      <Text style={[styles.bottomSheetDeleteButtonText, {color: colors.error}]}>×</Text>
                     </TouchableOpacity>
                   </View>
                 ))

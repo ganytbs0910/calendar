@@ -17,6 +17,7 @@ import {
 import DateTimePicker from '@react-native-community/datetimepicker';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {useTheme} from '../theme/ThemeContext';
 
 // Default color options for events with labels
 const DEFAULT_EVENT_COLORS = [
@@ -273,6 +274,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
 }) => {
   const isEditing = !!(editingEvent?.id);
   const isCopying = !!(editingEvent && !editingEvent.id);
+  const {colors} = useTheme();
   const [title, setTitle] = useState('');
   const [startDate, setStartDate] = useState(new Date());
   const [endDate, setEndDate] = useState(new Date());
@@ -729,34 +731,34 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
       animationType="slide"
       presentationStyle="pageSheet"
       onRequestClose={handleClose}>
-      <View style={styles.container}>
-        <View style={styles.header}>
+      <View style={[styles.container, {backgroundColor: colors.background}]}>
+        <View style={[styles.header, {backgroundColor: colors.surface, borderBottomColor: colors.border}]}>
           <TouchableOpacity
             onPress={handleClose}
             accessibilityLabel="キャンセル"
             accessibilityRole="button">
-            <Text style={styles.cancelButton}>キャンセル</Text>
+            <Text style={[styles.cancelButton, {color: colors.primary}]}>キャンセル</Text>
           </TouchableOpacity>
-          <Text style={styles.headerTitle} accessibilityRole="header">
+          <Text style={[styles.headerTitle, {color: colors.text}]} accessibilityRole="header">
             {isEditing ? '予定を編集' : isCopying ? '予定をコピー' : '予定を追加'}
           </Text>
           <TouchableOpacity
             onPress={handleSave}
             accessibilityLabel="保存"
             accessibilityRole="button">
-            <Text style={styles.saveButton}>保存</Text>
+            <Text style={[styles.saveButton, {color: colors.primary}]}>保存</Text>
           </TouchableOpacity>
         </View>
 
         <ScrollView style={styles.form}>
-          <View style={styles.inputGroup}>
+          <View style={[styles.inputGroup, {backgroundColor: colors.surface}]}>
             <View style={styles.titleInputContainer}>
               <TextInput
-                style={styles.titleInput}
+                style={[styles.titleInput, {color: colors.text}]}
                 placeholder="タイトル"
                 value={title}
                 onChangeText={setTitle}
-                placeholderTextColor="#999"
+                placeholderTextColor={colors.textTertiary}
                 accessibilityLabel="予定のタイトル"
                 accessibilityHint="予定のタイトルを入力してください"
               />
@@ -765,19 +767,19 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                   style={styles.titleClearButton}
                   onPress={() => setTitle('')}
                   accessibilityLabel="タイトルをクリア">
-                  <Text style={styles.titleClearButtonText}>×</Text>
+                  <Text style={[styles.titleClearButtonText, {color: colors.textTertiary}]}>×</Text>
                 </TouchableOpacity>
               )}
             </View>
           </View>
 
-          <View style={styles.dateTimeSection}>
-            <Text style={styles.selectedDateDisplay}>
+          <View style={[styles.dateTimeSection, {backgroundColor: colors.surface}]}>
+            <Text style={[styles.selectedDateDisplay, {color: colors.text}]}>
               {startDate.getMonth() + 1}月{startDate.getDate()}日（{WEEKDAYS[startDate.getDay()]}）
             </Text>
             <View style={styles.dateTimeCompactRow}>
               <TouchableOpacity
-                style={styles.compactDateButton}
+                style={[styles.compactDateButton, {backgroundColor: colors.inputBackground}]}
                 onPress={() => {
                   setShowStartTimePicker(false);
                   setShowEndDatePicker(false);
@@ -785,10 +787,10 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                   setTempDate(new Date(startDate));
                   setShowStartDatePicker(true);
                 }}>
-                <Text style={styles.compactDateText}>{formatDate(startDate)}</Text>
+                <Text style={[styles.compactDateText, {color: colors.primary}]}>{formatDate(startDate)}</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.compactTimeButton}
+                style={[styles.compactTimeButton, {backgroundColor: colors.today}]}
                 onPress={() => {
                   setShowStartDatePicker(false);
                   setShowEndDatePicker(false);
@@ -796,11 +798,11 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                   setTempDate(new Date(startDate));
                   setShowStartTimePicker(true);
                 }}>
-                <Text style={styles.compactTimeText}>{formatTime(startDate)}</Text>
+                <Text style={[styles.compactTimeText, {color: colors.primary}]}>{formatTime(startDate)}</Text>
               </TouchableOpacity>
-              <Text style={styles.dateTimeSeparator}>→</Text>
+              <Text style={[styles.dateTimeSeparator, {color: colors.textTertiary}]}>→</Text>
               <TouchableOpacity
-                style={styles.compactDateButton}
+                style={[styles.compactDateButton, {backgroundColor: colors.inputBackground}]}
                 onPress={() => {
                   setShowStartDatePicker(false);
                   setShowStartTimePicker(false);
@@ -808,10 +810,10 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                   setTempDate(new Date(endDate));
                   setShowEndDatePicker(true);
                 }}>
-                <Text style={styles.compactDateText}>{formatDate(endDate)}</Text>
+                <Text style={[styles.compactDateText, {color: colors.primary}]}>{formatDate(endDate)}</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.compactTimeButton}
+                style={[styles.compactTimeButton, {backgroundColor: colors.today}]}
                 onPress={() => {
                   setShowStartDatePicker(false);
                   setShowStartTimePicker(false);
@@ -819,21 +821,21 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                   setTempDate(new Date(endDate));
                   setShowEndTimePicker(true);
                 }}>
-                <Text style={styles.compactTimeText}>{formatTime(endDate)}</Text>
+                <Text style={[styles.compactTimeText, {color: colors.primary}]}>{formatTime(endDate)}</Text>
               </TouchableOpacity>
             </View>
           </View>
 
-          <View style={styles.durationSection}>
+          <View style={[styles.durationSection, {backgroundColor: colors.surface}]}>
             <View style={styles.durationHeader}>
-              <Text style={styles.sectionLabel}>所要時間</Text>
-              <Text style={styles.durationDisplay}>{formatDuration(endDate.getTime() - startDate.getTime())}</Text>
+              <Text style={[styles.sectionLabel, {color: colors.textSecondary}]}>所要時間</Text>
+              <Text style={[styles.durationDisplay, {color: colors.primary}]}>{formatDuration(endDate.getTime() - startDate.getTime())}</Text>
             </View>
             <View style={styles.durationButtons}>
               {DURATION_OPTIONS.map((option) => (
                 <TouchableOpacity
                   key={option.minutes}
-                  style={styles.durationButton}
+                  style={[styles.durationButton, {backgroundColor: colors.primary}]}
                   onPress={() => handleAddDuration(option.minutes)}>
                   <Text style={styles.durationButtonText}>{option.label}</Text>
                 </TouchableOpacity>
@@ -844,12 +846,12 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
               onPress={() => {
                 setEndDate(new Date(startDate));
               }}>
-              <Text style={styles.resetDurationText}>リセット（0分）</Text>
+              <Text style={[styles.resetDurationText, {color: colors.textTertiary}]}>リセット（0分）</Text>
             </TouchableOpacity>
           </View>
 
-          <View style={styles.colorSection}>
-            <Text style={styles.sectionLabel}>色</Text>
+          <View style={[styles.colorSection, {backgroundColor: colors.surface}]}>
+            <Text style={[styles.sectionLabel, {color: colors.textSecondary}]}>色</Text>
             <View style={styles.colorButtons}>
               {colorOptions.map((colorOption) => (
                 <View key={colorOption.name} style={styles.colorButtonWrapper}>
@@ -869,7 +871,8 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                     <Text
                       style={[
                         styles.colorButtonLabel,
-                        selectedColor === colorOption.color && styles.colorButtonLabelSelected,
+                        {color: colors.textSecondary},
+                        selectedColor === colorOption.color && [styles.colorButtonLabelSelected, {color: colors.primary}],
                       ]}
                       numberOfLines={1}>
                       {colorOption.label}
@@ -880,29 +883,31 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
               {availableColorsToAdd.length > 0 && (
                 <View style={styles.colorButtonWrapper}>
                   <TouchableOpacity
-                    style={styles.addColorButton}
+                    style={[styles.addColorButton, {backgroundColor: colors.inputBackground, borderColor: colors.border}]}
                     onPress={() => setShowAddColor(true)}>
-                    <Text style={styles.addColorButtonText}>+</Text>
+                    <Text style={[styles.addColorButtonText, {color: colors.textTertiary}]}>+</Text>
                   </TouchableOpacity>
-                  <Text style={styles.colorButtonLabel}> </Text>
+                  <Text style={[styles.colorButtonLabel, {color: colors.textSecondary}]}> </Text>
                 </View>
               )}
             </View>
           </View>
 
-          <View style={styles.reminderSection}>
-            <Text style={styles.sectionLabel}>リマインダー</Text>
+          <View style={[styles.reminderSection, {backgroundColor: colors.surface}]}>
+            <Text style={[styles.sectionLabel, {color: colors.textSecondary}]}>リマインダー</Text>
             <View style={styles.reminderButtons}>
               {REMINDER_OPTIONS.map((option) => (
                 <TouchableOpacity
                   key={option.label}
                   style={[
                     styles.reminderButton,
-                    reminder === option.value && styles.reminderButtonSelected,
+                    {backgroundColor: colors.inputBackground},
+                    reminder === option.value && [styles.reminderButtonSelected, {backgroundColor: colors.primary}],
                   ]}
                   onPress={() => setReminder(option.value)}>
                   <Text style={[
                     styles.reminderButtonText,
+                    {color: colors.text},
                     reminder === option.value && styles.reminderButtonTextSelected,
                   ]}>
                     {option.label}
@@ -913,13 +918,13 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           </View>
 
           <TouchableOpacity
-            style={styles.copyToOtherDaysButton}
+            style={[styles.copyToOtherDaysButton, {backgroundColor: colors.today, borderColor: colors.primary}]}
             onPress={handleShowCopyCalendar}>
-            <Text style={styles.copyToOtherDaysButtonText}>別の日にもコピー</Text>
+            <Text style={[styles.copyToOtherDaysButtonText, {color: colors.primary}]}>別の日にもコピー</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.saveButtonBottom}
+            style={[styles.saveButtonBottom, {backgroundColor: colors.primary}]}
             onPress={handleSave}>
             <Text style={styles.saveButtonBottomText}>保存</Text>
           </TouchableOpacity>
@@ -932,18 +937,19 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           transparent
           animationType="fade"
           onRequestClose={() => setShowCopyCalendar(false)}>
-          <View style={styles.copyModalOverlay}>
-            <View style={styles.copyModalContent}>
+          <View style={[styles.copyModalOverlay, {backgroundColor: colors.overlay}]}>
+            <View style={[styles.copyModalContent, {backgroundColor: colors.surface}]}>
               <View style={styles.copyModalHeader}>
                 <TouchableOpacity onPress={() => setShowCopyCalendar(false)}>
-                  <Text style={styles.copyModalCancel}>キャンセル</Text>
+                  <Text style={[styles.copyModalCancel, {color: colors.textTertiary}]}>キャンセル</Text>
                 </TouchableOpacity>
-                <Text style={styles.copyModalTitle}>コピー先を選択</Text>
+                <Text style={[styles.copyModalTitle, {color: colors.text}]}>コピー先を選択</Text>
                 <TouchableOpacity
                   onPress={handleCopyToSelectedDates}
                   disabled={selectedCopyDates.length === 0}>
                   <Text style={[
                     styles.copyModalDone,
+                    {color: colors.primary},
                     selectedCopyDates.length === 0 && styles.copyModalDoneDisabled,
                   ]}>
                     コピー{selectedCopyDates.length > 0 ? `(${selectedCopyDates.length})` : ''}
@@ -953,13 +959,13 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
 
               <View style={styles.copyCalendarNav}>
                 <TouchableOpacity onPress={goToCopyPrevMonth} style={styles.copyCalendarNavBtn}>
-                  <Text style={styles.copyCalendarNavText}>{'<'}</Text>
+                  <Text style={[styles.copyCalendarNavText, {color: colors.primary}]}>{'<'}</Text>
                 </TouchableOpacity>
-                <Text style={styles.copyCalendarMonth}>
+                <Text style={[styles.copyCalendarMonth, {color: colors.text}]}>
                   {copyCalendarDate.getFullYear()}年{copyCalendarDate.getMonth() + 1}月
                 </Text>
                 <TouchableOpacity onPress={goToCopyNextMonth} style={styles.copyCalendarNavBtn}>
-                  <Text style={styles.copyCalendarNavText}>{'>'}</Text>
+                  <Text style={[styles.copyCalendarNavText, {color: colors.primary}]}>{'>'}</Text>
                 </TouchableOpacity>
               </View>
 
@@ -969,6 +975,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                     key={day}
                     style={[
                       styles.copyCalendarWeekday,
+                      {color: colors.textSecondary},
                       index === 0 && styles.copySundayText,
                       index === 6 && styles.copySaturdayText,
                     ]}>
@@ -986,15 +993,16 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                       key={`${item.date.toISOString()}-${index}`}
                       style={[
                         styles.copyCalendarDay,
-                        isToday && styles.copyCalendarToday,
-                        isSelected && styles.copyCalendarSelected,
+                        isToday && [styles.copyCalendarToday, {backgroundColor: colors.today}],
+                        isSelected && [styles.copyCalendarSelected, {backgroundColor: colors.primary}],
                       ]}
                       onPress={() => toggleCopyDateSelection(item.date)}>
                       <Text
                         style={[
                           styles.copyCalendarDayText,
-                          !item.isCurrentMonth && styles.copyCalendarOtherMonth,
-                          isToday && !isSelected && styles.copyCalendarTodayText,
+                          {color: colors.text},
+                          !item.isCurrentMonth && [styles.copyCalendarOtherMonth, {color: colors.textTertiary}],
+                          isToday && !isSelected && [styles.copyCalendarTodayText, {color: colors.primary}],
                           isSelected && styles.copyCalendarSelectedText,
                           index % 7 === 0 && item.isCurrentMonth && !isSelected && styles.copySundayText,
                           index % 7 === 6 && item.isCurrentMonth && !isSelected && styles.copySaturdayText,
@@ -1015,15 +1023,16 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           transparent
           animationType="fade"
           onRequestClose={() => setEditingLabelColor(null)}>
-          <View style={styles.labelModalOverlay}>
-            <View style={styles.labelModalContent}>
-              <Text style={styles.labelModalTitle}>ラベルを編集</Text>
+          <View style={[styles.labelModalOverlay, {backgroundColor: colors.overlay}]}>
+            <View style={[styles.labelModalContent, {backgroundColor: colors.surface}]}>
+              <Text style={[styles.labelModalTitle, {color: colors.text}]}>ラベルを編集</Text>
               <View style={[styles.labelColorPreview, {backgroundColor: editingLabelColor || '#007AFF'}]} />
               <TextInput
-                style={styles.labelInput}
+                style={[styles.labelInput, {color: colors.text, borderColor: colors.border, backgroundColor: colors.inputBackground}]}
                 value={editingLabelText}
                 onChangeText={setEditingLabelText}
                 placeholder="ラベル名"
+                placeholderTextColor={colors.textTertiary}
                 autoFocus
                 maxLength={10}
               />
@@ -1031,10 +1040,10 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                 <TouchableOpacity
                   style={styles.labelModalCancel}
                   onPress={() => setEditingLabelColor(null)}>
-                  <Text style={styles.labelModalCancelText}>キャンセル</Text>
+                  <Text style={[styles.labelModalCancelText, {color: colors.textTertiary}]}>キャンセル</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={styles.labelModalSave}
+                  style={[styles.labelModalSave, {backgroundColor: colors.primary}]}
                   onPress={handleLabelSave}>
                   <Text style={styles.labelModalSaveText}>保存</Text>
                 </TouchableOpacity>
@@ -1049,38 +1058,38 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           transparent
           animationType="fade"
           onRequestClose={() => setShowAddColor(false)}>
-          <View style={styles.labelModalOverlay}>
-            <View style={styles.labelModalContent}>
-              <Text style={styles.labelModalTitle}>色を追加</Text>
+          <View style={[styles.labelModalOverlay, {backgroundColor: colors.overlay}]}>
+            <View style={[styles.labelModalContent, {backgroundColor: colors.surface}]}>
+              <Text style={[styles.labelModalTitle, {color: colors.text}]}>色を追加</Text>
               <View style={styles.addColorList}>
                 {availableColorsToAdd.map(colorOption => (
                   <TouchableOpacity
                     key={colorOption.name}
-                    style={styles.addColorItem}
+                    style={[styles.addColorItem, {borderBottomColor: colors.border}]}
                     onPress={() => handleAddColor(colorOption)}>
                     <View style={[styles.addColorPreview, {backgroundColor: colorOption.color}]} />
-                    <Text style={styles.addColorLabel}>{colorOption.label}</Text>
+                    <Text style={[styles.addColorLabel, {color: colors.text}]}>{colorOption.label}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
               <TouchableOpacity
                 style={styles.labelModalCancel}
                 onPress={() => setShowAddColor(false)}>
-                <Text style={styles.labelModalCancelText}>キャンセル</Text>
+                <Text style={[styles.labelModalCancelText, {color: colors.textTertiary}]}>キャンセル</Text>
               </TouchableOpacity>
             </View>
           </View>
         </Modal>
 
         {showStartDatePicker && (
-          <View style={styles.pickerContainer}>
-            <View style={styles.pickerHeader}>
+          <View style={[styles.pickerContainer, {backgroundColor: colors.surface, borderTopColor: colors.border}]}>
+            <View style={[styles.pickerHeader, {borderBottomColor: colors.border}]}>
               <TouchableOpacity onPress={() => setShowStartDatePicker(false)}>
-                <Text style={styles.pickerCancelText}>キャンセル</Text>
+                <Text style={[styles.pickerCancelText, {color: colors.textTertiary}]}>キャンセル</Text>
               </TouchableOpacity>
-              <Text style={styles.pickerTitle}>開始日</Text>
+              <Text style={[styles.pickerTitle, {color: colors.text}]}>開始日</Text>
               <TouchableOpacity onPress={confirmStartDate}>
-                <Text style={styles.pickerOkText}>OK</Text>
+                <Text style={[styles.pickerOkText, {color: colors.primary}]}>OK</Text>
               </TouchableOpacity>
             </View>
             <MonthDayPicker
@@ -1090,14 +1099,14 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           </View>
         )}
         {showStartTimePicker && (
-          <View style={styles.pickerContainer}>
-            <View style={styles.pickerHeader}>
+          <View style={[styles.pickerContainer, {backgroundColor: colors.surface, borderTopColor: colors.border}]}>
+            <View style={[styles.pickerHeader, {borderBottomColor: colors.border}]}>
               <TouchableOpacity onPress={() => setShowStartTimePicker(false)}>
-                <Text style={styles.pickerCancelText}>キャンセル</Text>
+                <Text style={[styles.pickerCancelText, {color: colors.textTertiary}]}>キャンセル</Text>
               </TouchableOpacity>
-              <Text style={styles.pickerTitle}>開始時間</Text>
+              <Text style={[styles.pickerTitle, {color: colors.text}]}>開始時間</Text>
               <TouchableOpacity onPress={confirmStartTime}>
-                <Text style={styles.pickerOkText}>OK</Text>
+                <Text style={[styles.pickerOkText, {color: colors.primary}]}>OK</Text>
               </TouchableOpacity>
             </View>
             <DateTimePicker
@@ -1110,14 +1119,14 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           </View>
         )}
         {showEndDatePicker && (
-          <View style={styles.pickerContainer}>
-            <View style={styles.pickerHeader}>
+          <View style={[styles.pickerContainer, {backgroundColor: colors.surface, borderTopColor: colors.border}]}>
+            <View style={[styles.pickerHeader, {borderBottomColor: colors.border}]}>
               <TouchableOpacity onPress={() => setShowEndDatePicker(false)}>
-                <Text style={styles.pickerCancelText}>キャンセル</Text>
+                <Text style={[styles.pickerCancelText, {color: colors.textTertiary}]}>キャンセル</Text>
               </TouchableOpacity>
-              <Text style={styles.pickerTitle}>終了日</Text>
+              <Text style={[styles.pickerTitle, {color: colors.text}]}>終了日</Text>
               <TouchableOpacity onPress={confirmEndDate}>
-                <Text style={styles.pickerOkText}>OK</Text>
+                <Text style={[styles.pickerOkText, {color: colors.primary}]}>OK</Text>
               </TouchableOpacity>
             </View>
             <MonthDayPicker
@@ -1127,14 +1136,14 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           </View>
         )}
         {showEndTimePicker && (
-          <View style={styles.pickerContainer}>
-            <View style={styles.pickerHeader}>
+          <View style={[styles.pickerContainer, {backgroundColor: colors.surface, borderTopColor: colors.border}]}>
+            <View style={[styles.pickerHeader, {borderBottomColor: colors.border}]}>
               <TouchableOpacity onPress={() => setShowEndTimePicker(false)}>
-                <Text style={styles.pickerCancelText}>キャンセル</Text>
+                <Text style={[styles.pickerCancelText, {color: colors.textTertiary}]}>キャンセル</Text>
               </TouchableOpacity>
-              <Text style={styles.pickerTitle}>終了時間</Text>
+              <Text style={[styles.pickerTitle, {color: colors.text}]}>終了時間</Text>
               <TouchableOpacity onPress={confirmEndTime}>
-                <Text style={styles.pickerOkText}>OK</Text>
+                <Text style={[styles.pickerOkText, {color: colors.primary}]}>OK</Text>
               </TouchableOpacity>
             </View>
             <DateTimePicker
