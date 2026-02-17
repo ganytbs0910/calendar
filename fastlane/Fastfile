@@ -1,0 +1,124 @@
+default_platform(:android)
+
+# versionCode を build.gradle から読み取ってインクリメント
+def increment_android_version_code
+  gradle_file = File.join(Dir.pwd, "android", "app", "build.gradle")
+  content = File.read(gradle_file)
+  current = content.match(/versionCode\s+(\d+)/)[1].to_i
+  new_code = current + 1
+  updated = content.gsub(/versionCode\s+\d+/, "versionCode #{new_code}")
+  File.write(gradle_file, updated)
+  UI.message("versionCode: #{current} → #{new_code}")
+  new_code
+end
+
+# ============================================
+# Android
+# ============================================
+platform :android do
+  desc "リリース用AABをビルドしてGoogle Playにアップロード（内部テスト）"
+  lane :deploy do
+    increment_android_version_code
+
+    gradle(
+      project_dir: "./android",
+      task: "bundle",
+      build_type: "Release"
+    )
+
+    upload_to_play_store(
+      track: "internal",
+      aab: "android/app/build/outputs/bundle/release/app-release.aab",
+      json_key: "fastlane/play-store-key.json",
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+
+    UI.success("Google Play (内部テスト) にアップロード完了!")
+  end
+
+  desc "リリース用AABをビルドのみ（アップロードなし）"
+  lane :build do
+    gradle(
+      project_dir: "./android",
+      task: "bundle",
+      build_type: "Release"
+    )
+
+    UI.success("AABビルド完了: android/app/build/outputs/bundle/release/app-release.aab")
+  end
+
+  desc "本番リリース"
+  lane :release do
+    increment_android_version_code
+
+    gradle(
+      project_dir: "./android",
+      task: "bundle",
+      build_type: "Release"
+    )
+
+    upload_to_play_store(
+      track: "production",
+      aab: "android/app/build/outputs/bundle/release/app-release.aab",
+      json_key: "fastlane/play-store-key.json",
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+
+    UI.success("Google Play (本番) にアップロード完了!")
+  end
+end
+
+# ============================================
+# iOS
+# ============================================
+platform :ios do
+  desc "App Store Connect にアップロード"
+  lane :deploy do
+    build_app(
+      workspace: "ios/CalendarApp.xcworkspace",
+      scheme: "CalendarApp",
+      export_method: "app-store",
+      output_directory: "ios/build"
+    )
+
+    upload_to_app_store(
+      skip_metadata: true,
+      skip_screenshots: true,
+      precheck_include_in_app_purchases: false
+    )
+
+    UI.success("App Store Connect にアップロード完了!")
+  end
+
+  desc "iOSビルドのみ（アップロードなし）"
+  lane :build do
+    build_app(
+      workspace: "ios/CalendarApp.xcworkspace",
+      scheme: "CalendarApp",
+      export_method: "app-store",
+      output_directory: "ios/build"
+    )
+
+    UI.success("iOSビルド完了!")
+  end
+
+  desc "TestFlightにアップロード"
+  lane :beta do
+    build_app(
+      workspace: "ios/CalendarApp.xcworkspace",
+      scheme: "CalendarApp",
+      export_method: "app-store",
+      output_directory: "ios/build"
+    )
+
+    upload_to_testflight(
+      skip_waiting_for_build_processing: true
+    )
+
+    UI.success("TestFlight にアップロード完了!")
+  end
+end

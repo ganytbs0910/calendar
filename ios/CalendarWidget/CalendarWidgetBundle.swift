@@ -25,5 +25,8 @@ struct CalendarAppWidget: Widget {
 struct CalendarWidgetBundle: WidgetBundle {
     var body: some Widget {
         CalendarAppWidget()
+        MonthCalendarWidget()
+        UpcomingEventsWidget()
+        LockScreenWidget()
     }
 }

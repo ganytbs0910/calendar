@@ -1,0 +1,8 @@
+# Android
+json_key_file("fastlane/play-store-key.json")
+package_name("com.calendarapp")
+
+# iOS
+# app_identifier("com.calendarapp")
+# apple_id("your-apple-id@example.com")
+# team_id("YOUR_TEAM_ID")

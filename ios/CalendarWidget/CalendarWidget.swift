@@ -44,7 +44,11 @@ struct CalendarWidgetProvider: TimelineProvider {
 
     private func fetchTodayEvents() -> [EventItem] {
         let status = EKEventStore.authorizationStatus(for: .event)
-        guard status == .authorized || status == .fullAccess else {
+        var hasAccess = status == .authorized
+        if #available(iOSApplicationExtension 17.0, *) {
+            hasAccess = hasAccess || status == .fullAccess
+        }
+        guard hasAccess else {
             return []
         }
 

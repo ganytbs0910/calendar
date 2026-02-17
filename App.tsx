@@ -10,6 +10,7 @@ import {
   Modal,
   TextInput,
   FlatList,
+  ScrollView,
 } from 'react-native';
 import {SafeAreaProvider, SafeAreaView} from 'react-native-safe-area-context';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
@@ -18,6 +19,15 @@ import WeekView, {WeekViewRef} from './src/components/WeekView';
 import AddEventModal from './src/components/AddEventModal';
 import EventDetailModal from './src/components/EventDetailModal';
 import {ThemeProvider, useTheme} from './src/theme/ThemeContext';
+import {
+  SmallWidgetPreview,
+  MediumWidgetPreview,
+  MonthCalendarPreview,
+  UpcomingEventsPreview,
+  LockScreenCircularPreview,
+  LockScreenRectangularPreview,
+  LockScreenInlinePreview,
+} from './src/components/WidgetPreviews';
 import {BannerAd, BannerAdSize, TestIds} from 'react-native-google-mobile-ads';
 
 const adUnitId = __DEV__ ? TestIds.ADAPTIVE_BANNER : 'ca-app-pub-4317478239934902/3522055335';
@@ -114,6 +124,7 @@ function AppContent() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [hasPermission, setHasPermission] = useState(false);
   const [showSearchModal, setShowSearchModal] = useState(false);
+  const [showWidgetGuide, setShowWidgetGuide] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<CalendarEventReadable[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -568,136 +579,335 @@ function AppContent() {
           visible={showSettingsModal}
           animationType="slide"
           presentationStyle="pageSheet"
-          onRequestClose={() => setShowSettingsModal(false)}>
+          onRequestClose={() => {
+            if (showWidgetGuide) {
+              setShowWidgetGuide(false);
+            } else {
+              setShowSettingsModal(false);
+            }
+          }}>
           <View style={styles.settingsContainer}>
-            <View style={styles.settingsHeader}>
-              <View style={{width: 80}} />
-              <Text style={styles.settingsTitle}>設定</Text>
-              <TouchableOpacity onPress={() => setShowSettingsModal(false)}>
-                <Text style={styles.settingsDoneBtn}>完了</Text>
-              </TouchableOpacity>
-            </View>
-            <FlatList
-              style={styles.settingsContent}
-              data={[{key: 'settings'}]}
-              renderItem={() => (
-                <>
-                  {/* Theme Settings */}
-                  <View style={styles.settingsSection}>
-                    <Text style={styles.settingsSectionTitle}>外観</Text>
-                    <View style={styles.settingsItem}>
-                      <Text style={styles.settingsItemLabel}>テーマ</Text>
-                      <View style={styles.themeSelector}>
+            {!showWidgetGuide ? (
+              <>
+                {/* Settings Main View */}
+                <View style={styles.settingsHeader}>
+                  <View style={{width: 80}} />
+                  <Text style={styles.settingsTitle}>設定</Text>
+                  <TouchableOpacity onPress={() => { setShowWidgetGuide(false); setShowSettingsModal(false); }}>
+                    <Text style={styles.settingsDoneBtn}>完了</Text>
+                  </TouchableOpacity>
+                </View>
+                <FlatList
+                  style={styles.settingsContent}
+                  data={[{key: 'settings'}]}
+                  renderItem={() => (
+                    <>
+                      {/* Theme Settings */}
+                      <View style={styles.settingsSection}>
+                        <Text style={styles.settingsSectionTitle}>外観</Text>
+                        <View style={styles.settingsItem}>
+                          <Text style={styles.settingsItemLabel}>テーマ</Text>
+                          <View style={styles.themeSelector}>
+                            <TouchableOpacity
+                              style={[
+                                styles.themeSelectorBtn,
+                                themeMode === 'system' && styles.themeSelectorBtnActive,
+                              ]}
+                              onPress={() => setThemeMode('system')}>
+                              <Text style={[
+                                styles.themeSelectorText,
+                                themeMode === 'system' && styles.themeSelectorTextActive,
+                              ]}>自動</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[
+                                styles.themeSelectorBtn,
+                                themeMode === 'light' && styles.themeSelectorBtnActive,
+                              ]}
+                              onPress={() => setThemeMode('light')}>
+                              <Text style={[
+                                styles.themeSelectorText,
+                                themeMode === 'light' && styles.themeSelectorTextActive,
+                              ]}>ライト</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[
+                                styles.themeSelectorBtn,
+                                themeMode === 'dark' && styles.themeSelectorBtnActive,
+                              ]}
+                              onPress={() => setThemeMode('dark')}>
+                              <Text style={[
+                                styles.themeSelectorText,
+                                themeMode === 'dark' && styles.themeSelectorTextActive,
+                              ]}>ダーク</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      </View>
+
+                      {/* Calendar Settings */}
+                      <View style={styles.settingsSection}>
+                        <Text style={styles.settingsSectionTitle}>カレンダー</Text>
                         <TouchableOpacity
-                          style={[
-                            styles.themeSelectorBtn,
-                            themeMode === 'system' && styles.themeSelectorBtnActive,
-                          ]}
-                          onPress={() => setThemeMode('system')}>
-                          <Text style={[
-                            styles.themeSelectorText,
-                            themeMode === 'system' && styles.themeSelectorTextActive,
-                          ]}>自動</Text>
+                          style={styles.settingsItem}
+                          onPress={() => Linking.openSettings()}>
+                          <Text style={styles.settingsItemLabel}>カレンダーの権限</Text>
+                          <Text style={styles.settingsItemLink}>設定を開く →</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
-                          style={[
-                            styles.themeSelectorBtn,
-                            themeMode === 'light' && styles.themeSelectorBtnActive,
-                          ]}
-                          onPress={() => setThemeMode('light')}>
-                          <Text style={[
-                            styles.themeSelectorText,
-                            themeMode === 'light' && styles.themeSelectorTextActive,
-                          ]}>ライト</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[
-                            styles.themeSelectorBtn,
-                            themeMode === 'dark' && styles.themeSelectorBtnActive,
-                          ]}
-                          onPress={() => setThemeMode('dark')}>
-                          <Text style={[
-                            styles.themeSelectorText,
-                            themeMode === 'dark' && styles.themeSelectorTextActive,
-                          ]}>ダーク</Text>
+                          style={styles.settingsItem}
+                          onPress={() => {
+                            calendarRef.current?.refreshEvents();
+                            weekViewRef.current?.refreshEvents();
+                            Alert.alert('完了', 'カレンダーを更新しました');
+                          }}>
+                          <Text style={styles.settingsItemLabel}>カレンダーを更新</Text>
+                          <Text style={styles.settingsItemLink}>今すぐ更新</Text>
                         </TouchableOpacity>
                       </View>
+
+                      {/* Notification Settings */}
+                      <View style={styles.settingsSection}>
+                        <Text style={styles.settingsSectionTitle}>通知</Text>
+                        <TouchableOpacity
+                          style={styles.settingsItem}
+                          onPress={() => Linking.openSettings()}>
+                          <Text style={styles.settingsItemLabel}>通知設定</Text>
+                          <Text style={styles.settingsItemLink}>設定を開く →</Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      {/* Widget Guide */}
+                      <View style={styles.settingsSection}>
+                        <Text style={styles.settingsSectionTitle}>ウィジェット</Text>
+                        <TouchableOpacity
+                          style={styles.settingsItem}
+                          onPress={() => setShowWidgetGuide(true)}>
+                          <Text style={styles.settingsItemLabel}>ウィジェットの使い方</Text>
+                          <Text style={styles.settingsItemLink}>詳しく見る →</Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      {/* About */}
+                      <View style={styles.settingsSection}>
+                        <Text style={styles.settingsSectionTitle}>アプリについて</Text>
+                        <View style={styles.settingsItem}>
+                          <Text style={styles.settingsItemLabel}>バージョン</Text>
+                          <Text style={styles.settingsItemValue}>0.0.2</Text>
+                        </View>
+                        <View style={styles.settingsItem}>
+                          <Text style={styles.settingsItemLabel}>ビルド</Text>
+                          <Text style={styles.settingsItemValue}>React Native 0.83</Text>
+                        </View>
+                      </View>
+
+                      {/* Tips */}
+                      <View style={styles.settingsSection}>
+                        <Text style={styles.settingsSectionTitle}>使い方のヒント</Text>
+                        <View style={styles.settingsTipItem}>
+                          <Text style={styles.settingsTipText}>• 日付をダブルタップで新規予定作成</Text>
+                        </View>
+                        <View style={styles.settingsTipItem}>
+                          <Text style={styles.settingsTipText}>• 日付を長押し+ドラッグで複数日選択</Text>
+                        </View>
+                        <View style={styles.settingsTipItem}>
+                          <Text style={styles.settingsTipText}>• 左右スワイプで月を移動</Text>
+                        </View>
+                        <View style={styles.settingsTipItem}>
+                          <Text style={styles.settingsTipText}>• 色ボタンを長押しで色を削除</Text>
+                        </View>
+                      </View>
+                    </>
+                  )}
+                />
+              </>
+            ) : (
+              <>
+                {/* Widget Guide View */}
+                <View style={styles.settingsHeader}>
+                  <TouchableOpacity onPress={() => setShowWidgetGuide(false)}>
+                    <Text style={[styles.settingsItemLink, {width: 80}]}>← 設定</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.settingsTitle}>ウィジェット</Text>
+                  <TouchableOpacity onPress={() => { setShowWidgetGuide(false); setShowSettingsModal(false); }}>
+                    <Text style={styles.settingsDoneBtn}>完了</Text>
+                  </TouchableOpacity>
+                </View>
+                <ScrollView style={styles.settingsContent}>
+                  {/* Setup Guide */}
+                  <View style={styles.settingsSection}>
+                    <Text style={styles.settingsSectionTitle}>ホーム画面への追加方法</Text>
+                    <View style={styles.widgetGuideStep}>
+                      <View style={styles.widgetGuideStepNumber}>
+                        <Text style={styles.widgetGuideStepNumberText}>1</Text>
+                      </View>
+                      <Text style={styles.widgetGuideStepText}>
+                        ホーム画面の空白部分を長押しします
+                      </Text>
+                    </View>
+                    <View style={styles.widgetGuideStep}>
+                      <View style={styles.widgetGuideStepNumber}>
+                        <Text style={styles.widgetGuideStepNumberText}>2</Text>
+                      </View>
+                      <Text style={styles.widgetGuideStepText}>
+                        左上の「＋」ボタンをタップします
+                      </Text>
+                    </View>
+                    <View style={styles.widgetGuideStep}>
+                      <View style={styles.widgetGuideStepNumber}>
+                        <Text style={styles.widgetGuideStepNumberText}>3</Text>
+                      </View>
+                      <Text style={styles.widgetGuideStepText}>
+                        一覧から「理想のカレンダー」を探してタップ
+                      </Text>
+                    </View>
+                    <View style={styles.widgetGuideStep}>
+                      <View style={styles.widgetGuideStepNumber}>
+                        <Text style={styles.widgetGuideStepNumberText}>4</Text>
+                      </View>
+                      <Text style={styles.widgetGuideStepText}>
+                        サイズを選んで「ウィジェットを追加」をタップ
+                      </Text>
                     </View>
                   </View>
 
-                  {/* Calendar Settings */}
+                  {/* Widget 1: Today's Events */}
                   <View style={styles.settingsSection}>
-                    <Text style={styles.settingsSectionTitle}>カレンダー</Text>
-                    <TouchableOpacity
-                      style={styles.settingsItem}
-                      onPress={() => Linking.openSettings()}>
-                      <Text style={styles.settingsItemLabel}>カレンダーの権限</Text>
-                      <Text style={styles.settingsItemLink}>設定を開く →</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.settingsItem}
-                      onPress={() => {
-                        calendarRef.current?.refreshEvents();
-                        weekViewRef.current?.refreshEvents();
-                        Alert.alert('完了', 'カレンダーを更新しました');
-                      }}>
-                      <Text style={styles.settingsItemLabel}>カレンダーを更新</Text>
-                      <Text style={styles.settingsItemLink}>今すぐ更新</Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* Notification Settings */}
-                  <View style={styles.settingsSection}>
-                    <Text style={styles.settingsSectionTitle}>通知</Text>
-                    <TouchableOpacity
-                      style={styles.settingsItem}
-                      onPress={() => Linking.openSettings()}>
-                      <Text style={styles.settingsItemLabel}>通知設定</Text>
-                      <Text style={styles.settingsItemLink}>設定を開く →</Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* About */}
-                  <View style={styles.settingsSection}>
-                    <Text style={styles.settingsSectionTitle}>アプリについて</Text>
-                    <View style={styles.settingsItem}>
-                      <Text style={styles.settingsItemLabel}>バージョン</Text>
-                      <Text style={styles.settingsItemValue}>0.0.2</Text>
+                    <Text style={styles.settingsSectionTitle}>今日の予定 — Small / Medium</Text>
+                    <View style={styles.widgetPreviewArea}>
+                      <SmallWidgetPreview />
                     </View>
-                    <View style={styles.settingsItem}>
-                      <Text style={styles.settingsItemLabel}>ビルド</Text>
-                      <Text style={styles.settingsItemValue}>React Native 0.83</Text>
+                    <View style={styles.widgetGuideCard}>
+                      <Text style={styles.widgetGuideCardDesc}>
+                        今日の日付と予定をコンパクトに表示します。Smallサイズでは最大3件の予定が確認できます。
+                      </Text>
+                    </View>
+                    <View style={styles.widgetPreviewArea}>
+                      <MediumWidgetPreview />
+                    </View>
+                    <View style={styles.widgetGuideCard}>
+                      <Text style={styles.widgetGuideCardDesc}>
+                        Mediumサイズでは左に大きな日付、右に最大4件の予定を時間付きで表示します。
+                      </Text>
                     </View>
                   </View>
 
-                  {/* Tips */}
+                  {/* Widget 2: Month Calendar */}
                   <View style={styles.settingsSection}>
-                    <Text style={styles.settingsSectionTitle}>使い方のヒント</Text>
-                    <View style={styles.settingsTipItem}>
-                      <Text style={styles.settingsTipText}>• 日付をダブルタップで新規予定作成</Text>
+                    <Text style={styles.settingsSectionTitle}>月間カレンダー — Large</Text>
+                    <View style={styles.widgetPreviewArea}>
+                      <MonthCalendarPreview />
                     </View>
-                    <View style={styles.settingsTipItem}>
-                      <Text style={styles.settingsTipText}>• 日付を長押し+ドラッグで複数日選択</Text>
-                    </View>
-                    <View style={styles.settingsTipItem}>
-                      <Text style={styles.settingsTipText}>• 左右スワイプで月を移動</Text>
-                    </View>
-                    <View style={styles.settingsTipItem}>
-                      <Text style={styles.settingsTipText}>• 色ボタンを長押しで色を削除</Text>
+                    <View style={styles.widgetGuideCard}>
+                      <Text style={styles.widgetGuideCardDesc}>
+                        月のカレンダーをグリッド表示します。今日の日付は青丸でハイライト、予定がある日にはドットが表示されます。日曜は赤、土曜は青で色分け。
+                      </Text>
                     </View>
                   </View>
-                </>
-              )}
-            />
+
+                  {/* Widget 3: Upcoming Events */}
+                  <View style={styles.settingsSection}>
+                    <Text style={styles.settingsSectionTitle}>今後の予定 — Medium / Large</Text>
+                    <View style={styles.widgetPreviewArea}>
+                      <UpcomingEventsPreview />
+                    </View>
+                    <View style={styles.widgetGuideCard}>
+                      <Text style={styles.widgetGuideCardDesc}>
+                        複数日にわたる予定を日別にグループ化して表示します。Mediumでは3日先まで、Largeでは7日先まで確認できます。
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Widget 4: Lock Screen */}
+                  <View style={styles.settingsSection}>
+                    <Text style={styles.settingsSectionTitle}>ロック画面 — iOS 16以降</Text>
+                    <View style={styles.widgetPreviewAreaDark}>
+                      <View style={{alignItems: 'center', gap: 14}}>
+                        <View style={{alignItems: 'center'}}>
+                          <LockScreenCircularPreview />
+                          <Text style={{fontSize: 10, color: '#aaa', marginTop: 6}}>丸型</Text>
+                        </View>
+                        <View style={{alignItems: 'center'}}>
+                          <LockScreenRectangularPreview />
+                          <Text style={{fontSize: 10, color: '#aaa', marginTop: 6}}>長方形</Text>
+                        </View>
+                        <View style={{alignItems: 'center'}}>
+                          <LockScreenInlinePreview />
+                          <Text style={{fontSize: 10, color: '#aaa', marginTop: 6}}>インライン</Text>
+                        </View>
+                      </View>
+                    </View>
+                    <View style={styles.widgetGuideCard}>
+                      <Text style={styles.widgetGuideCardDesc}>
+                        ロック画面に日付や次の予定を表示します。丸型は曜日と日付、長方形は日付と次の予定、インラインは「10:00 チームMTG」のように1行で表示します。
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Lock Screen Setup */}
+                  <View style={styles.settingsSection}>
+                    <Text style={styles.settingsSectionTitle}>ロック画面への追加方法</Text>
+                    <View style={styles.widgetGuideStep}>
+                      <View style={styles.widgetGuideStepNumber}>
+                        <Text style={styles.widgetGuideStepNumberText}>1</Text>
+                      </View>
+                      <Text style={styles.widgetGuideStepText}>
+                        ロック画面を長押しして「カスタマイズ」をタップ
+                      </Text>
+                    </View>
+                    <View style={styles.widgetGuideStep}>
+                      <View style={styles.widgetGuideStepNumber}>
+                        <Text style={styles.widgetGuideStepNumberText}>2</Text>
+                      </View>
+                      <Text style={styles.widgetGuideStepText}>
+                        「ロック画面」を選択し、ウィジェット欄をタップ
+                      </Text>
+                    </View>
+                    <View style={styles.widgetGuideStep}>
+                      <View style={styles.widgetGuideStepNumber}>
+                        <Text style={styles.widgetGuideStepNumberText}>3</Text>
+                      </View>
+                      <Text style={styles.widgetGuideStepText}>
+                        「理想のカレンダー」の「ロック画面」を追加
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Notes */}
+                  <View style={styles.settingsSection}>
+                    <Text style={styles.settingsSectionTitle}>ご注意</Text>
+                    <View style={styles.settingsTipItem}>
+                      <Text style={styles.settingsTipText}>
+                        • ウィジェットの利用にはカレンダーへのアクセス許可が必要です
+                      </Text>
+                    </View>
+                    <View style={styles.settingsTipItem}>
+                      <Text style={styles.settingsTipText}>
+                        • ウィジェットは約30分ごとに自動更新されます
+                      </Text>
+                    </View>
+                    <View style={styles.settingsTipItem}>
+                      <Text style={styles.settingsTipText}>
+                        • 月間カレンダーは日付変更時に更新されます
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={{height: 40}} />
+                </ScrollView>
+              </>
+            )}
           </View>
         </Modal>
       </SafeAreaView>
-      <View style={styles.bannerContainer}>
-        <BannerAd
-          unitId={adUnitId}
-          size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
-        />
-      </View>
+      {!__DEV__ && (
+        <View style={styles.bannerContainer}>
+          <BannerAd
+            unitId={adUnitId}
+            size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
+          />
+        </View>
+      )}
     </SafeAreaProvider>
   );
 }
@@ -979,6 +1189,102 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     lineHeight: 20,
+  },
+  // Widget Guide styles
+  widgetGuideStep: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+    gap: 12,
+  },
+  widgetGuideStepNumber: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#007AFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  widgetGuideStepNumberText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  widgetGuideStepText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#333',
+    lineHeight: 20,
+  },
+  widgetPreviewArea: {
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    backgroundColor: '#F2F2F7',
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+  },
+  widgetPreviewAreaDark: {
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    backgroundColor: '#1C1C1E',
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+  },
+  widgetGuideCard: {
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+  },
+  widgetGuideCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 8,
+  },
+  widgetGuideCardIcon: {
+    fontSize: 28,
+  },
+  widgetGuideCardTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  widgetGuideCardSize: {
+    fontSize: 12,
+    color: '#007AFF',
+    marginTop: 2,
+  },
+  widgetGuideCardDesc: {
+    fontSize: 14,
+    color: '#555',
+    lineHeight: 21,
+  },
+  widgetGuideLockTypes: {
+    marginTop: 10,
+    gap: 8,
+  },
+  widgetGuideLockType: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 8,
+    paddingLeft: 4,
+  },
+  widgetGuideLockTypeTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#007AFF',
+    width: 68,
+  },
+  widgetGuideLockTypeDesc: {
+    flex: 1,
+    fontSize: 13,
+    color: '#666',
   },
   bannerContainer: {
     alignItems: 'center',

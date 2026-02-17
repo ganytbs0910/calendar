@@ -33,7 +33,13 @@
       "Bash(open:*)",
       "Bash(sudo ln:*)",
       "Bash(npx react-native-asset:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(keytool:*)",
+      "Bash(./gradlew bundleRelease:*)",
+      "Bash(fastlane:*)",
+      "Bash(brew install:*)",
+      "Bash(ls:*)",
+      "Bash(plutil:*)"
     ]
   }
 }
