@@ -20,7 +20,6 @@ import Calendar, {CalendarRef} from './src/components/Calendar';
 import DayView, {DayViewRef} from './src/components/DayView';
 import AddEventModal from './src/components/AddEventModal';
 import EventDetailModal from './src/components/EventDetailModal';
-import TodayTasks from './src/components/TodayTasks';
 import {ThemeProvider, useTheme} from './src/theme/ThemeContext';
 import {
   SmallWidgetPreview,
@@ -598,22 +597,14 @@ function AppContent() {
         </View>
 
         {viewMode === 'month' ? (
-            <View style={{flex: 1}}>
-              <View style={{flex: 7}}>
-                <Calendar
-                  ref={calendarRef}
-                  onDateSelect={handleDateSelect}
-                  onDateDoubleSelect={handleDateDoubleSelect}
-                  onEventPress={handleEventPress}
-                  onDateRangeSelect={handleTimeRangeSelect}
-                  hasPermission={hasPermission}
-                />
-              </View>
-              <View style={[styles.divider, {borderTopColor: colors.border}]} />
-              <View style={{flex: 3}}>
-                <TodayTasks />
-              </View>
-            </View>
+            <Calendar
+              ref={calendarRef}
+              onDateSelect={handleDateSelect}
+              onDateDoubleSelect={handleDateDoubleSelect}
+              onEventPress={handleEventPress}
+              onDateRangeSelect={handleTimeRangeSelect}
+              hasPermission={hasPermission}
+            />
         ) : (
           <DayView
             ref={dayViewRef}
@@ -1439,10 +1430,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#666',
   },
-  divider: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  bannerContainer: {
+bannerContainer: {
     alignItems: 'center',
     backgroundColor: '#f5f5f5',
   },

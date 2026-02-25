@@ -201,12 +201,22 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
   const segmentLayoutsRef = useRef<Array<SegmentLayout | null>>([]);
   const flowTimelineYRef = useRef(0);
 
+  // Detail mode (tap flow timeline to see hourly grid)
+  const [isDetailMode, setIsDetailMode] = useState(false);
+  const detailCreatingRef = useRef<{startMin: number; endMin: number; anchorMin: number} | null>(null);
+  const detailLongPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const detailIsTapRef = useRef(true);
+  const detailTouchPageYRef = useRef(0);
+  const detailPanActiveRef = useRef(false);
+  const detailTargetMinRef = useRef<number | null>(null);
+
   // Event creation mode (long-press on gap)
   const [isCreating, setIsCreating] = useState(false);
   const [creatingEvent, setCreatingEvent] = useState<{startMin: number; endMin: number} | null>(null);
   const creatingEventRef = useRef<{startMin: number; endMin: number} | null>(null);
   const isCreatingRef = useRef(false);
   const lastCrossedHourRef = useRef<number | null>(null);
+  const creationAnchorRef = useRef<number | null>(null);
   const onTimeRangeSelectRef = useRef(onTimeRangeSelect);
 
   // Swipe-to-delete
@@ -1091,7 +1101,37 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
 
   useEffect(() => {
     hasScrolledRef.current = false;
+    setIsDetailMode(false);
   }, [dateKey]);
+
+  // Auto-scroll when entering detail mode
+  useEffect(() => {
+    if (isDetailMode) {
+      const targetMin = detailTargetMinRef.current != null
+        ? detailTargetMinRef.current
+        : isTodayDate ? nowMinutes : (timelineItems.length > 0 ? timelineItems[0].startMinutes : displayStartHour * 60);
+      detailTargetMinRef.current = null;
+      const targetY = ((targetMin - displayStartHour * 60) / 60) * CREATION_HOUR_HEIGHT;
+      const scrollTarget = flowTimelineYRef.current + targetY - 150;
+      setTimeout(() => {
+        scrollViewRef.current?.scrollTo({y: Math.max(0, scrollTarget), animated: false});
+      }, 50);
+    }
+  }, [isDetailMode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Cleanup detail creation state when exiting detail mode
+  useEffect(() => {
+    if (!isDetailMode) {
+      if (detailLongPressTimerRef.current) {
+        clearTimeout(detailLongPressTimerRef.current);
+        detailLongPressTimerRef.current = null;
+      }
+      if (detailCreatingRef.current) {
+        detailCreatingRef.current = null;
+        setCreatingEvent(null);
+      }
+    }
+  }, [isDetailMode]);
 
   // ── Event creation mode (long-press on gap) ──
 
@@ -1104,39 +1144,6 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
     onTimeRangeSelectRef.current = onTimeRangeSelect;
   }, [onTimeRangeSelect]);
 
-  const handleGapLongPress = useCallback((gapStartMin: number, _gapEndMin: number, pageY: number) => {
-    Vibration.vibrate(50);
-
-    // Use segment layouts to interpolate touch position to time within the gap
-    const layouts = segmentLayoutsRef.current;
-    let initialMin = gapStartMin;
-
-    gridContainerRef.current?.measureInWindow((_x: number, y: number) => {
-      gridTopOnScreenRef.current = y;
-      const gridY = pageY - y;
-
-      // Find which segment layout the touch is in
-      for (let i = 0; i < layouts.length; i++) {
-        const layout = layouts[i];
-        if (!layout) continue;
-        if (gridY >= layout.y && gridY < layout.y + layout.height && layout.endMin > layout.startMin) {
-          const ratio = Math.max(0, Math.min(1, (gridY - layout.y) / layout.height));
-          initialMin = layout.startMin + ratio * (layout.endMin - layout.startMin);
-          break;
-        }
-      }
-
-      // Round to 15-min intervals
-      initialMin = Math.round(initialMin / 15) * 15;
-      initialMin = Math.max(displayStartHour * 60, Math.min(displayEndHour * 60 - 15, initialMin));
-
-      const endMin = Math.min(displayEndHour * 60, initialMin + 30);
-      lastCrossedHourRef.current = Math.floor(endMin / 60);
-      setCreatingEvent({startMin: initialMin, endMin});
-      setIsCreating(true);
-    });
-  }, [displayStartHour, displayEndHour]);
-
   const creationOverlayPanResponder = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: () => true,
@@ -1147,6 +1154,8 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
     },
     onPanResponderMove: (evt) => {
       if (!creatingEventRef.current) return;
+      const anchor = creationAnchorRef.current;
+      if (anchor == null) return;
       const {pageY} = evt.nativeEvent;
       const gridY = pageY - gridTopOnScreenRef.current;
 
@@ -1155,18 +1164,28 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
       minutes = Math.round(minutes / 15) * 15;
       minutes = Math.max(displayStartHour * 60, Math.min(displayEndHour * 60, minutes));
 
-      const ce = creatingEventRef.current;
-      const newEndMin = Math.max(ce.startMin + 15, minutes);
-      const clampedEnd = Math.min(displayEndHour * 60, newEndMin);
+      let newStart: number;
+      let newEnd: number;
+      if (minutes < anchor) {
+        // Dragging above anchor → move start upward
+        newStart = minutes;
+        newEnd = Math.min(displayEndHour * 60, anchor + 30);
+      } else {
+        // Dragging below anchor → move end downward
+        newStart = anchor;
+        newEnd = Math.max(anchor + 15, minutes);
+        newEnd = Math.min(displayEndHour * 60, newEnd);
+      }
 
       // Vibrate on hour boundary crossing
-      const currentHour = Math.floor(clampedEnd / 60);
+      const edgeMin = minutes < anchor ? newStart : newEnd;
+      const currentHour = Math.floor(edgeMin / 60);
       if (lastCrossedHourRef.current !== null && currentHour !== lastCrossedHourRef.current) {
         Vibration.vibrate(10);
       }
       lastCrossedHourRef.current = currentHour;
 
-      setCreatingEvent({startMin: ce.startMin, endMin: clampedEnd});
+      setCreatingEvent({startMin: newStart, endMin: newEnd});
     },
     onPanResponderRelease: () => {
       const ce = creatingEventRef.current;
@@ -1181,11 +1200,13 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
       setIsCreating(false);
       setCreatingEvent(null);
       lastCrossedHourRef.current = null;
+      creationAnchorRef.current = null;
     },
     onPanResponderTerminate: () => {
       setIsCreating(false);
       setCreatingEvent(null);
       lastCrossedHourRef.current = null;
+      creationAnchorRef.current = null;
     },
   }), [displayStartHour, displayEndHour, dayStart]);
 
@@ -1193,7 +1214,198 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
     setIsCreating(false);
     setCreatingEvent(null);
     lastCrossedHourRef.current = null;
+    creationAnchorRef.current = null;
   }, []);
+
+  // ── Detail mode layout ──
+
+  const detailModeLayout = useMemo(() => {
+    if (!isDetailMode) return null;
+    const totalHours = displayEndHour - displayStartHour;
+    const overlayHeight = totalHours * CREATION_HOUR_HEIGHT;
+    const hours = Array.from({length: totalHours + 1}, (_, i) => displayStartHour + i);
+
+    const items = timelineItems
+      .filter(item => {
+        const itemStart = Math.max(item.startMinutes, displayStartHour * 60);
+        const itemEnd = Math.min(item.endMinutes, displayEndHour * 60);
+        return itemStart < displayEndHour * 60 && itemEnd > displayStartHour * 60;
+      })
+      .map(item => {
+        const itemStart = Math.max(item.startMinutes, displayStartHour * 60);
+        const itemEnd = Math.min(item.endMinutes, displayEndHour * 60);
+        const topY = ((itemStart - displayStartHour * 60) / 60) * CREATION_HOUR_HEIGHT;
+        const height = Math.max(
+          CREATION_HOUR_HEIGHT / 4,
+          ((itemEnd - itemStart) / 60) * CREATION_HOUR_HEIGHT,
+        );
+        return { ...item, topY, height, clampedStart: itemStart, clampedEnd: itemEnd };
+      });
+
+    return { totalHours, overlayHeight, hours, items };
+  }, [isDetailMode, displayStartHour, displayEndHour, timelineItems]);
+
+  const detailCurrentTimeY = useMemo(() => {
+    if (!isDetailMode || !isTodayDate) return null;
+    if (nowMinutes < displayStartHour * 60 || nowMinutes > displayEndHour * 60) return null;
+    return ((nowMinutes - displayStartHour * 60) / 60) * CREATION_HOUR_HEIGHT;
+  }, [isDetailMode, isTodayDate, nowMinutes, displayStartHour, displayEndHour]);
+
+  // Detail mode: onTouchStart/Move/End for long press detection (doesn't block scrolling)
+  // PanResponder only activates AFTER creation starts (for drag)
+
+  const handleDetailTouchStart = useCallback((e: any) => {
+    const pageY = e.nativeEvent.pageY;
+    detailTouchPageYRef.current = pageY;
+    detailIsTapRef.current = true;
+
+    gridContainerRef.current?.measureInWindow((_x: number, y: number) => {
+      gridTopOnScreenRef.current = y;
+    });
+
+    detailLongPressTimerRef.current = setTimeout(() => {
+      detailLongPressTimerRef.current = null;
+      detailIsTapRef.current = false;
+      Vibration.vibrate(50);
+
+      const gridY = pageY - gridTopOnScreenRef.current;
+      let minutes = displayStartHour * 60 + (gridY / CREATION_HOUR_HEIGHT) * 60;
+      minutes = Math.round(minutes / 15) * 15;
+      minutes = Math.max(displayStartHour * 60, Math.min(displayEndHour * 60 - 15, minutes));
+      const endMin = Math.min(displayEndHour * 60, minutes + 30);
+
+      detailCreatingRef.current = {startMin: minutes, endMin, anchorMin: minutes};
+      lastCrossedHourRef.current = Math.floor(endMin / 60);
+      setCreatingEvent({startMin: minutes, endMin});
+    }, 300);
+  }, [displayStartHour, displayEndHour]);
+
+  const handleDetailTouchMove = useCallback((e: any) => {
+    if (detailCreatingRef.current) return; // Already creating, PanResponder handles drag
+    if (!detailLongPressTimerRef.current) return; // No timer to cancel
+
+    const dy = e.nativeEvent.pageY - detailTouchPageYRef.current;
+    if (Math.abs(dy) > 10) {
+      clearTimeout(detailLongPressTimerRef.current);
+      detailLongPressTimerRef.current = null;
+      detailIsTapRef.current = false;
+    }
+  }, []);
+
+  const handleDetailTouchEnd = useCallback(() => {
+    if (detailPanActiveRef.current) return; // PanResponder handled this touch
+
+    if (detailLongPressTimerRef.current) {
+      clearTimeout(detailLongPressTimerRef.current);
+      detailLongPressTimerRef.current = null;
+    }
+
+    const dc = detailCreatingRef.current;
+    if (dc) {
+      // Long press fired but user released without dragging → finalize
+      const ce = creatingEventRef.current;
+      if (ce) {
+        const callback = onTimeRangeSelectRef.current;
+        if (callback) {
+          const startDate = new Date(dayStart);
+          startDate.setHours(Math.floor(ce.startMin / 60), ce.startMin % 60, 0, 0);
+          const endDate = new Date(dayStart);
+          endDate.setHours(Math.floor(ce.endMin / 60), ce.endMin % 60, 0, 0);
+          callback(startDate, endDate);
+        }
+        setIsDetailMode(false);
+      }
+      detailCreatingRef.current = null;
+      setCreatingEvent(null);
+      lastCrossedHourRef.current = null;
+    } else if (detailIsTapRef.current) {
+      setIsDetailMode(false);
+    }
+  }, [dayStart]);
+
+  const detailPanResponder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => false, // Don't take initial touch — let ScrollView scroll
+    onMoveShouldSetPanResponder: () => !!detailCreatingRef.current,
+    onStartShouldSetPanResponderCapture: () => false,
+    onMoveShouldSetPanResponderCapture: () => !!detailCreatingRef.current,
+    onPanResponderTerminationRequest: () => !detailCreatingRef.current,
+
+    onPanResponderGrant: () => {
+      detailPanActiveRef.current = true;
+    },
+
+    onPanResponderMove: (evt) => {
+      const dc = detailCreatingRef.current;
+      if (!dc) return;
+
+      detailIsTapRef.current = false;
+      const {pageY} = evt.nativeEvent;
+      const gridY = pageY - gridTopOnScreenRef.current;
+
+      let minutes = displayStartHour * 60 + (gridY / CREATION_HOUR_HEIGHT) * 60;
+      minutes = Math.round(minutes / 15) * 15;
+      minutes = Math.max(displayStartHour * 60, Math.min(displayEndHour * 60, minutes));
+
+      const anchor = dc.anchorMin;
+
+      // If dragged back to anchor position, hide the creation block
+      if (minutes === anchor) {
+        detailCreatingRef.current = {...dc, startMin: anchor, endMin: anchor + 15};
+        setCreatingEvent(null);
+        return;
+      }
+
+      let newStart: number, newEnd: number;
+      if (minutes < anchor) {
+        newStart = minutes;
+        newEnd = Math.min(displayEndHour * 60, anchor + 15);
+      } else {
+        newStart = anchor;
+        newEnd = Math.max(anchor + 15, minutes);
+        newEnd = Math.min(displayEndHour * 60, newEnd);
+      }
+
+      const edgeMin = minutes < anchor ? newStart : newEnd;
+      const currentHour = Math.floor(edgeMin / 60);
+      if (lastCrossedHourRef.current !== null && currentHour !== lastCrossedHourRef.current) {
+        Vibration.vibrate(10);
+      }
+      lastCrossedHourRef.current = currentHour;
+
+      detailCreatingRef.current = {...dc, startMin: newStart, endMin: newEnd};
+      setCreatingEvent({startMin: newStart, endMin: newEnd});
+    },
+
+    onPanResponderRelease: () => {
+      detailPanActiveRef.current = false;
+
+      const dc = detailCreatingRef.current;
+      if (dc) {
+        const ce = creatingEventRef.current;
+        if (ce) {
+          const callback = onTimeRangeSelectRef.current;
+          if (callback) {
+            const startDate = new Date(dayStart);
+            startDate.setHours(Math.floor(ce.startMin / 60), ce.startMin % 60, 0, 0);
+            const endDate = new Date(dayStart);
+            endDate.setHours(Math.floor(ce.endMin / 60), ce.endMin % 60, 0, 0);
+            callback(startDate, endDate);
+          }
+          setIsDetailMode(false);
+        }
+        detailCreatingRef.current = null;
+        setCreatingEvent(null);
+        lastCrossedHourRef.current = null;
+      }
+    },
+
+    onPanResponderTerminate: () => {
+      detailPanActiveRef.current = false;
+      detailCreatingRef.current = null;
+      setCreatingEvent(null);
+      lastCrossedHourRef.current = null;
+    },
+  }), [displayStartHour, displayEndHour, dayStart]);
 
   // ── Segment layout handler ──
 
@@ -1367,7 +1579,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
         showsVerticalScrollIndicator={false}
         onScroll={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y; }}
         scrollEventThrottle={16}
-        scrollEnabled={!draggingTask && !isCreating}
+        scrollEnabled={!draggingTask && !isCreating && !(isDetailMode && creatingEvent)}
         onLayout={(e) => setTimelineHeight(e.nativeEvent.layout.height)}>
 
         {/* All-day events */}
@@ -1397,7 +1609,124 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
           style={styles.flowTimeline}
           onLayout={(e) => { flowTimelineYRef.current = e.nativeEvent.layout.y; }}>
 
-          {segments.map((segment, segIndex) => {
+          {isDetailMode && detailModeLayout ? (
+            <View
+              {...detailPanResponder.panHandlers}
+              onTouchStart={handleDetailTouchStart}
+              onTouchMove={handleDetailTouchMove}
+              onTouchEnd={handleDetailTouchEnd}
+              style={{height: detailModeLayout.overlayHeight}}>
+              <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                {detailModeLayout.hours.map(hour => {
+                  const y = (hour - displayStartHour) * CREATION_HOUR_HEIGHT;
+                  return (
+                    <View key={hour} style={[styles.creationHourRow, {top: y}]}>
+                      <View style={styles.creationHourLabelCol}>
+                        <Text style={[styles.creationHourLabel, {color: colors.textTertiary}]}>
+                          {`${hour.toString().padStart(2, '0')}:00`}
+                        </Text>
+                      </View>
+                      <View style={[styles.creationHourLine, {backgroundColor: colors.borderLight}]} />
+                    </View>
+                  );
+                })}
+              </View>
+              <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+                {detailModeLayout.items.map(item => {
+                  if (item.type === 'event') {
+                    const evColor = item.color || colors.primary;
+                    return (
+                      <TouchableOpacity
+                        key={`detail-${item.id}`}
+                        activeOpacity={0.7}
+                        onPress={() => { setIsDetailMode(false); onEventPress?.(item.original as CalendarEventReadable); }}
+                        style={[
+                          styles.detailEventBlock,
+                          {top: item.topY, height: item.height, backgroundColor: evColor},
+                        ]}>
+                        <Text style={[styles.flowEventTitle, {color: colors.onEvent}]} numberOfLines={1}>
+                          {item.title}
+                        </Text>
+                        <Text style={[styles.flowEventTime, {color: colors.onEvent}]}>
+                          {formatMinutes(item.startMinutes)}〜{formatMinutes(item.endMinutes)}
+                        </Text>
+                        {item.location ? (
+                          <Text style={[styles.flowEventLocation, {color: colors.onEvent}]} numberOfLines={1}>
+                            {item.location}
+                          </Text>
+                        ) : null}
+                      </TouchableOpacity>
+                    );
+                  }
+                  if (item.type === 'task') {
+                    const task = item.original as Task;
+                    return (
+                      <TouchableOpacity
+                        key={`detail-${item.id}`}
+                        activeOpacity={0.7}
+                        onPress={() => { setIsDetailMode(false); handleEditTimelineTask(task); }}
+                        style={[
+                          styles.detailTaskBlock,
+                          {
+                            top: item.topY,
+                            height: item.height,
+                            backgroundColor: item.completed ? `${colors.primary}20` : `${colors.primary}10`,
+                            borderColor: colors.primary,
+                          },
+                        ]}>
+                        <Text
+                          style={[
+                            styles.flowTaskTitle,
+                            {color: colors.text},
+                            item.completed && {textDecorationLine: 'line-through', color: colors.textTertiary},
+                          ]}
+                          numberOfLines={1}>
+                          {item.title}
+                        </Text>
+                        <Text style={[styles.flowTaskTime, {color: colors.textSecondary}]}>
+                          {formatMinutes(item.startMinutes)}〜{formatMinutes(item.endMinutes)}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  }
+                  return null;
+                })}
+              </View>
+              {/* Creation block (drag selection) */}
+              {creatingEvent && (
+                <View
+                  pointerEvents="none"
+                  style={[
+                    styles.creationEventBlock,
+                    {
+                      top: ((creatingEvent.startMin - displayStartHour * 60) / 60) * CREATION_HOUR_HEIGHT,
+                      height: Math.max(
+                        CREATION_HOUR_HEIGHT / 4,
+                        ((creatingEvent.endMin - creatingEvent.startMin) / 60) * CREATION_HOUR_HEIGHT,
+                      ),
+                      backgroundColor: `${colors.primary}30`,
+                      borderColor: colors.primary,
+                    },
+                  ]}>
+                  <Text style={[styles.creationEventTime, {color: colors.primary}]}>
+                    {formatMinutes(creatingEvent.startMin)} 〜 {formatMinutes(creatingEvent.endMin)}
+                  </Text>
+                </View>
+              )}
+              {isTodayDate && detailCurrentTimeY != null && (
+                <View
+                  style={[styles.flowCurrentTime, {top: detailCurrentTimeY}]}
+                  pointerEvents="none">
+                  <View style={[styles.currentTimeBadge, {backgroundColor: colors.currentTimeIndicator}]}>
+                    <Text style={[styles.currentTimeBadgeText, {color: colors.onPrimary}]}>
+                      {currentTime.getHours().toString().padStart(2, '0')}:{currentTime.getMinutes().toString().padStart(2, '0')}
+                    </Text>
+                  </View>
+                  <View style={[styles.currentTimeLine, {backgroundColor: colors.currentTimeIndicator}]} />
+                </View>
+              )}
+            </View>
+          ) : segments.map((segment, segIndex) => {
             const isFirst = segIndex === 0;
             const isLast = segIndex === segments.length - 1;
 
@@ -1463,8 +1792,27 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                   style={{paddingVertical: FLOW_GAP_PADDING / 2}}
                   onLayout={(e) => handleSegmentLayout(segIndex, segment.startMin, segment.endMin, e)}
                   activeOpacity={0.7}
-                  onLongPress={(e) => handleGapLongPress(segment.startMin, segment.endMin, e.nativeEvent.pageY)}
-                  delayLongPress={200}>
+                  onPress={(e) => {
+                    if (!isCreating && !editingTimelineTaskId && !draggingTask) {
+                      const pageY = e.nativeEvent.pageY;
+                      const layouts = segmentLayoutsRef.current;
+                      let tapMin = (segment.startMin + segment.endMin) / 2;
+                      gridContainerRef.current?.measureInWindow((_x: number, y: number) => {
+                        const gridY = pageY - y;
+                        for (let i = 0; i < layouts.length; i++) {
+                          const layout = layouts[i];
+                          if (!layout) continue;
+                          if (gridY >= layout.y && gridY < layout.y + layout.height && layout.endMin > layout.startMin) {
+                            const ratio = Math.max(0, Math.min(1, (gridY - layout.y) / layout.height));
+                            tapMin = layout.startMin + ratio * (layout.endMin - layout.startMin);
+                            break;
+                          }
+                        }
+                        detailTargetMinRef.current = tapMin;
+                        setIsDetailMode(true);
+                      });
+                    }
+                  }}>
                   {segment.markers.map((marker, mi) => (
                     <View key={mi} style={[styles.flowRow, {height: FLOW_GAP_MARKER_HEIGHT}]}>
                       <View style={styles.flowTimeCol}>
@@ -1734,8 +2082,8 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
             );
           })()}
 
-          {/* Current time indicator */}
-          {isTodayDate && currentTimeYPosition != null && (
+          {/* Current time indicator (flow mode only) */}
+          {!isDetailMode && isTodayDate && currentTimeYPosition != null && (
             <View
               style={[styles.flowCurrentTime, {top: currentTimeYPosition}]}
               pointerEvents="none">
@@ -1748,8 +2096,8 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
             </View>
           )}
 
-          {/* Drop indicator during drag */}
-          {draggingTask && dropTimePreview && dropIndicatorY != null && (() => {
+          {/* Drop indicator during drag (flow mode only) */}
+          {!isDetailMode && draggingTask && dropTimePreview && dropIndicatorY != null && (() => {
             const dur = draggingTask.duration || 60;
             const [dh, dm] = dropTimePreview.split(':').map(Number);
             const dropMin = dh * 60 + dm;
@@ -2965,6 +3313,26 @@ const styles = StyleSheet.create({
   removeTimeBtnText: {
     fontSize: 12,
     fontWeight: '500',
+  },
+
+  // Detail mode blocks
+  detailEventBlock: {
+    position: 'absolute',
+    left: FLOW_LEFT_WIDTH + 4,
+    right: 16,
+    borderRadius: 8,
+    padding: 8,
+    overflow: 'hidden',
+  },
+  detailTaskBlock: {
+    position: 'absolute',
+    left: FLOW_LEFT_WIDTH + 4,
+    right: 16,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderStyle: 'dashed' as any,
+    padding: 8,
+    overflow: 'hidden',
   },
 
   // Creation overlay (hourly grid)
