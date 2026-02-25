@@ -1,4 +1,4 @@
-package com.calendarapp
+package com.calenderappGan
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate

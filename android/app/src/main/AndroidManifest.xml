@@ -18,10 +18,174 @@
         android:launchMode="singleTask"
         android:windowSoftInputMode="adjustResize"
         android:exported="true">
-        <intent-filter>
-            <action android:name="android.intent.action.MAIN" />
-            <category android:name="android.intent.category.LAUNCHER" />
-        </intent-filter>
       </activity>
+
+      <activity-alias
+        android:name=".Month01"
+        android:targetActivity=".MainActivity"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher_01"
+        android:roundIcon="@mipmap/ic_launcher_01_round"
+        android:enabled="false"
+        android:exported="true">
+        <intent-filter>
+          <action android:name="android.intent.action.MAIN" />
+          <category android:name="android.intent.category.LAUNCHER" />
+        </intent-filter>
+      </activity-alias>
+
+      <activity-alias
+        android:name=".Month02"
+        android:targetActivity=".MainActivity"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher_02"
+        android:roundIcon="@mipmap/ic_launcher_02_round"
+        android:enabled="true"
+        android:exported="true">
+        <intent-filter>
+          <action android:name="android.intent.action.MAIN" />
+          <category android:name="android.intent.category.LAUNCHER" />
+        </intent-filter>
+      </activity-alias>
+
+      <activity-alias
+        android:name=".Month03"
+        android:targetActivity=".MainActivity"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher_03"
+        android:roundIcon="@mipmap/ic_launcher_03_round"
+        android:enabled="false"
+        android:exported="true">
+        <intent-filter>
+          <action android:name="android.intent.action.MAIN" />
+          <category android:name="android.intent.category.LAUNCHER" />
+        </intent-filter>
+      </activity-alias>
+
+      <activity-alias
+        android:name=".Month04"
+        android:targetActivity=".MainActivity"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher_04"
+        android:roundIcon="@mipmap/ic_launcher_04_round"
+        android:enabled="false"
+        android:exported="true">
+        <intent-filter>
+          <action android:name="android.intent.action.MAIN" />
+          <category android:name="android.intent.category.LAUNCHER" />
+        </intent-filter>
+      </activity-alias>
+
+      <activity-alias
+        android:name=".Month05"
+        android:targetActivity=".MainActivity"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher_05"
+        android:roundIcon="@mipmap/ic_launcher_05_round"
+        android:enabled="false"
+        android:exported="true">
+        <intent-filter>
+          <action android:name="android.intent.action.MAIN" />
+          <category android:name="android.intent.category.LAUNCHER" />
+        </intent-filter>
+      </activity-alias>
+
+      <activity-alias
+        android:name=".Month06"
+        android:targetActivity=".MainActivity"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher_06"
+        android:roundIcon="@mipmap/ic_launcher_06_round"
+        android:enabled="false"
+        android:exported="true">
+        <intent-filter>
+          <action android:name="android.intent.action.MAIN" />
+          <category android:name="android.intent.category.LAUNCHER" />
+        </intent-filter>
+      </activity-alias>
+
+      <activity-alias
+        android:name=".Month07"
+        android:targetActivity=".MainActivity"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher_07"
+        android:roundIcon="@mipmap/ic_launcher_07_round"
+        android:enabled="false"
+        android:exported="true">
+        <intent-filter>
+          <action android:name="android.intent.action.MAIN" />
+          <category android:name="android.intent.category.LAUNCHER" />
+        </intent-filter>
+      </activity-alias>
+
+      <activity-alias
+        android:name=".Month08"
+        android:targetActivity=".MainActivity"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher_08"
+        android:roundIcon="@mipmap/ic_launcher_08_round"
+        android:enabled="false"
+        android:exported="true">
+        <intent-filter>
+          <action android:name="android.intent.action.MAIN" />
+          <category android:name="android.intent.category.LAUNCHER" />
+        </intent-filter>
+      </activity-alias>
+
+      <activity-alias
+        android:name=".Month09"
+        android:targetActivity=".MainActivity"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher_09"
+        android:roundIcon="@mipmap/ic_launcher_09_round"
+        android:enabled="false"
+        android:exported="true">
+        <intent-filter>
+          <action android:name="android.intent.action.MAIN" />
+          <category android:name="android.intent.category.LAUNCHER" />
+        </intent-filter>
+      </activity-alias>
+
+      <activity-alias
+        android:name=".Month10"
+        android:targetActivity=".MainActivity"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher_10"
+        android:roundIcon="@mipmap/ic_launcher_10_round"
+        android:enabled="false"
+        android:exported="true">
+        <intent-filter>
+          <action android:name="android.intent.action.MAIN" />
+          <category android:name="android.intent.category.LAUNCHER" />
+        </intent-filter>
+      </activity-alias>
+
+      <activity-alias
+        android:name=".Month11"
+        android:targetActivity=".MainActivity"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher_11"
+        android:roundIcon="@mipmap/ic_launcher_11_round"
+        android:enabled="false"
+        android:exported="true">
+        <intent-filter>
+          <action android:name="android.intent.action.MAIN" />
+          <category android:name="android.intent.category.LAUNCHER" />
+        </intent-filter>
+      </activity-alias>
+
+      <activity-alias
+        android:name=".Month12"
+        android:targetActivity=".MainActivity"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher_12"
+        android:roundIcon="@mipmap/ic_launcher_12_round"
+        android:enabled="false"
+        android:exported="true">
+        <intent-filter>
+          <action android:name="android.intent.action.MAIN" />
+          <category android:name="android.intent.category.LAUNCHER" />
+        </intent-filter>
+      </activity-alias>
     </application>
 </manifest>

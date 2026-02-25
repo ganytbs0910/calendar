@@ -17,6 +17,16 @@ export const lightColors = {
   overlay: 'rgba(0, 0, 0, 0.4)',
   inputBackground: '#f0f0f0',
   delete: '#FF3B30',
+  errorBackground: '#FFF3F3',
+  onPrimary: '#ffffff',
+  onEvent: '#ffffff',
+  pickerHighlight: 'rgba(0, 122, 255, 0.05)',
+  pickerText: '#999999',
+  pickerTextSelected: '#000000',
+  currentTimeIndicator: '#FF3B30',
+  disabled: '#cccccc',
+  allDayEvent: '#E8F4FD',
+  allDayEventText: '#007AFF',
 };
 
 export const darkColors = {
@@ -38,6 +48,16 @@ export const darkColors = {
   overlay: 'rgba(0, 0, 0, 0.6)',
   inputBackground: '#2c2c2e',
   delete: '#FF453A',
+  errorBackground: '#3a1c1c',
+  onPrimary: '#ffffff',
+  onEvent: '#ffffff',
+  pickerHighlight: 'rgba(10, 132, 255, 0.1)',
+  pickerText: '#8e8e93',
+  pickerTextSelected: '#ffffff',
+  currentTimeIndicator: '#FF453A',
+  disabled: '#48484a',
+  allDayEvent: '#1c3a4d',
+  allDayEventText: '#0A84FF',
 };
 
 export type ThemeColors = typeof lightColors;

@@ -25,6 +25,9 @@
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
 		8AE8AD823B344F4FA4C33569 /* FontAwesome5_Brands.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 1BC6E42287684A628663BDE5 /* FontAwesome5_Brands.ttf */; };
 		8C6165054F6F44D594A47A2A /* Octicons.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 074CFC655B14406A9BB215F7 /* Octicons.ttf */; };
+		AA10B1012CA456740066BB01 /* AppIconManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA10A1012CA456740066BB01 /* AppIconManager.swift */; };
+		AA10B1022CA456740066BB02 /* AppIconManager.m in Sources */ = {isa = PBXBuildFile; fileRef = AA10A1022CA456740066BB02 /* AppIconManager.m */; };
+		AA10B1032CA456740066BB03 /* MonthIcons in Resources */ = {isa = PBXBuildFile; fileRef = AA10A1032CA456740066BB03 /* MonthIcons */; };
 		B2209027911240689AD8675F /* SimpleLineIcons.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A57D34C1DD9F4AE69F89A4F6 /* SimpleLineIcons.ttf */; };
 		B650B2B90B2A4F5E9D175C9B /* AntDesign.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 47186AB2ACC54C719179E9A3 /* AntDesign.ttf */; };
 		C1E015E3B8174E54B8DD9FCF /* Fontisto.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 90CC9F33A69E4942B55B3D6E /* Fontisto.ttf */; };
@@ -88,6 +91,9 @@
 		A57D34C1DD9F4AE69F89A4F6 /* SimpleLineIcons.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = SimpleLineIcons.ttf; path = "../node_modules/react-native-vector-icons/Fonts/SimpleLineIcons.ttf"; sourceTree = "<group>"; };
 		A91D77059439405A8F870506 /* FontAwesome5_Regular.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = FontAwesome5_Regular.ttf; path = "../node_modules/react-native-vector-icons/Fonts/FontAwesome5_Regular.ttf"; sourceTree = "<group>"; };
 		A98186D3382B46C18DC90AED /* FontAwesome5_Solid.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = FontAwesome5_Solid.ttf; path = "../node_modules/react-native-vector-icons/Fonts/FontAwesome5_Solid.ttf"; sourceTree = "<group>"; };
+		AA10A1012CA456740066BB01 /* AppIconManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppIconManager.swift; path = CalendarApp/AppIconManager.swift; sourceTree = "<group>"; };
+		AA10A1022CA456740066BB02 /* AppIconManager.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = AppIconManager.m; path = CalendarApp/AppIconManager.m; sourceTree = "<group>"; };
+		AA10A1032CA456740066BB03 /* MonthIcons */ = {isa = PBXFileReference; lastKnownFileType = folder; name = MonthIcons; path = CalendarApp/MonthIcons; sourceTree = "<group>"; };
 		B17D4FA672D34421A8D77CC8 /* Ionicons.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = Ionicons.ttf; path = "../node_modules/react-native-vector-icons/Fonts/Ionicons.ttf"; sourceTree = "<group>"; };
 		C13411FB2DA64E6E95DEED98 /* Zocial.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = Zocial.ttf; path = "../node_modules/react-native-vector-icons/Fonts/Zocial.ttf"; sourceTree = "<group>"; };
 		C84B05B2A4414B109CD2AD5A /* Foundation.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = Foundation.ttf; path = "../node_modules/react-native-vector-icons/Fonts/Foundation.ttf"; sourceTree = "<group>"; };
@@ -130,6 +136,9 @@
 			children = (
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				761780EC2CA45674006654EE /* AppDelegate.swift */,
+				AA10A1012CA456740066BB01 /* AppIconManager.swift */,
+				AA10A1022CA456740066BB02 /* AppIconManager.m */,
+				AA10A1032CA456740066BB03 /* MonthIcons */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */,
 				13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */,
@@ -334,6 +343,7 @@
 				B2209027911240689AD8675F /* SimpleLineIcons.ttf in Resources */,
 				FECEFA682C094B9BA9D0FA73 /* FontAwesome6_Brands.ttf in Resources */,
 				0E1D0D7152584FE8846D873C /* MaterialIcons.ttf in Resources */,
+				AA10B1032CA456740066BB03 /* MonthIcons in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -440,6 +450,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				761780ED2CA45674006654EE /* AppDelegate.swift in Sources */,
+				AA10B1012CA456740066BB01 /* AppIconManager.swift in Sources */,
+				AA10B1022CA456740066BB02 /* AppIconManager.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

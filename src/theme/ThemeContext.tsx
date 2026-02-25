@@ -31,12 +31,12 @@ export const ThemeProvider: React.FC<{children: React.ReactNode}> = ({children})
       if (saved === 'light' || saved === 'dark' || saved === 'system') {
         setThemeModeState(saved);
       }
-    });
+    }).catch(() => {});
   }, []);
 
   const setThemeMode = (mode: ThemeMode) => {
     setThemeModeState(mode);
-    AsyncStorage.setItem(THEME_STORAGE_KEY, mode);
+    AsyncStorage.setItem(THEME_STORAGE_KEY, mode).catch(() => {});
   };
 
   const isDark = useMemo(() => {

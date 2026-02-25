@@ -11,13 +11,16 @@ import {
   TextInput,
   FlatList,
   ScrollView,
+  NativeModules,
+  Platform,
 } from 'react-native';
 import {SafeAreaProvider, SafeAreaView} from 'react-native-safe-area-context';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
 import Calendar, {CalendarRef} from './src/components/Calendar';
-import WeekView, {WeekViewRef} from './src/components/WeekView';
+import DayView, {DayViewRef} from './src/components/DayView';
 import AddEventModal from './src/components/AddEventModal';
 import EventDetailModal from './src/components/EventDetailModal';
+import TodayTasks from './src/components/TodayTasks';
 import {ThemeProvider, useTheme} from './src/theme/ThemeContext';
 import {
   SmallWidgetPreview,
@@ -29,8 +32,16 @@ import {
   LockScreenInlinePreview,
 } from './src/components/WidgetPreviews';
 import {BannerAd, BannerAdSize, TestIds} from 'react-native-google-mobile-ads';
+import {
+  SleepSettings,
+  getSleepSettings,
+  saveSleepSettings,
+  getDefaultSettings,
+} from './src/services/sleepSettingsService';
 
 const adUnitId = __DEV__ ? TestIds.ADAPTIVE_BANNER : 'ca-app-pub-4317478239934902/3522055335';
+
+const {AppIconManager} = NativeModules;
 
 // Custom Search Icon Component
 const SearchIcon = ({size = 20, color = '#666'}: {size?: number; color?: string}) => {
@@ -108,7 +119,141 @@ const SettingsIcon = ({size = 20, color = '#666'}: {size?: number; color?: strin
   );
 };
 
-type ViewMode = 'month' | 'week';
+type ViewMode = 'month' | 'day';
+
+// Sleep Setup Modal with weekday/weekend tabs
+const SleepSetupModal = ({
+  visible,
+  currentSettings,
+  onSave,
+  onCancel,
+  formatTimeDisplay,
+}: {
+  visible: boolean;
+  currentSettings: SleepSettings | null;
+  onSave: (settings: SleepSettings) => void;
+  onCancel?: () => void;
+  formatTimeDisplay: (h: number, m: number) => string;
+}) => {
+  const [tab, setTab] = useState<'weekday' | 'weekend'>('weekday');
+  const [settings, setSettings] = useState<SleepSettings>(getDefaultSettings());
+
+  // Sync local state when modal opens
+  useEffect(() => {
+    if (visible) {
+      setSettings(currentSettings || getDefaultSettings());
+      setTab('weekday');
+    }
+  }, [visible, currentSettings]);
+
+  const adjust = (type: 'wake' | 'sleep', field: 'hour' | 'minute', delta: number) => {
+    setSettings(prev => {
+      const current = prev[tab];
+      const newDay = {...current};
+      if (type === 'wake') {
+        if (field === 'hour') {
+          newDay.wakeUpHour = (current.wakeUpHour + delta + 24) % 24;
+        } else {
+          newDay.wakeUpMinute = (current.wakeUpMinute + delta + 60) % 60;
+        }
+      } else {
+        if (field === 'hour') {
+          newDay.sleepHour = (current.sleepHour + delta + 25) % 25;
+        } else {
+          newDay.sleepMinute = (current.sleepMinute + delta + 60) % 60;
+        }
+      }
+      return {...prev, [tab]: newDay};
+    });
+  };
+
+  const day = settings[tab];
+
+  return (
+    <Modal visible={visible} animationType="fade" transparent onRequestClose={onCancel}>
+      <View style={styles.sleepSetupOverlay}>
+        <View style={styles.sleepSetupContainer}>
+          <Text style={styles.sleepSetupTitle}>
+            {currentSettings ? '生活リズムの設定' : '生活リズムを教えてください'}
+          </Text>
+          <Text style={styles.sleepSetupSubtitle}>余白時間の計算に使います</Text>
+
+          {/* Tab selector */}
+          <View style={styles.setupTabRow}>
+            <TouchableOpacity
+              style={[styles.setupTab, tab === 'weekday' && styles.setupTabActive]}
+              onPress={() => setTab('weekday')}>
+              <Text style={[styles.setupTabText, tab === 'weekday' && styles.setupTabTextActive]}>平日</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.setupTab, tab === 'weekend' && styles.setupTabActive]}
+              onPress={() => setTab('weekend')}>
+              <Text style={[styles.setupTabText, tab === 'weekend' && styles.setupTabTextActive]}>休日</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Wake up time */}
+          <View style={styles.sleepSetupSection}>
+            <Text style={styles.sleepSetupLabel}>起床時間</Text>
+            <View style={styles.timePickerRow}>
+              <TouchableOpacity style={styles.timeAdjustBtn} onPress={() => adjust('wake', 'hour', -1)}>
+                <Text style={styles.timeAdjustText}>-</Text>
+              </TouchableOpacity>
+              <Text style={styles.timeDisplay}>
+                {formatTimeDisplay(day.wakeUpHour, day.wakeUpMinute)}
+              </Text>
+              <TouchableOpacity style={styles.timeAdjustBtn} onPress={() => adjust('wake', 'hour', 1)}>
+                <Text style={styles.timeAdjustText}>+</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.minuteRow}>
+              <TouchableOpacity onPress={() => adjust('wake', 'minute', -30)}>
+                <Text style={styles.minuteAdjustText}>-30分</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => adjust('wake', 'minute', 30)}>
+                <Text style={styles.minuteAdjustText}>+30分</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Sleep time */}
+          <View style={styles.sleepSetupSection}>
+            <Text style={styles.sleepSetupLabel}>就寝時間</Text>
+            <View style={styles.timePickerRow}>
+              <TouchableOpacity style={styles.timeAdjustBtn} onPress={() => adjust('sleep', 'hour', -1)}>
+                <Text style={styles.timeAdjustText}>-</Text>
+              </TouchableOpacity>
+              <Text style={styles.timeDisplay}>
+                {formatTimeDisplay(day.sleepHour, day.sleepMinute)}
+              </Text>
+              <TouchableOpacity style={styles.timeAdjustBtn} onPress={() => adjust('sleep', 'hour', 1)}>
+                <Text style={styles.timeAdjustText}>+</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.minuteRow}>
+              <TouchableOpacity onPress={() => adjust('sleep', 'minute', -30)}>
+                <Text style={styles.minuteAdjustText}>-30分</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => adjust('sleep', 'minute', 30)}>
+                <Text style={styles.minuteAdjustText}>+30分</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <TouchableOpacity style={styles.sleepSetupSaveBtn} onPress={() => onSave(settings)}>
+            <Text style={styles.sleepSetupSaveBtnText}>保存</Text>
+          </TouchableOpacity>
+
+          {onCancel && (
+            <TouchableOpacity style={styles.sleepSetupCancelBtn} onPress={onCancel}>
+              <Text style={styles.sleepSetupCancelBtnText}>キャンセル</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+};
 
 function AppContent() {
   const {colors, isDark, themeMode, setThemeMode} = useTheme();
@@ -128,9 +273,50 @@ function AppContent() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<CalendarEventReadable[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [showSleepSetup, setShowSleepSetup] = useState(false);
+  const [sleepSettings, setSleepSettings] = useState<SleepSettings | null>(null);
   const calendarRef = useRef<CalendarRef>(null);
-  const weekViewRef = useRef<WeekViewRef>(null);
+  const dayViewRef = useRef<DayViewRef>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Load sleep settings on mount, show setup if not configured
+  useEffect(() => {
+    getSleepSettings().then(settings => {
+      if (settings) {
+        setSleepSettings(settings);
+      } else {
+        setShowSleepSetup(true);
+      }
+    });
+  }, []);
+
+  const handleSaveSleepSettings = useCallback(async (settings: SleepSettings) => {
+    await saveSleepSettings(settings);
+    setSleepSettings(settings);
+    setShowSleepSetup(false);
+  }, []);
+
+  const openSleepSettings = useCallback(() => {
+    setShowSleepSetup(true);
+  }, []);
+
+  const handleSleepSettingsChange = useCallback(async (settings: SleepSettings) => {
+    await saveSleepSettings(settings);
+    setSleepSettings(settings);
+  }, []);
+
+  const formatTimeDisplay = (hour: number, minute: number) => {
+    return `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+  };
+
+  // Cleanup search timer on unmount
+  useEffect(() => {
+    return () => {
+      if (searchTimerRef.current) {
+        clearTimeout(searchTimerRef.current);
+      }
+    };
+  }, []);
 
   // Request calendar permission
   useEffect(() => {
@@ -169,8 +355,7 @@ function AppContent() {
             [{text: 'OK'}],
           );
         }
-      } catch (error) {
-        console.error('Permission error:', error);
+      } catch (_error) {
         Alert.alert(
           'エラー',
           'カレンダーの権限確認中にエラーが発生しました。',
@@ -179,6 +364,28 @@ function AppContent() {
       }
     };
     checkAndRequestPermission();
+  }, []);
+
+  // Update app icon based on current month
+  useEffect(() => {
+    const updateAppIcon = async () => {
+      const month = new Date().getMonth() + 1;
+      const monthStr = String(month).padStart(2, '0');
+      const iconName = `Month${monthStr}`;
+      try {
+        if (Platform.OS === 'ios') {
+          const currentIcon = await AppIconManager.getIcon();
+          if (currentIcon !== iconName) {
+            await AppIconManager.changeIcon(iconName);
+          }
+        } else {
+          await AppIconManager.changeIcon(monthStr);
+        }
+      } catch (_e) {
+        // Icon switch is non-critical, silently ignore
+      }
+    };
+    updateAppIcon();
   }, []);
 
   const handleDateSelect = useCallback((date: Date) => {
@@ -199,7 +406,6 @@ function AppContent() {
     setShowAddModal(true);
   }, []);
 
-  // Handle drag selection from WeekView
   const handleTimeRangeSelect = useCallback((startDate: Date, endDate: Date) => {
     setInitialStartDate(startDate);
     setInitialEndDate(endDate);
@@ -215,7 +421,7 @@ function AppContent() {
 
   const handleEventAdded = useCallback(() => {
     calendarRef.current?.refreshEvents();
-    weekViewRef.current?.refreshEvents();
+    dayViewRef.current?.refreshEvents();
   }, []);
 
   // Handle event tap to directly open edit modal
@@ -248,32 +454,16 @@ function AppContent() {
 
   const handleEventCopied = useCallback(() => {
     calendarRef.current?.refreshEvents();
-    weekViewRef.current?.refreshEvents();
+    dayViewRef.current?.refreshEvents();
   }, []);
 
   const handleEventDeleted = useCallback(() => {
     calendarRef.current?.refreshEvents();
-    weekViewRef.current?.refreshEvents();
+    dayViewRef.current?.refreshEvents();
   }, []);
 
   const toggleViewMode = useCallback(() => {
-    setViewMode(prev => prev === 'month' ? 'week' : 'month');
-  }, []);
-
-  const goToPreviousWeek = useCallback(() => {
-    setCurrentDate(prev => {
-      const newDate = new Date(prev);
-      newDate.setDate(newDate.getDate() - 7);
-      return newDate;
-    });
-  }, []);
-
-  const goToNextWeek = useCallback(() => {
-    setCurrentDate(prev => {
-      const newDate = new Date(prev);
-      newDate.setDate(newDate.getDate() + 7);
-      return newDate;
-    });
+    setViewMode(prev => prev === 'month' ? 'day' : 'month');
   }, []);
 
   const goToToday = useCallback(() => {
@@ -316,8 +506,8 @@ function AppContent() {
       });
 
       setSearchResults(filtered.slice(0, 50)); // Limit to 50 results
-    } catch (error) {
-      console.error('Search error:', error);
+    } catch (_error) {
+      // Search failure is non-critical
     } finally {
       setIsSearching(false);
     }
@@ -344,20 +534,10 @@ function AppContent() {
     handleEventPress(event);
   }, [viewMode, handleEventPress]);
 
-  // Handler for swipe navigation in WeekView
-  const handleWeekChange = useCallback((newDate: Date) => {
+  // Handler for swipe navigation in DayView
+  const handleDayChange = useCallback((newDate: Date) => {
     setCurrentDate(newDate);
   }, []);
-
-  const formatWeekRange = (date: Date) => {
-    // currentDate is always in 1st column, so range is date to (date + 6)
-    const start = new Date(date);
-    const end = new Date(date);
-    end.setDate(end.getDate() + 6);
-
-    const formatDate = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}`;
-    return `${formatDate(start)} - ${formatDate(end)}`;
-  };
 
   const dynamicStyles = {
     container: {
@@ -366,15 +546,6 @@ function AppContent() {
     },
     header: {
       ...styles.header,
-    },
-    weekNavigation: {
-      ...styles.weekNavigation,
-      backgroundColor: colors.surface,
-      borderBottomColor: colors.border,
-    },
-    weekRangeText: {
-      ...styles.weekRangeText,
-      color: colors.text,
     },
   };
 
@@ -410,10 +581,10 @@ function AppContent() {
             <TouchableOpacity
               style={styles.viewToggle}
               onPress={toggleViewMode}
-              accessibilityLabel={viewMode === 'month' ? '週間表示に切り替え' : '月間表示に切り替え'}
+              accessibilityLabel={viewMode === 'month' ? '日間表示に切り替え' : '月間表示に切り替え'}
               accessibilityRole="button">
               <Text style={styles.viewToggleText}>
-                {viewMode === 'month' ? '週間' : '月間'}
+                {viewMode === 'month' ? '月間' : '日間'}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -426,48 +597,33 @@ function AppContent() {
           </View>
         </View>
 
-        {viewMode === 'week' && (
-          <View style={dynamicStyles.weekNavigation}>
-            <TouchableOpacity
-              onPress={goToPreviousWeek}
-              style={styles.navButton}
-              accessibilityLabel="前の週"
-              accessibilityRole="button">
-              <Text style={styles.navButtonText}>{'<'}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={goToToday}
-              style={styles.todayButton}
-              accessibilityLabel="今日に移動"
-              accessibilityRole="button">
-              <Text style={dynamicStyles.weekRangeText}>{formatWeekRange(currentDate)}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={goToNextWeek}
-              style={styles.navButton}
-              accessibilityLabel="次の週"
-              accessibilityRole="button">
-              <Text style={styles.navButtonText}>{'>'}</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
         {viewMode === 'month' ? (
-          <Calendar
-            ref={calendarRef}
-            onDateSelect={handleDateSelect}
-            onDateDoubleSelect={handleDateDoubleSelect}
-            onEventPress={handleEventPress}
-            onDateRangeSelect={handleTimeRangeSelect}
-          />
+            <View style={{flex: 1}}>
+              <View style={{flex: 7}}>
+                <Calendar
+                  ref={calendarRef}
+                  onDateSelect={handleDateSelect}
+                  onDateDoubleSelect={handleDateDoubleSelect}
+                  onEventPress={handleEventPress}
+                  onDateRangeSelect={handleTimeRangeSelect}
+                  hasPermission={hasPermission}
+                />
+              </View>
+              <View style={[styles.divider, {borderTopColor: colors.border}]} />
+              <View style={{flex: 3}}>
+                <TodayTasks />
+              </View>
+            </View>
         ) : (
-          <WeekView
-            ref={weekViewRef}
+          <DayView
+            ref={dayViewRef}
             currentDate={currentDate}
             onTimeRangeSelect={handleTimeRangeSelect}
             onEventPress={handleEventPress}
-            onWeekChange={handleWeekChange}
+            onDayChange={handleDayChange}
             hasPermission={hasPermission}
+            sleepSettings={sleepSettings}
+            onSleepSettingsChange={handleSleepSettingsChange}
           />
         )}
 
@@ -645,6 +801,24 @@ function AppContent() {
                         </View>
                       </View>
 
+                      {/* Sleep Settings */}
+                      <View style={styles.settingsSection}>
+                        <Text style={styles.settingsSectionTitle}>生活リズム</Text>
+                        <TouchableOpacity
+                          style={styles.settingsItem}
+                          onPress={() => {
+                            setShowSettingsModal(false);
+                            setTimeout(() => openSleepSettings(), 300);
+                          }}>
+                          <Text style={styles.settingsItemLabel}>起床・就寝時間</Text>
+                          <Text style={styles.settingsItemLink}>
+                            {sleepSettings
+                              ? `平日 ${formatTimeDisplay(sleepSettings.weekday.wakeUpHour, sleepSettings.weekday.wakeUpMinute)}〜${formatTimeDisplay(sleepSettings.weekday.sleepHour, sleepSettings.weekday.sleepMinute)} / 休日 ${formatTimeDisplay(sleepSettings.weekend.wakeUpHour, sleepSettings.weekend.wakeUpMinute)}〜${formatTimeDisplay(sleepSettings.weekend.sleepHour, sleepSettings.weekend.sleepMinute)}`
+                              : '未設定'} →
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+
                       {/* Calendar Settings */}
                       <View style={styles.settingsSection}>
                         <Text style={styles.settingsSectionTitle}>カレンダー</Text>
@@ -658,7 +832,7 @@ function AppContent() {
                           style={styles.settingsItem}
                           onPress={() => {
                             calendarRef.current?.refreshEvents();
-                            weekViewRef.current?.refreshEvents();
+                            dayViewRef.current?.refreshEvents();
                             Alert.alert('完了', 'カレンダーを更新しました');
                           }}>
                           <Text style={styles.settingsItemLabel}>カレンダーを更新</Text>
@@ -693,7 +867,7 @@ function AppContent() {
                         <Text style={styles.settingsSectionTitle}>アプリについて</Text>
                         <View style={styles.settingsItem}>
                           <Text style={styles.settingsItemLabel}>バージョン</Text>
-                          <Text style={styles.settingsItemValue}>0.0.2</Text>
+                          <Text style={styles.settingsItemValue}>1.5.0</Text>
                         </View>
                         <View style={styles.settingsItem}>
                           <Text style={styles.settingsItemLabel}>ビルド</Text>
@@ -899,6 +1073,15 @@ function AppContent() {
             )}
           </View>
         </Modal>
+
+        {/* Sleep Setup Modal */}
+        <SleepSetupModal
+          visible={showSleepSetup}
+          currentSettings={sleepSettings}
+          onSave={handleSaveSleepSettings}
+          onCancel={sleepSettings ? () => setShowSleepSetup(false) : undefined}
+          formatTimeDisplay={formatTimeDisplay}
+        />
       </SafeAreaView>
       {!__DEV__ && (
         <View style={styles.bannerContainer}>
@@ -976,36 +1159,6 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '300',
     marginTop: -2,
-  },
-  weekNavigation: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-  },
-  navButton: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  navButtonText: {
-    fontSize: 20,
-    color: '#007AFF',
-    fontWeight: '600',
-  },
-  todayButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  weekRangeText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
   },
   // Search Modal styles
   searchModalContainer: {
@@ -1286,9 +1439,131 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#666',
   },
+  divider: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
   bannerContainer: {
     alignItems: 'center',
     backgroundColor: '#f5f5f5',
+  },
+  // Sleep Setup Modal styles
+  sleepSetupOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 30,
+  },
+  sleepSetupContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 24,
+    width: '100%',
+    maxWidth: 340,
+    alignItems: 'center',
+  },
+  sleepSetupTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#333',
+    marginBottom: 4,
+  },
+  sleepSetupSubtitle: {
+    fontSize: 13,
+    color: '#999',
+    marginBottom: 16,
+  },
+  setupTabRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 20,
+  },
+  setupTab: {
+    paddingHorizontal: 20,
+    paddingVertical: 6,
+    borderRadius: 14,
+    backgroundColor: '#f0f0f0',
+  },
+  setupTabActive: {
+    backgroundColor: '#007AFF',
+  },
+  setupTabText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#666',
+  },
+  setupTabTextActive: {
+    color: '#fff',
+  },
+  sleepSetupSection: {
+    width: '100%',
+    marginBottom: 20,
+    alignItems: 'center',
+  },
+  sleepSetupLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: 10,
+  },
+  timePickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  timeAdjustBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#E8F4FD',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  timeAdjustText: {
+    fontSize: 22,
+    fontWeight: '600',
+    color: '#007AFF',
+  },
+  timeDisplay: {
+    fontSize: 36,
+    fontWeight: '700',
+    color: '#333',
+    width: 130,
+    textAlign: 'center',
+    fontVariant: ['tabular-nums'],
+  },
+  minuteRow: {
+    flexDirection: 'row',
+    gap: 20,
+    marginTop: 6,
+  },
+  minuteAdjustText: {
+    fontSize: 13,
+    color: '#007AFF',
+    fontWeight: '500',
+  },
+  sleepSetupSaveBtn: {
+    backgroundColor: '#007AFF',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 40,
+    marginTop: 8,
+    width: '100%',
+    alignItems: 'center',
+  },
+  sleepSetupSaveBtnText: {
+    color: '#fff',
+    fontSize: 17,
+    fontWeight: '600',
+  },
+  sleepSetupCancelBtn: {
+    marginTop: 12,
+    paddingVertical: 8,
+  },
+  sleepSetupCancelBtnText: {
+    color: '#999',
+    fontSize: 15,
   },
 });
 

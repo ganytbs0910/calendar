@@ -39,7 +39,17 @@
       "Bash(fastlane:*)",
       "Bash(brew install:*)",
       "Bash(ls:*)",
-      "Bash(plutil:*)"
+      "Bash(plutil:*)",
+      "Bash(grep:*)",
+      "Bash(./gradlew clean:*)",
+      "Bash(./gradlew assembleRelease:*)",
+      "Bash(find:*)",
+      "Bash(file:*)",
+      "Bash(mdfind:*)",
+      "Bash(node --version:*)",
+      "Bash(ln:*)",
+      "Bash(npx react-native:*)",
+      "Bash(kill 33536:*)"
     ]
   }
 }

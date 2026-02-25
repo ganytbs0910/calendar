@@ -11,6 +11,7 @@ import {
   Modal,
   Animated,
   PanResponder,
+  Vibration,
 } from 'react-native';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
 import {getAllEventColors} from './AddEventModal';
@@ -23,7 +24,7 @@ const SCREEN_WIDTH = Dimensions.get('window').width;
 const DAY_WIDTH = Math.floor((SCREEN_WIDTH - 24) / 7);
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 // Calculate day height to fill screen (subtract header, weekday row, margins, safe area)
-const CALENDAR_AVAILABLE_HEIGHT = SCREEN_HEIGHT - 300;
+const CALENDAR_AVAILABLE_HEIGHT = SCREEN_HEIGHT - 440;
 const EVENT_BAR_HEIGHT = 24; // Height of multi-day event bar
 const DAY_NUMBER_HEIGHT = 20; // Space for day number
 
@@ -38,6 +39,7 @@ interface CalendarProps {
   onDateDoubleSelect?: (date: Date) => void;
   onEventPress?: (event: CalendarEventReadable) => void;
   onDateRangeSelect?: (startDate: Date, endDate: Date) => void;
+  hasPermission?: boolean;
 }
 
 export interface CalendarRef {
@@ -45,12 +47,24 @@ export interface CalendarRef {
   goToToday: () => void;
 }
 
-export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, onDateDoubleSelect, onEventPress, onDateRangeSelect}, ref) => {
+export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, onDateDoubleSelect, onEventPress, onDateRangeSelect, hasPermission: hasPermissionProp}, ref) => {
   const {colors} = useTheme();
-  const today = useMemo(() => new Date(), []);
+  const [today, setToday] = useState(() => new Date());
+
+  // Update 'today' when the date changes (e.g. app stays open past midnight)
+  useEffect(() => {
+    const now = new Date();
+    const msUntilMidnight =
+      new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime() - now.getTime();
+    const timer = setTimeout(() => {
+      setToday(new Date());
+    }, msUntilMidnight + 1000); // 1s after midnight
+    return () => clearTimeout(timer);
+  }, [today]);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [hasPermission, setHasPermission] = useState(false);
+  const [hasPermissionInternal, setHasPermissionInternal] = useState(false);
+  const hasPermission = hasPermissionProp ?? hasPermissionInternal;
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Cache version - increment to trigger re-render when cache updates
@@ -74,17 +88,39 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
   const calendarDaysRef = useRef<Array<{day: number; date: Date | null; isCurrentMonth: boolean}>>([]);
   const numberOfWeeksRef = useRef(5);
 
+  const [isSaving, setIsSaving] = useState(false);
+  const isSavingRef = useRef(false);
+
+  // Event drag-and-drop state
+  const [draggingEvent, setDraggingEvent] = useState<{
+    event: CalendarEventReadable;
+    originalDate: Date;
+    currentDate: Date;
+  } | null>(null);
+  const draggingEventRef = useRef<{
+    event: CalendarEventReadable;
+    originalDate: Date;
+    currentDate: Date;
+  } | null>(null);
+  const dragModeRef = useRef<'dateRange' | 'moveEvent' | null>(null);
+
   // Swipe gesture for month navigation and drag selection
   const currentDateRef = useRef(currentDate);
   const isDraggingRef = useRef(false);
   const dragStartDateRef = useRef<Date | null>(null);
+  const dragEndDateRef = useRef<Date | null>(null);
   const onDateRangeSelectRef = useRef(onDateRangeSelect);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const fetchEventsRef = useRef<(forceRefresh?: boolean) => void>(() => {});
+  const getMonthKeyRef = useRef<(year: number, month: number) => string>((y, m) => `${y}-${m}`);
+  const dayHeightRef = useRef(Math.floor(CALENDAR_AVAILABLE_HEIGHT / 5));
+
   useEffect(() => { currentDateRef.current = currentDate; }, [currentDate]);
   useEffect(() => { onDateRangeSelectRef.current = onDateRangeSelect; }, [onDateRangeSelect]);
+  useEffect(() => { dragEndDateRef.current = dragEndDate; }, [dragEndDate]);
 
-  // Get date from touch position
+  // Get date from touch position (uses ref to avoid stale closure)
   const getDateFromPosition = useCallback((pageX: number, pageY: number): Date | null => {
     const layout = gridLayoutRef.current;
     if (!layout) return null;
@@ -95,7 +131,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
     if (x < 0 || y < 0 || x > layout.width || y > layout.height) return null;
 
     const dayIndex = Math.floor(x / DAY_WIDTH);
-    const weekIndex = Math.floor(y / dayHeight);
+    const weekIndex = Math.floor(y / dayHeightRef.current);
     const cellIndex = weekIndex * 7 + dayIndex;
 
     const days = calendarDaysRef.current;
@@ -103,7 +139,42 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       return days[cellIndex].date;
     }
     return null;
-  }, [dayHeight]);
+  }, []);
+
+  // Handle long press on an event to start drag-and-drop move
+  const handleEventLongPress = useCallback((event: CalendarEventReadable, date: Date) => {
+    if (!event.startDate || !event.endDate) return;
+
+    // Skip all-day and multi-day events
+    if (event.allDay) return;
+    const eventStart = new Date(event.startDate);
+    const eventEnd = new Date(event.endDate);
+    const startDay = new Date(eventStart);
+    startDay.setHours(0, 0, 0, 0);
+    const endDay = new Date(eventEnd);
+    endDay.setHours(0, 0, 0, 0);
+    if (startDay.getTime() !== endDay.getTime()) return;
+
+    Vibration.vibrate(50);
+
+    const dragData = {
+      event,
+      originalDate: date,
+      currentDate: date,
+    };
+
+    draggingEventRef.current = dragData;
+    dragModeRef.current = 'moveEvent';
+    isDraggingRef.current = true;
+    setDraggingEvent(dragData);
+    setIsDragging(true);
+
+    // Cancel any pending long press timer for date range selection
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }, []);
 
   const panResponder = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => true,
@@ -111,6 +182,11 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       return Math.abs(gestureState.dx) > 5 || isDraggingRef.current;
     },
     onPanResponderGrant: (evt) => {
+      // If already in moveEvent mode (started by event onLongPress), skip date-range setup
+      if (dragModeRef.current === 'moveEvent') return;
+      // Don't start new interactions while saving
+      if (isSavingRef.current) return;
+
       const startPageX = evt.nativeEvent.pageX;
       const startPageY = evt.nativeEvent.pageY;
       isDraggingRef.current = false;
@@ -120,6 +196,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
         const date = getDateFromPosition(startPageX, startPageY);
         if (date) {
           isDraggingRef.current = true;
+          dragModeRef.current = 'dateRange';
           dragStartDateRef.current = date;
           setDragStartDate(date);
           setDragEndDate(date);
@@ -136,8 +213,22 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
         }
       }
 
+      // If dragging an event to move it
+      if (isDraggingRef.current && dragModeRef.current === 'moveEvent' && draggingEventRef.current) {
+        const date = getDateFromPosition(evt.nativeEvent.pageX, evt.nativeEvent.pageY);
+        if (date) {
+          const prev = draggingEventRef.current.currentDate;
+          if (prev.getTime() !== date.getTime()) {
+            Vibration.vibrate(30);
+          }
+          draggingEventRef.current = {...draggingEventRef.current, currentDate: date};
+          setDraggingEvent({...draggingEventRef.current});
+        }
+        return;
+      }
+
       // If dragging for date selection, update end date
-      if (isDraggingRef.current) {
+      if (isDraggingRef.current && dragModeRef.current === 'dateRange') {
         const date = getDateFromPosition(evt.nativeEvent.pageX, evt.nativeEvent.pageY);
         if (date) {
           setDragEndDate(date);
@@ -152,10 +243,69 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
         longPressTimer.current = null;
       }
 
+      // If was dragging an event to move it
+      if (dragModeRef.current === 'moveEvent' && draggingEventRef.current) {
+        const {event: originalEvent, originalDate, currentDate: targetDate} = draggingEventRef.current;
+
+        // Clean up drag state
+        draggingEventRef.current = null;
+        dragModeRef.current = null;
+        isDraggingRef.current = false;
+        setDraggingEvent(null);
+        setIsDragging(false);
+
+        // Only save if date actually changed
+        const origDay = new Date(originalDate);
+        origDay.setHours(0, 0, 0, 0);
+        const targetDay = new Date(targetDate);
+        targetDay.setHours(0, 0, 0, 0);
+        if (origDay.getTime() === targetDay.getTime()) return;
+
+        // Prevent concurrent saves
+        if (isSavingRef.current) return;
+        isSavingRef.current = true;
+
+        // Calculate new start/end preserving original time
+        const eventStart = new Date(originalEvent.startDate!);
+        const eventEnd = new Date(originalEvent.endDate!);
+        const dayDiff = targetDay.getTime() - origDay.getTime();
+        const newStartDate = new Date(eventStart.getTime() + dayDiff);
+        const newEndDate = new Date(eventEnd.getTime() + dayDiff);
+
+        RNCalendarEvents.saveEvent(originalEvent.title || '', {
+          id: originalEvent.id,
+          calendarId: originalEvent.calendar?.id,
+          startDate: newStartDate.toISOString(),
+          endDate: newEndDate.toISOString(),
+          allDay: originalEvent.allDay,
+          location: originalEvent.location,
+          notes: originalEvent.notes,
+          url: originalEvent.url,
+          alarms: originalEvent.alarms,
+        }).then(() => {
+          // Refresh events cache for current month
+          const cacheKey = getMonthKeyRef.current(currentDateRef.current.getFullYear(), currentDateRef.current.getMonth());
+          eventsCache.current.delete(cacheKey);
+          fetchEventsRef.current(true);
+        }).catch((_err: unknown) => {
+          Alert.alert(
+            '更新エラー',
+            '予定の移動に失敗しました。もう一度お試しください。',
+            [{text: 'OK'}],
+          );
+          const cacheKey = getMonthKeyRef.current(currentDateRef.current.getFullYear(), currentDateRef.current.getMonth());
+          eventsCache.current.delete(cacheKey);
+          fetchEventsRef.current(true);
+        }).finally(() => {
+          isSavingRef.current = false;
+        });
+        return;
+      }
+
       // If was dragging for date selection, call onDateRangeSelect
       if (isDraggingRef.current && dragStartDateRef.current) {
         const startDate = dragStartDateRef.current;
-        const endDate = dragEndDate || startDate;
+        const endDate = dragEndDateRef.current || startDate;
 
         const [finalStart, finalEnd] = startDate <= endDate
           ? [startDate, endDate]
@@ -173,10 +323,11 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
         setIsDragging(false);
         isDraggingRef.current = false;
         dragStartDateRef.current = null;
+        dragEndDateRef.current = null;
         return;
       }
 
-      // Swipe to change month
+      // Swipe to change month (left swipe = next month, right swipe = previous month)
       const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.2;
       if (Math.abs(gestureState.dx) > SWIPE_THRESHOLD && Math.abs(gestureState.dx) > Math.abs(gestureState.dy)) {
         const current = currentDateRef.current;
@@ -197,6 +348,11 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       setIsDragging(false);
       isDraggingRef.current = false;
       dragStartDateRef.current = null;
+      dragEndDateRef.current = null;
+      // Clear event drag state
+      draggingEventRef.current = null;
+      dragModeRef.current = null;
+      setDraggingEvent(null);
     },
   }), [getDateFromPosition]);
 
@@ -217,31 +373,27 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
   const currentYear = currentDate.getFullYear();
   const currentMonth = currentDate.getMonth();
 
-  // Request calendar permission
+  // Request calendar permission (only if not provided via prop)
   useEffect(() => {
+    if (hasPermissionProp !== undefined) return;
     const requestPermission = async () => {
       try {
         const status = await RNCalendarEvents.requestPermissions();
         if (status === 'authorized' || (status as string) === 'fullAccess') {
-          setHasPermission(true);
-        } else {
-          Alert.alert(
-            'カレンダーへのアクセス',
-            'カレンダーの予定を表示するには、設定でアクセスを許可してください。',
-          );
+          setHasPermissionInternal(true);
         }
-      } catch (err) {
-        console.error('Permission error:', err);
+      } catch (_err) {
+        // Permission request failed, non-critical
       }
     };
     requestPermission();
-  }, []);
+  }, [hasPermissionProp]);
 
   // Fetch weather data on mount
   useEffect(() => {
     fetchWeather()
       .then(data => setWeatherData(data))
-      .catch(err => console.error('Weather fetch failed:', err));
+      .catch(() => {});
   }, []);
 
   // Helper to get cache key for a month
@@ -272,9 +424,21 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       endDate.toISOString(),
     );
 
+    // Filter out holiday/subscription calendar events (e.g. 日本の祝日)
+    const filteredEvents = calendarEvents.filter(event => {
+      const cal = event.calendar;
+      if (!cal) return true;
+      // Filter by calendar title (holiday calendars)
+      const title = (cal.title || '').toLowerCase();
+      if (title.includes('祝日') || title.includes('holiday') || title.includes('holidays')) return false;
+      // Filter by read-only subscription calendars
+      if (cal.allowsModifications === false && event.allDay) return false;
+      return true;
+    });
+
     // Store in cache
-    eventsCache.current.set(cacheKey, calendarEvents);
-    return calendarEvents;
+    eventsCache.current.set(cacheKey, filteredEvents);
+    return filteredEvents;
   }, [getMonthKey]);
 
   // Prefetch multiple months around the given month
@@ -304,13 +468,10 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       }
     }
 
-    console.log(`[prefetchMonths] Months to prefetch:`, monthsToFetch.map(m => `${m.year}-${m.month + 1}`));
-
     if (monthsToFetch.length > 0) {
       await Promise.all(
         monthsToFetch.map(({year: y, month: m}) => fetchMonthEvents(y, m))
       );
-      console.log(`[prefetchMonths] Prefetch complete. Cache keys:`, Array.from(eventsCache.current.keys()));
     }
   }, [hasPermission, fetchMonthEvents, getMonthKey]);
 
@@ -366,14 +527,17 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       // Prefetch adjacent months and WAIT for completion
       await prefetchMonths(currentYear, currentMonth, 3);
       initialLoadComplete.current = true;
-    } catch (err) {
-      console.error('Error fetching events:', err);
+    } catch (_err) {
       setError('予定の読み込みに失敗しました');
     } finally {
       setIsLoading(false);
       isFetching.current = false;
     }
   }, [hasPermission, currentYear, currentMonth, getMonthKey, fetchMonthEvents, prefetchMonths]);
+
+  // Keep refs in sync for PanResponder callbacks
+  useEffect(() => { fetchEventsRef.current = fetchEvents; }, [fetchEvents]);
+  useEffect(() => { getMonthKeyRef.current = getMonthKey; }, [getMonthKey]);
 
   // Run fetchEvents whenever month changes
   useEffect(() => {
@@ -458,6 +622,9 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
   const dayHeight = useMemo(() => {
     return Math.floor(CALENDAR_AVAILABLE_HEIGHT / numberOfWeeks);
   }, [numberOfWeeks]);
+
+  // Keep dayHeightRef in sync
+  useEffect(() => { dayHeightRef.current = dayHeight; }, [dayHeight]);
 
   // Update refs for drag selection
   useEffect(() => {
@@ -776,7 +943,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
   }, [dayEventsDate, currentMonth, currentYear]);
 
   return (
-    <ScrollView style={styles.scrollView}>
+    <View style={styles.scrollView}>
       <View style={[styles.container, {backgroundColor: colors.surface}]}>
         {/* Header */}
         <View style={styles.header}>
@@ -815,7 +982,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
 
         {/* Error display */}
         {error && (
-          <TouchableOpacity style={[styles.errorContainer, {borderColor: colors.error}]} onPress={() => fetchEvents(true)}>
+          <TouchableOpacity style={[styles.errorContainer, {backgroundColor: colors.errorBackground, borderColor: colors.error}]} onPress={() => fetchEvents(true)}>
             <Text style={[styles.errorText, {color: colors.error}]}>{error}</Text>
             <Text style={[styles.retryText, {color: colors.textSecondary}]}>タップして再読み込み</Text>
           </TouchableOpacity>
@@ -867,18 +1034,37 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                       }
 
                       const dayEvents = getEventsForDate(item.date);
-                      // Filter: only show timed events (not all-day), single-day only
+                      // Separate allDay/multi-day events from timed single-day events
+                      const allDayEvents = dayEvents.filter(e => {
+                        if (!e.startDate || !e.endDate) return false;
+                        if (e.allDay) return true;
+                        const start = new Date(e.startDate);
+                        const end = new Date(e.endDate);
+                        start.setHours(0, 0, 0, 0);
+                        end.setHours(0, 0, 0, 0);
+                        return start.getTime() !== end.getTime(); // multi-day
+                      });
                       const singleDayEvents = dayEvents.filter(e => {
                         if (!e.startDate || !e.endDate) return false;
-                        if (e.allDay) return false; // Hide all-day events (holidays etc)
+                        if (e.allDay) return false;
                         const start = new Date(e.startDate);
                         const end = new Date(e.endDate);
                         start.setHours(0, 0, 0, 0);
                         end.setHours(0, 0, 0, 0);
                         return start.getTime() === end.getTime();
                       });
+                      const totalEvents = allDayEvents.length + singleDayEvents.length;
 
                       const inDragRange = item.date && isInDragRange(item.date);
+                      const isEventDragTarget = draggingEvent && item.date &&
+                        draggingEvent.currentDate.getFullYear() === item.date.getFullYear() &&
+                        draggingEvent.currentDate.getMonth() === item.date.getMonth() &&
+                        draggingEvent.currentDate.getDate() === item.date.getDate() &&
+                        draggingEvent.originalDate.getTime() !== draggingEvent.currentDate.getTime();
+                      const isEventDragSource = draggingEvent && item.date &&
+                        draggingEvent.originalDate.getFullYear() === item.date.getFullYear() &&
+                        draggingEvent.originalDate.getMonth() === item.date.getMonth() &&
+                        draggingEvent.originalDate.getDate() === item.date.getDate();
 
                       return (
                         <TouchableOpacity
@@ -889,6 +1075,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                             isToday(item.date) && {backgroundColor: colors.today},
                             isSelected(item.date) && {backgroundColor: colors.selected, borderColor: colors.primary},
                             inDragRange && {backgroundColor: colors.dragRange},
+                            isEventDragTarget && {backgroundColor: colors.dragRange},
                           ]}
                           onPress={() => handleDateSelect(item.date!)}
                           accessibilityRole="button">
@@ -916,31 +1103,71 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                               </View>
                             );
                           })()}
-                          {/* Single-day events (max 2) */}
-                          {singleDayEvents.length > 0 && (
+                          {/* Events in cell */}
+                          {totalEvents > 0 && (
                             <View style={styles.singleDayEventsContainer}>
-                              {singleDayEvents.slice(0, 2).map(event => (
+                              {/* All-day / multi-day events */}
+                              {allDayEvents.slice(0, 2).map(event => (
+                                <TouchableOpacity
+                                  key={event.id}
+                                  style={[
+                                    styles.allDayEventBox,
+                                    {backgroundColor: colors.allDayEvent},
+                                  ]}
+                                  onPress={() => onEventPress?.(event)}>
+                                  <Text style={[styles.allDayEventTitle, {color: event.calendar?.color || colors.allDayEventText}]} numberOfLines={1}>
+                                    {event.title}
+                                  </Text>
+                                </TouchableOpacity>
+                              ))}
+                              {/* Single-day timed events */}
+                              {singleDayEvents.slice(0, Math.max(0, 2 - allDayEvents.length)).map(event => {
+                                const isDraggedEvent = isEventDragSource && draggingEvent?.event.id === event.id;
+                                return (
                                 <TouchableOpacity
                                   key={event.id}
                                   style={[
                                     styles.singleDayEventBox,
                                     {backgroundColor: (event.id && eventColors[event.id]) || event.calendar?.color || colors.primary},
+                                    isDraggedEvent && {opacity: 0.3},
                                   ]}
-                                  onPress={() => onEventPress?.(event)}>
-                                  <Text style={styles.singleDayEventTime}>
+                                  onPress={() => onEventPress?.(event)}
+                                  onLongPress={() => handleEventLongPress(event, item.date!)}
+                                  delayLongPress={200}>
+                                  <Text style={[styles.singleDayEventTime, {color: colors.onEvent}]}>
                                     {event.startDate && formatTimeCompact(event.startDate)}
                                   </Text>
-                                  <Text style={styles.singleDayEventTime}>
+                                  <Text style={[styles.singleDayEventTime, {color: colors.onEvent}]}>
                                     {event.endDate && formatTimeCompact(event.endDate)}
                                   </Text>
-                                  <Text style={styles.singleDayEventTitle} numberOfLines={1}>
+                                  <Text style={[styles.singleDayEventTitle, {color: colors.onEvent}]} numberOfLines={1}>
                                     {event.title}
                                   </Text>
-                                </TouchableOpacity>
-                              ))}
-                              {singleDayEvents.length > 2 && (
-                                <Text style={[styles.cellEventMore, {color: colors.textSecondary}]}>+{singleDayEvents.length - 2}</Text>
+                                </TouchableOpacity>);
+                              })}
+                              {totalEvents > 2 && (
+                                <Text style={[styles.cellEventMore, {color: colors.textSecondary}]}>+{totalEvents - 2}</Text>
                               )}
+                            </View>
+                          )}
+                          {/* Drag preview in target cell */}
+                          {isEventDragTarget && draggingEvent && (
+                            <View style={styles.singleDayEventsContainer}>
+                              <View
+                                style={[
+                                  styles.singleDayEventBox,
+                                  {
+                                    backgroundColor: (draggingEvent.event.id && eventColors[draggingEvent.event.id]) || draggingEvent.event.calendar?.color || colors.primary,
+                                    opacity: 0.5,
+                                  },
+                                ]}>
+                                <Text style={styles.singleDayEventTime}>
+                                  {draggingEvent.event.startDate && formatTimeCompact(draggingEvent.event.startDate)}
+                                </Text>
+                                <Text style={styles.singleDayEventTitle} numberOfLines={1}>
+                                  {draggingEvent.event.title}
+                                </Text>
+                              </View>
                             </View>
                           )}
                         </TouchableOpacity>
@@ -1069,8 +1296,8 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                           const cacheKey = getMonthKey(currentYear, currentMonth);
                           eventsCache.current.delete(cacheKey);
                           fetchEvents(true);
-                        } catch (err) {
-                          console.error('Error deleting event:', err);
+                        } catch (_err) {
+                          // Deletion failed silently
                         }
                       }}>
                       <Text style={[styles.bottomSheetDeleteButtonText, {color: colors.error}]}>×</Text>
@@ -1082,7 +1309,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
           </Animated.View>
         </View>
       </Modal>
-    </ScrollView>
+    </View>
   );
 });
 
@@ -1094,7 +1321,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     paddingHorizontal: 12,
     paddingTop: 8,
-    flex: 1,
   },
   header: {
     flexDirection: 'row',
@@ -1250,6 +1476,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#fff',
     fontWeight: '600',
+  },
+  // All-day event styles
+  allDayEventBox: {
+    borderRadius: 3,
+    paddingVertical: 1,
+    paddingHorizontal: 3,
+    width: '100%',
+  },
+  allDayEventTitle: {
+    fontSize: 9,
+    fontWeight: '600',
+    lineHeight: 12,
   },
   // Single-day event styles
   singleDayEventsContainer: {

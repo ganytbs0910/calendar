@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import {CalendarEventReadable} from 'react-native-calendar-events';
 import RNCalendarEvents from 'react-native-calendar-events';
+import {getEventColor, setEventColor} from './AddEventModal';
 import {useTheme} from '../theme/ThemeContext';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -93,8 +94,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
               await RNCalendarEvents.removeEvent(event.id!);
               onClose();
               onDeleted();
-            } catch (error) {
-              console.error('Error deleting event:', error);
+            } catch (_error) {
               Alert.alert('エラー', '予定の削除に失敗しました');
             }
           },
@@ -144,25 +144,31 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
       }
       const defaultCalendar = writableCalendars.find(cal => cal.isPrimary) || writableCalendars[0];
 
+      // Get original event's custom color
+      const originalColor = event.id ? await getEventColor(event.id) : null;
+
       for (const targetDate of selectedDates) {
         const newStart = new Date(targetDate);
         newStart.setHours(originalStart.getHours(), originalStart.getMinutes(), 0, 0);
         const newEnd = new Date(newStart.getTime() + durationMs);
 
-        await RNCalendarEvents.saveEvent(event.title || '(タイトルなし)', {
+        const newEventId = await RNCalendarEvents.saveEvent(event.title || '(タイトルなし)', {
           calendarId: defaultCalendar.id,
           startDate: newStart.toISOString(),
           endDate: newEnd.toISOString(),
           allDay: event.allDay || false,
         });
+        // Preserve custom color for copied event
+        if (newEventId && originalColor) {
+          await setEventColor(newEventId, originalColor);
+        }
       }
 
       setShowCopyCalendar(false);
       setSelectedDates([]);
       onClose();
       onCopied();
-    } catch (error) {
-      console.error('Error copying event:', error);
+    } catch (_error) {
       Alert.alert('エラー', '予定のコピーに失敗しました');
     }
   }, [event, selectedDates, onClose, onCopied]);
@@ -318,7 +324,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
             onPress={handleShowCopyCalendar}
             accessibilityLabel="別の日にコピー"
             accessibilityRole="button">
-            <Text style={styles.copyButtonText}>別の日にコピー</Text>
+            <Text style={[styles.copyButtonText, {color: colors.onPrimary}]}>別の日にコピー</Text>
           </TouchableOpacity>
 
           {/* Copy Calendar Modal */}
@@ -340,7 +346,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
                     <Text style={[
                       styles.copyModalDone,
                       {color: colors.primary},
-                      selectedDates.length === 0 && styles.copyModalDoneDisabled,
+                      selectedDates.length === 0 && {color: colors.disabled},
                     ]}>
                       コピー{selectedDates.length > 0 ? `(${selectedDates.length})` : ''}
                     </Text>

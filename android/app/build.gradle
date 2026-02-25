@@ -2,6 +2,13 @@ apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
+// Load keystore credentials from keystore.properties (not committed to VCS)
+def keystorePropertiesFile = rootProject.file("keystore.properties")
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
 /**
  * This is the configuration block to customize your React Native Android app.
  * By default you don't need to apply any configuration, just uncomment the lines you need.
@@ -77,13 +84,13 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace "com.calendarapp"
+    namespace "com.calenderappGan"
     defaultConfig {
-        applicationId "com.calendarapp"
+        applicationId "com.calenderappGan"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 3
-        versionName "1.2"
+        versionCode 6
+        versionName "1.5"
     }
     signingConfigs {
         debug {
@@ -94,9 +101,9 @@ android {
         }
         release {
             storeFile file('release.keystore')
-            storePassword 'calendarapp123'
-            keyAlias 'calendarapp'
-            keyPassword 'calendarapp123'
+            storePassword keystoreProperties['RELEASE_STORE_PASSWORD'] ?: ''
+            keyAlias keystoreProperties['RELEASE_KEY_ALIAS'] ?: ''
+            keyPassword keystoreProperties['RELEASE_KEY_PASSWORD'] ?: ''
         }
     }
     buildTypes {

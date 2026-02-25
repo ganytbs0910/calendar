@@ -61,6 +61,7 @@ async function getCurrentPosition(): Promise<{latitude: number; longitude: numbe
     // Use the global navigator.geolocation (React Native provides this)
     const geo = (navigator as any)?.geolocation;
     if (!geo) {
+      console.warn('Geolocation not available, using default location (Tokyo)');
       resolve({latitude: DEFAULT_LAT, longitude: DEFAULT_LON});
       return;
     }
@@ -72,8 +73,8 @@ async function getCurrentPosition(): Promise<{latitude: number; longitude: numbe
           longitude: position.coords.longitude,
         });
       },
-      () => {
-        // On error, fall back to Tokyo
+      (error: any) => {
+        console.warn('Geolocation failed, using default location (Tokyo):', error?.message || error);
         resolve({latitude: DEFAULT_LAT, longitude: DEFAULT_LON});
       },
       {enableHighAccuracy: false, timeout: 5000, maximumAge: 60000},
@@ -115,8 +116,7 @@ export async function fetchWeather(): Promise<Map<string, WeatherDay>> {
     // Update cache
     cache = {data: result, timestamp: Date.now()};
     return result;
-  } catch (error) {
-    console.error('Weather fetch error:', error);
+  } catch (_error) {
     // Return cached data if available, otherwise empty
     return cache?.data || new Map();
   }
