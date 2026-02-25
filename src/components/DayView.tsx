@@ -1650,7 +1650,12 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                           {item.title}
                         </Text>
                         <Text style={[styles.flowEventTime, {color: colors.onEvent}]}>
-                          {formatMinutes(item.startMinutes)}〜{formatMinutes(item.endMinutes)}
+                          {formatMinutes(item.startMinutes)}〜{formatMinutes(item.endMinutes)}  {(() => {
+                            const dur = item.endMinutes - item.startMinutes;
+                            const h = Math.floor(dur / 60);
+                            const m = dur % 60;
+                            return h > 0 && m > 0 ? `${h}時間${m}分` : h > 0 ? `${h}時間` : `${m}分`;
+                          })()}
                         </Text>
                         {item.location ? (
                           <Text style={[styles.flowEventLocation, {color: colors.onEvent}]} numberOfLines={1}>
@@ -1686,7 +1691,12 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                           {item.title}
                         </Text>
                         <Text style={[styles.flowTaskTime, {color: colors.textSecondary}]}>
-                          {formatMinutes(item.startMinutes)}〜{formatMinutes(item.endMinutes)}
+                          {formatMinutes(item.startMinutes)}〜{formatMinutes(item.endMinutes)}  {(() => {
+                            const dur = item.endMinutes - item.startMinutes;
+                            const h = Math.floor(dur / 60);
+                            const m = dur % 60;
+                            return h > 0 && m > 0 ? `${h}時間${m}分` : h > 0 ? `${h}時間` : `${m}分`;
+                          })()}
                         </Text>
                       </TouchableOpacity>
                     );
@@ -1830,22 +1840,6 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                       <View style={{flex: 1}} />
                     </View>
                   ))}
-                  {isTodayDate && nowMinutes >= segment.startMin && nowMinutes < segment.endMin && (() => {
-                    const remaining = sleepMinVal - nowMinutes;
-                    if (remaining <= 0) return null;
-                    const h = Math.floor(remaining / 60);
-                    const m = remaining % 60;
-                    const label = h > 0 && m > 0 ? `${h}時間${m}分` : h > 0 ? `${h}時間` : `${m}分`;
-                    return (
-                      <View style={{alignItems: 'center', paddingVertical: 6}}>
-                        <Text style={{fontSize: 10, color: colors.textTertiary, lineHeight: 12}}>▲</Text>
-                        <Text style={{fontSize: 11, color: colors.textTertiary, marginVertical: 2}}>
-                          {label}
-                        </Text>
-                        <Text style={{fontSize: 10, color: colors.textTertiary, lineHeight: 12}}>▼</Text>
-                      </View>
-                    );
-                  })()}
                 </TouchableOpacity>
               );
             }
@@ -1876,7 +1870,12 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                           {item.title}
                         </Text>
                         <Text style={[styles.flowEventTime, {color: colors.onEvent}]}>
-                          {formatMinutes(item.startMinutes)}〜{formatMinutes(item.endMinutes)}
+                          {formatMinutes(item.startMinutes)}〜{formatMinutes(item.endMinutes)}  {(() => {
+                            const dur = item.endMinutes - item.startMinutes;
+                            const h = Math.floor(dur / 60);
+                            const m = dur % 60;
+                            return h > 0 && m > 0 ? `${h}時間${m}分` : h > 0 ? `${h}時間` : `${m}分`;
+                          })()}
                         </Text>
                         {item.location ? (
                           <Text style={[styles.flowEventLocation, {color: colors.onEvent}]} numberOfLines={1}>
@@ -1939,7 +1938,12 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                                 {item.title}
                               </Text>
                               <Text style={[styles.flowTaskTime, {color: colors.textSecondary}]}>
-                                {formatMinutes(item.startMinutes)}〜{formatMinutes(item.endMinutes)}
+                                {formatMinutes(item.startMinutes)}〜{formatMinutes(item.endMinutes)}  {(() => {
+                                  const dur = item.endMinutes - item.startMinutes;
+                                  const h = Math.floor(dur / 60);
+                                  const m = dur % 60;
+                                  return h > 0 && m > 0 ? `${h}時間${m}分` : h > 0 ? `${h}時間` : `${m}分`;
+                                })()}
                               </Text>
                             </TouchableOpacity>
                           </View>
