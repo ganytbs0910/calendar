@@ -390,7 +390,9 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
   useEffect(() => { fetchTasks(); }, [fetchTasks]);
 
   const timedTasks = useMemo(() => dayTasks.filter(t => t.time), [dayTasks]);
-  const untimedTasks = useMemo(() => dayTasks.filter(t => !t.time), [dayTasks]);
+  const untimedTasks = useMemo(() =>
+    dayTasks.filter(t => !t.time).sort((a, b) => Number(a.completed) - Number(b.completed)),
+  [dayTasks]);
 
   type ScheduleItem = {
     id: string;
@@ -1000,7 +1002,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
         case 'wake': return FLOW_WAKE_HEIGHT;
         case 'sleep': return FLOW_SLEEP_HEIGHT;
         case 'gap': return seg.markers.length * FLOW_GAP_MARKER_HEIGHT + FLOW_GAP_PADDING;
-        case 'item': return Math.max(FLOW_MIN_ITEM_HEIGHT, Math.round(seg.durationMin * pxPerMinute));
+        case 'item': return FLOW_MIN_ITEM_HEIGHT;
       }
     });
   }, [segments, timelineHeight, showWake, showSleep]);
@@ -1828,6 +1830,22 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                       <View style={{flex: 1}} />
                     </View>
                   ))}
+                  {isTodayDate && nowMinutes >= segment.startMin && nowMinutes < segment.endMin && (() => {
+                    const remaining = sleepMinVal - nowMinutes;
+                    if (remaining <= 0) return null;
+                    const h = Math.floor(remaining / 60);
+                    const m = remaining % 60;
+                    const label = h > 0 && m > 0 ? `${h}時間${m}分` : h > 0 ? `${h}時間` : `${m}分`;
+                    return (
+                      <View style={{alignItems: 'center', paddingVertical: 6}}>
+                        <Text style={{fontSize: 10, color: colors.textTertiary, lineHeight: 12}}>▲</Text>
+                        <Text style={{fontSize: 11, color: colors.textTertiary, marginVertical: 2}}>
+                          {label}
+                        </Text>
+                        <Text style={{fontSize: 10, color: colors.textTertiary, lineHeight: 12}}>▼</Text>
+                      </View>
+                    );
+                  })()}
                 </TouchableOpacity>
               );
             }
@@ -2160,6 +2178,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                 </View>
               )}
             </View>
+            <View style={{width: 1, backgroundColor: colors.textTertiary, height: '100%', opacity: 0.3}} />
             <View style={styles.sheetHeaderCol}>
               <Text style={[styles.sheetTitle, {color: colors.text}]}>予定</Text>
               {sheetScheduleItems.length > 0 && (
@@ -2189,7 +2208,17 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                       {backgroundColor: colors.surface},
                       {transform: [{translateX: getSwipeAnim(task.id)}]},
                     ]}>
-                    <View style={[styles.sheetEventDot, {backgroundColor: colors.primary}]} />
+                    <TouchableOpacity
+                      onPress={() => handleToggleTask(task.id)}
+                      hitSlop={{top: 6, bottom: 6, left: 6, right: 6}}>
+                      <View style={[
+                        styles.checkbox,
+                        {borderColor: colors.textTertiary},
+                        task.completed && {backgroundColor: colors.primary, borderColor: colors.primary},
+                      ]}>
+                        {task.completed && <Text style={styles.checkmark}>✓</Text>}
+                      </View>
+                    </TouchableOpacity>
                     <View style={styles.sheetEventInfo}>
                       <Text
                         style={[
@@ -2332,7 +2361,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
             );
           })()}
           </ScrollView>
-          <View style={[styles.sheetColumnDivider, {backgroundColor: colors.border}]} />
+          <View style={[styles.sheetColumnDivider, {backgroundColor: colors.textTertiary, opacity: 0.3}]} />
           <ScrollView style={styles.sheetColumnRight} showsVerticalScrollIndicator={false}>
             {sheetScheduleItems.length === 0 ? (
               <Text style={[styles.sheetEmpty, {color: colors.textTertiary}]}>予定なし</Text>
@@ -2971,12 +3000,12 @@ const styles = StyleSheet.create({
   },
   sheetHeaderSplit: {
     flexDirection: 'row',
-    paddingHorizontal: 16,
   },
   sheetHeaderCol: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 6,
   },
   sheetTitle: {
@@ -3003,7 +3032,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   sheetColumnDivider: {
-    width: StyleSheet.hairlineWidth,
+    width: 1,
   },
   sheetColumnRight: {
     flex: 1,
