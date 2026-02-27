@@ -50,9 +50,9 @@ const FLOW_WAKE_HEIGHT = 56;
 const FLOW_SLEEP_HEIGHT = 56;
 const FLOW_GAP_MARKER_HEIGHT = 28;
 const FLOW_GAP_PADDING = 8;
-const FLOW_MIN_ITEM_HEIGHT = 56;
-const FLOW_LEFT_WIDTH = 50;
-const FLOW_DOT_COL_WIDTH = 24;
+const FLOW_MIN_ITEM_HEIGHT = 72;
+const FLOW_LEFT_WIDTH = 46;
+const FLOW_DOT_COL_WIDTH = 20;
 const CREATION_HOUR_HEIGHT = 56;
 
 // ── Types ──
@@ -67,6 +67,7 @@ interface TimelineItem {
   completed?: boolean;
   location?: string;
   original: CalendarEventReadable | Task;
+  isTodo?: boolean;
 }
 
 type GapMarker = { hour: number; label: string };
@@ -75,7 +76,7 @@ type Segment =
   | { type: 'wake'; hour: number; minute: number }
   | { type: 'sleep'; hour: number; minute: number }
   | { type: 'gap'; startMin: number; endMin: number; markers: GapMarker[] }
-  | { type: 'item'; item: TimelineItem; startMin: number; endMin: number; durationMin: number };
+  | { type: 'item'; items: TimelineItem[]; startMin: number; endMin: number; durationMin: number };
 
 type SegmentLayout = { y: number; height: number; startMin: number; endMin: number };
 
@@ -166,10 +167,10 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
   const [addingTask, setAddingTask] = useState(false);
   const [taskInputText, setTaskInputText] = useState('');
   const [taskTimeEnabled, setTaskTimeEnabled] = useState(false);
-  const [taskTimeHour, setTaskTimeHour] = useState('09');
-  const [taskTimeMinute, setTaskTimeMinute] = useState('00');
-  const [taskEndTimeHour, setTaskEndTimeHour] = useState('10');
-  const [taskEndTimeMinute, setTaskEndTimeMinute] = useState('00');
+  const [taskTimeHour, setTaskTimeHour] = useState('');
+  const [taskTimeMinute, setTaskTimeMinute] = useState('');
+  const [taskEndTimeHour, setTaskEndTimeHour] = useState('');
+  const [taskEndTimeMinute, setTaskEndTimeMinute] = useState('');
   const [taskDuration, setTaskDuration] = useState<number | null>(null);
   const [taskDurationCustom, setTaskDurationCustom] = useState(false);
   const [taskCustomMinutes, setTaskCustomMinutes] = useState('');
@@ -200,6 +201,8 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
   const [timelineHeight, setTimelineHeight] = useState(0);
   const segmentLayoutsRef = useRef<Array<SegmentLayout | null>>([]);
   const flowTimelineYRef = useRef(0);
+  const rightColumnRef = useRef<View>(null);
+  const rightColumnScrollYRef = useRef(0);
 
   // Detail mode (tap flow timeline to see hourly grid)
   const [isDetailMode, setIsDetailMode] = useState(false);
@@ -389,10 +392,17 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
 
   useEffect(() => { fetchTasks(); }, [fetchTasks]);
 
-  const timedTasks = useMemo(() => dayTasks.filter(t => t.time), [dayTasks]);
-  const untimedTasks = useMemo(() =>
-    dayTasks.filter(t => !t.time).sort((a, b) => Number(a.completed) - Number(b.completed)),
+  // taskTypeで分類: 後方互換のためtaskType未設定はtimeの有無で判定
+  const todoTasks = useMemo(() =>
+    dayTasks.filter(t => t.taskType === 'todo' || (!t.taskType && !t.time))
+      .sort((a, b) => Number(a.completed) - Number(b.completed)),
   [dayTasks]);
+  const scheduleTasks = useMemo(() =>
+    dayTasks.filter(t => t.taskType === 'schedule' || (!t.taskType && t.time)),
+  [dayTasks]);
+  // タイムラインに表示するタスク: timeを持つ全タスク（todoも含む）
+  const timedTasks = useMemo(() => dayTasks.filter(t => t.time), [dayTasks]);
+  const untimedTasks = todoTasks; // 後方互換エイリアス
 
   type ScheduleItem = {
     id: string;
@@ -435,8 +445,8 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
       }
     });
 
-    // Timed tasks
-    timedTasks.forEach(task => {
+    // Schedule tasks (予定タイプのみ右カラムに表示)
+    scheduleTasks.filter(t => t.time).forEach(task => {
       const [h, m] = task.time!.split(':').map(Number);
       const startMin = h * 60 + m;
       const endMin = startMin + (task.duration || 30);
@@ -454,7 +464,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
 
     items.sort((a, b) => a.sortMinutes - b.sortMinutes);
     return items;
-  }, [events, eventColors, timedTasks]);
+  }, [events, eventColors, scheduleTasks]);
 
   const fetchEvents = useCallback(async () => {
     if (!hasPermission) return;
@@ -516,16 +526,18 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
   const handleAddTask = useCallback(async () => {
     const trimmed = taskInputText.trim();
     if (!trimmed) return;
-    const time = taskTimeEnabled ? `${taskTimeHour.padStart(2, '0')}:${taskTimeMinute.padStart(2, '0')}` : undefined;
+    const hasTime = taskTimeHour.length > 0 && taskTimeMinute.length > 0;
+    const time = hasTime ? `${taskTimeHour.padStart(2, '0')}:${taskTimeMinute.padStart(2, '0')}` : undefined;
     const duration = taskDuration || undefined;
-    await addTaskForDate(trimmed, dateKey, time, duration);
+    const taskType: 'todo' | 'schedule' = taskTimeEnabled ? 'schedule' : 'todo';
+    await addTaskForDate(trimmed, dateKey, time, duration, taskType);
     setTaskInputText('');
     setAddingTask(false);
     setTaskTimeEnabled(false);
-    setTaskTimeHour('09');
-    setTaskTimeMinute('00');
-    setTaskEndTimeHour('10');
-    setTaskEndTimeMinute('00');
+    setTaskTimeHour('');
+    setTaskTimeMinute('');
+    setTaskEndTimeHour('');
+    setTaskEndTimeMinute('');
     setTaskDuration(null);
     setTaskDurationCustom(false);
     setTaskCustomMinutes('');
@@ -652,7 +664,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
     dragStartedRef.current = false;
     dragTaskIdRef.current = taskId;
     // Pre-measure immediately so value is ready by the time onDragMove fires
-    gridContainerRef.current?.measureInWindow((_x: number, y: number) => {
+    (rightColumnRef.current || gridContainerRef.current)?.measureInWindow((_x: number, y: number) => {
       gridTopOnScreenRef.current = y;
     });
   }, []);
@@ -666,7 +678,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
       sheetOffset.current = BOTTOM_SHEET_MIN;
       Animated.timing(sheetAnim, {toValue: BOTTOM_SHEET_MIN, duration: 200, useNativeDriver: false}).start();
       // Re-measure (grant's measurement may not have arrived yet)
-      gridContainerRef.current?.measureInWindow((_x: number, y: number) => {
+      (rightColumnRef.current || gridContainerRef.current)?.measureInWindow((_x: number, y: number) => {
         gridTopOnScreenRef.current = y;
       });
       // Skip drop-time calculation on the very first move — measureInWindow is async
@@ -900,6 +912,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
       const [h, m] = task.time!.split(':').map(Number);
       const startMin = h * 60 + m;
       const dur = task.duration || 30;
+      const isTodo = task.taskType === 'todo' || (!task.taskType && false);
       items.push({
         type: 'task',
         id: `task-${task.id}`,
@@ -908,6 +921,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
         endMinutes: startMin + dur,
         completed: task.completed,
         original: task,
+        isTodo,
       });
     });
     items.sort((a, b) => a.startMinutes - b.startMinutes);
@@ -928,31 +942,44 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
       result.push({ type: 'wake', hour: daySetting!.wakeUpHour, minute: daySetting!.wakeUpMinute });
     }
 
-    let cursor = wakeMin;
-
+    // Group overlapping items into clusters
+    const clusters: { items: TimelineItem[]; startMin: number; endMin: number }[] = [];
     for (const item of timelineItems) {
       const itemStart = Math.max(item.startMinutes, wakeMin);
       const itemEnd = Math.min(item.endMinutes, sleepMinVal);
       if (itemStart >= sleepMinVal || itemEnd <= wakeMin) continue;
 
-      if (cursor < itemStart) {
+      const lastCluster = clusters[clusters.length - 1];
+      if (lastCluster && itemStart < lastCluster.endMin) {
+        // Overlaps with current cluster
+        lastCluster.items.push(item);
+        lastCluster.endMin = Math.max(lastCluster.endMin, itemEnd);
+      } else {
+        clusters.push({ items: [item], startMin: itemStart, endMin: itemEnd });
+      }
+    }
+
+    let cursor = wakeMin;
+
+    for (const cluster of clusters) {
+      if (cursor < cluster.startMin) {
         result.push({
           type: 'gap',
           startMin: cursor,
-          endMin: itemStart,
-          markers: buildGapMarkers(cursor, itemStart),
+          endMin: cluster.startMin,
+          markers: buildGapMarkers(cursor, cluster.startMin),
         });
       }
 
       result.push({
         type: 'item',
-        item,
-        startMin: itemStart,
-        endMin: itemEnd,
-        durationMin: Math.max(itemEnd - itemStart, 15),
+        items: cluster.items,
+        startMin: cluster.startMin,
+        endMin: cluster.endMin,
+        durationMin: Math.max(cluster.endMin - cluster.startMin, 15),
       });
 
-      cursor = Math.max(cursor, itemEnd);
+      cursor = Math.max(cursor, cluster.endMin);
     }
 
     if (cursor < sleepMinVal) {
@@ -1016,20 +1043,19 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
     if (!isTodayDate || segments.length === 0) return null;
     if (nowMinutes < wakeMin || nowMinutes > sleepMinVal) return null;
 
+    // Y is relative to the right column (skip wake/sleep heights)
     let y = 0;
     for (let i = 0; i < segments.length; i++) {
       const seg = segments[i];
       const h = segmentHeights[i];
+
+      if (seg.type === 'wake' || seg.type === 'sleep') continue;
 
       if (seg.type === 'gap' || seg.type === 'item') {
         if (nowMinutes >= seg.startMin && nowMinutes < seg.endMin) {
           const ratio = (nowMinutes - seg.startMin) / (seg.endMin - seg.startMin);
           return y + ratio * h;
         }
-      } else if (seg.type === 'wake') {
-        if (nowMinutes === seg.hour * 60 + seg.minute) return y + h / 2;
-      } else if (seg.type === 'sleep') {
-        if (nowMinutes === seg.hour * 60 + seg.minute) return y + h / 2;
       }
 
       y += h;
@@ -1044,10 +1070,12 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
     const [dh, dm] = dropTimePreview.split(':').map(Number);
     const dropMin = dh * 60 + dm;
 
+    // Y is relative to the right column (skip wake/sleep heights)
     let y = 0;
     for (let i = 0; i < segments.length; i++) {
       const seg = segments[i];
       const h = segmentHeights[i];
+      if (seg.type === 'wake' || seg.type === 'sleep') continue;
       if (seg.type === 'gap' || seg.type === 'item') {
         if (dropMin >= seg.startMin && dropMin <= seg.endMin) {
           const ratio = (dropMin - seg.startMin) / Math.max(1, seg.endMin - seg.startMin);
@@ -1063,7 +1091,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
 
   const scrollToCurrentTime = useCallback(() => {
     if (scrollViewRef.current && currentTimeYPosition != null) {
-      const absoluteY = flowTimelineYRef.current + currentTimeYPosition;
+      const absoluteY = rightColumnScrollYRef.current + currentTimeYPosition;
       scrollViewRef.current.scrollTo({y: Math.max(0, absoluteY - 100), animated: true});
     }
   }, [currentTimeYPosition]);
@@ -1150,7 +1178,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: () => true,
     onPanResponderGrant: () => {
-      gridContainerRef.current?.measureInWindow((_x: number, y: number) => {
+      (rightColumnRef.current || gridContainerRef.current)?.measureInWindow((_x: number, y: number) => {
         gridTopOnScreenRef.current = y;
       });
     },
@@ -1221,13 +1249,15 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
 
   // ── Detail mode layout ──
 
+  const DETAIL_MIN_CARD_HEIGHT = 40;
+
   const detailModeLayout = useMemo(() => {
     if (!isDetailMode) return null;
     const totalHours = displayEndHour - displayStartHour;
     const overlayHeight = totalHours * CREATION_HOUR_HEIGHT;
     const hours = Array.from({length: totalHours + 1}, (_, i) => displayStartHour + i);
 
-    const items = timelineItems
+    const rawItems = timelineItems
       .filter(item => {
         const itemStart = Math.max(item.startMinutes, displayStartHour * 60);
         const itemEnd = Math.min(item.endMinutes, displayEndHour * 60);
@@ -1237,14 +1267,30 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
         const itemStart = Math.max(item.startMinutes, displayStartHour * 60);
         const itemEnd = Math.min(item.endMinutes, displayEndHour * 60);
         const topY = ((itemStart - displayStartHour * 60) / 60) * CREATION_HOUR_HEIGHT;
-        const height = Math.max(
-          CREATION_HOUR_HEIGHT / 4,
-          ((itemEnd - itemStart) / 60) * CREATION_HOUR_HEIGHT,
-        );
-        return { ...item, topY, height, clampedStart: itemStart, clampedEnd: itemEnd };
+        const naturalHeight = ((itemEnd - itemStart) / 60) * CREATION_HOUR_HEIGHT;
+        const height = Math.max(DETAIL_MIN_CARD_HEIGHT, naturalHeight);
+        return { ...item, topY, height, clampedStart: itemStart, clampedEnd: itemEnd, col: 0, totalCols: 1 };
       });
 
-    return { totalHours, overlayHeight, hours, items };
+    // Assign columns for overlapping items
+    for (let i = 0; i < rawItems.length; i++) {
+      const group = [rawItems[i]];
+      let groupEnd = rawItems[i].clampedEnd;
+      for (let j = i + 1; j < rawItems.length; j++) {
+        if (rawItems[j].clampedStart < groupEnd) {
+          group.push(rawItems[j]);
+          groupEnd = Math.max(groupEnd, rawItems[j].clampedEnd);
+        }
+      }
+      if (group.length > 1) {
+        for (let k = 0; k < group.length; k++) {
+          group[k].col = k;
+          group[k].totalCols = group.length;
+        }
+      }
+    }
+
+    return { totalHours, overlayHeight, hours, items: rawItems };
   }, [isDetailMode, displayStartHour, displayEndHour, timelineItems]);
 
   const detailCurrentTimeY = useMemo(() => {
@@ -1261,7 +1307,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
     detailTouchPageYRef.current = pageY;
     detailIsTapRef.current = true;
 
-    gridContainerRef.current?.measureInWindow((_x: number, y: number) => {
+    (rightColumnRef.current || gridContainerRef.current)?.measureInWindow((_x: number, y: number) => {
       gridTopOnScreenRef.current = y;
     });
 
@@ -1611,330 +1657,136 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
           style={styles.flowTimeline}
           onLayout={(e) => { flowTimelineYRef.current = e.nativeEvent.layout.y; }}>
 
-          {isDetailMode && detailModeLayout ? (
-            <View
-              {...detailPanResponder.panHandlers}
-              onTouchStart={handleDetailTouchStart}
-              onTouchMove={handleDetailTouchMove}
-              onTouchEnd={handleDetailTouchEnd}
-              style={{height: detailModeLayout.overlayHeight}}>
-              <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-                {detailModeLayout.hours.map(hour => {
-                  const y = (hour - displayStartHour) * CREATION_HOUR_HEIGHT;
-                  return (
-                    <View key={hour} style={[styles.creationHourRow, {top: y}]}>
-                      <View style={styles.creationHourLabelCol}>
-                        <Text style={[styles.creationHourLabel, {color: colors.textTertiary}]}>
-                          {`${hour.toString().padStart(2, '0')}:00`}
-                        </Text>
-                      </View>
-                      <View style={[styles.creationHourLine, {backgroundColor: colors.borderLight}]} />
-                    </View>
-                  );
-                })}
-              </View>
-              <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-                {detailModeLayout.items.map(item => {
-                  if (item.type === 'event') {
-                    const evColor = item.color || colors.primary;
-                    return (
-                      <TouchableOpacity
-                        key={`detail-${item.id}`}
-                        activeOpacity={0.7}
-                        onPress={() => { setIsDetailMode(false); onEventPress?.(item.original as CalendarEventReadable); }}
-                        style={[
-                          styles.detailEventBlock,
-                          {top: item.topY, height: item.height, backgroundColor: evColor},
-                        ]}>
-                        <Text style={[styles.flowEventTitle, {color: colors.onEvent}]} numberOfLines={1}>
-                          {item.title}
-                        </Text>
-                        <Text style={[styles.flowEventTime, {color: colors.onEvent}]}>
-                          {formatMinutes(item.startMinutes)}〜{formatMinutes(item.endMinutes)}  {(() => {
-                            const dur = item.endMinutes - item.startMinutes;
-                            const h = Math.floor(dur / 60);
-                            const m = dur % 60;
-                            return h > 0 && m > 0 ? `${h}時間${m}分` : h > 0 ? `${h}時間` : `${m}分`;
-                          })()}
-                        </Text>
-                        {item.location ? (
-                          <Text style={[styles.flowEventLocation, {color: colors.onEvent}]} numberOfLines={1}>
-                            {item.location}
-                          </Text>
-                        ) : null}
-                      </TouchableOpacity>
-                    );
-                  }
-                  if (item.type === 'task') {
-                    const task = item.original as Task;
-                    return (
-                      <TouchableOpacity
-                        key={`detail-${item.id}`}
-                        activeOpacity={0.7}
-                        onPress={() => { setIsDetailMode(false); handleEditTimelineTask(task); }}
-                        style={[
-                          styles.detailTaskBlock,
-                          {
-                            top: item.topY,
-                            height: item.height,
-                            backgroundColor: item.completed ? `${colors.primary}20` : `${colors.primary}10`,
-                            borderColor: colors.primary,
-                          },
-                        ]}>
-                        <Text
-                          style={[
-                            styles.flowTaskTitle,
-                            {color: colors.text},
-                            item.completed && {textDecorationLine: 'line-through', color: colors.textTertiary},
-                          ]}
-                          numberOfLines={1}>
-                          {item.title}
-                        </Text>
-                        <Text style={[styles.flowTaskTime, {color: colors.textSecondary}]}>
-                          {formatMinutes(item.startMinutes)}〜{formatMinutes(item.endMinutes)}  {(() => {
-                            const dur = item.endMinutes - item.startMinutes;
-                            const h = Math.floor(dur / 60);
-                            const m = dur % 60;
-                            return h > 0 && m > 0 ? `${h}時間${m}分` : h > 0 ? `${h}時間` : `${m}分`;
-                          })()}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  }
-                  return null;
-                })}
-              </View>
-              {/* Creation block (drag selection) */}
-              {creatingEvent && (
-                <View
-                  pointerEvents="none"
-                  style={[
-                    styles.creationEventBlock,
-                    {
-                      top: ((creatingEvent.startMin - displayStartHour * 60) / 60) * CREATION_HOUR_HEIGHT,
-                      height: Math.max(
-                        CREATION_HOUR_HEIGHT / 4,
-                        ((creatingEvent.endMin - creatingEvent.startMin) / 60) * CREATION_HOUR_HEIGHT,
-                      ),
-                      backgroundColor: `${colors.primary}30`,
-                      borderColor: colors.primary,
-                    },
-                  ]}>
-                  <Text style={[styles.creationEventTime, {color: colors.primary}]}>
-                    {formatMinutes(creatingEvent.startMin)} 〜 {formatMinutes(creatingEvent.endMin)}
+          {/* ── Wake segment (full width) ── */}
+          {segments.length > 0 && segments[0].type === 'wake' && (() => {
+            const segment = segments[0] as { type: 'wake'; hour: number; minute: number };
+            return (
+              <TouchableOpacity
+                key="wake"
+                style={[styles.flowRow, {height: FLOW_WAKE_HEIGHT}]}
+                activeOpacity={0.7}
+                onPress={() => setEditingTime(editingTime === 'wake' ? null : 'wake')}
+                onLayout={(e) => handleSegmentLayout(0, wakeMin, wakeMin, e)}>
+                <View style={styles.flowTimeCol}>
+                  <Text style={[styles.flowTimeText, {color: editingTime === 'wake' ? colors.primary : colors.textTertiary}]}>
+                    {formatMinutes(segment.hour * 60 + segment.minute)}
                   </Text>
                 </View>
-              )}
-              {isTodayDate && detailCurrentTimeY != null && (
-                <View
-                  style={[styles.flowCurrentTime, {top: detailCurrentTimeY}]}
-                  pointerEvents="none">
-                  <View style={[styles.currentTimeBadge, {backgroundColor: colors.currentTimeIndicator}]}>
-                    <Text style={[styles.currentTimeBadgeText, {color: colors.onPrimary}]}>
-                      {currentTime.getHours().toString().padStart(2, '0')}:{currentTime.getMinutes().toString().padStart(2, '0')}
-                    </Text>
+                {renderDotCol(true, false, colors.primary)}
+                <View style={styles.flowContent}>
+                  <View style={[styles.lifeCard, {backgroundColor: colors.surfaceSecondary}]}>
+                    <View style={styles.lifeCardInner}>
+                      <Text style={styles.lifeCardEmoji}>☀️</Text>
+                      <Text style={[styles.lifeCardText, {color: colors.text}]}>起床</Text>
+                    </View>
                   </View>
-                  <View style={[styles.currentTimeLine, {backgroundColor: colors.currentTimeIndicator}]} />
                 </View>
-              )}
-            </View>
-          ) : segments.map((segment, segIndex) => {
-            const isFirst = segIndex === 0;
-            const isLast = segIndex === segments.length - 1;
+              </TouchableOpacity>
+            );
+          })()}
 
-            // ── Wake segment ──
-            if (segment.type === 'wake') {
-              return (
-                <TouchableOpacity
-                  key="wake"
-                  style={[styles.flowRow, {height: FLOW_WAKE_HEIGHT}]}
-                  activeOpacity={0.7}
-                  onPress={() => setEditingTime(editingTime === 'wake' ? null : 'wake')}
-                  onLayout={(e) => handleSegmentLayout(segIndex, wakeMin, wakeMin, e)}>
-                  <View style={styles.flowTimeCol}>
-                    <Text style={[styles.flowTimeText, {color: editingTime === 'wake' ? colors.primary : colors.textTertiary}]}>
-                      {formatMinutes(segment.hour * 60 + segment.minute)}
-                    </Text>
-                  </View>
-                  {renderDotCol(true, isLast, colors.primary)}
-                  <View style={styles.flowContent}>
-                    <View style={[styles.lifeCard, {backgroundColor: colors.surfaceSecondary}]}>
-                      <View style={styles.lifeCardInner}>
-                        <Text style={styles.lifeCardEmoji}>☀️</Text>
-                        <Text style={[styles.lifeCardText, {color: colors.text}]}>起床</Text>
-                      </View>
-                    </View>
-                  </View>
-                </TouchableOpacity>
-              );
-            }
-
-            // ── Sleep segment ──
-            if (segment.type === 'sleep') {
-              return (
-                <TouchableOpacity
-                  key="sleep"
-                  style={[styles.flowRow, {height: FLOW_SLEEP_HEIGHT}]}
-                  activeOpacity={0.7}
-                  onPress={() => setEditingTime(editingTime === 'sleep' ? null : 'sleep')}
-                  onLayout={(e) => handleSegmentLayout(segIndex, sleepMinVal, sleepMinVal, e)}>
-                  <View style={styles.flowTimeCol}>
-                    <Text style={[styles.flowTimeText, {color: editingTime === 'sleep' ? colors.primary : colors.textTertiary}]}>
-                      {formatMinutes(segment.hour * 60 + segment.minute)}
-                    </Text>
-                  </View>
-                  {renderDotCol(isFirst, true, colors.primary)}
-                  <View style={styles.flowContent}>
-                    <View style={[styles.lifeCard, {backgroundColor: colors.surfaceSecondary}]}>
-                      <View style={styles.lifeCardInner}>
-                        <Text style={styles.lifeCardEmoji}>🌙</Text>
-                        <Text style={[styles.lifeCardText, {color: colors.text}]}>就寝</Text>
-                      </View>
-                    </View>
-                  </View>
-                </TouchableOpacity>
-              );
-            }
-
-            // ── Gap segment ──
-            if (segment.type === 'gap') {
-              return (
-                <TouchableOpacity
-                  key={`gap-${segIndex}`}
-                  style={{paddingVertical: FLOW_GAP_PADDING / 2}}
-                  onLayout={(e) => handleSegmentLayout(segIndex, segment.startMin, segment.endMin, e)}
-                  activeOpacity={0.7}
-                  onPress={(e) => {
-                    if (!isCreating && !editingTimelineTaskId && !draggingTask) {
-                      const pageY = e.nativeEvent.pageY;
-                      const layouts = segmentLayoutsRef.current;
-                      let tapMin = (segment.startMin + segment.endMin) / 2;
-                      gridContainerRef.current?.measureInWindow((_x: number, y: number) => {
-                        const gridY = pageY - y;
-                        for (let i = 0; i < layouts.length; i++) {
-                          const layout = layouts[i];
-                          if (!layout) continue;
-                          if (gridY >= layout.y && gridY < layout.y + layout.height && layout.endMin > layout.startMin) {
-                            const ratio = Math.max(0, Math.min(1, (gridY - layout.y) / layout.height));
-                            tapMin = layout.startMin + ratio * (layout.endMin - layout.startMin);
-                            break;
-                          }
-                        }
-                        detailTargetMinRef.current = tapMin;
-                        setIsDetailMode(true);
-                      });
-                    }
-                  }}>
-                  {segment.markers.map((marker, mi) => (
-                    <View key={mi} style={[styles.flowRow, {height: FLOW_GAP_MARKER_HEIGHT}]}>
-                      <View style={styles.flowTimeCol}>
-                        <Text style={[styles.flowTimeTextSmall, {color: colors.textTertiary}]}>
-                          {marker.label}
-                        </Text>
-                      </View>
-                      <View style={styles.flowDotCol}>
-                        <View style={[styles.flowLineSegment, {backgroundColor: colors.border}]} />
-                        <View style={[styles.flowDotSmall, {backgroundColor: colors.textTertiary, opacity: 0.4}]} />
-                        <View style={[styles.flowLineSegment, {backgroundColor: colors.border}]} />
-                      </View>
-                      <View style={{flex: 1}} />
-                    </View>
-                  ))}
-                </TouchableOpacity>
-              );
-            }
-
-            // ── Item segment ──
-            if (segment.type === 'item') {
-              const height = segmentHeights[segIndex];
-              const item = segment.item;
-
-              if (item.type === 'event') {
-                const evColor = item.color || colors.primary;
-                return (
-                  <TouchableOpacity
-                    key={item.id}
-                    style={[styles.flowRow, {minHeight: height}]}
-                    activeOpacity={0.7}
-                    onPress={() => onEventPress?.(item.original as CalendarEventReadable)}
-                    onLayout={(e) => handleSegmentLayout(segIndex, segment.startMin, segment.endMin, e)}>
-                    <View style={styles.flowTimeCol}>
-                      <Text style={[styles.flowTimeText, {color: colors.textTertiary}]}>
-                        {formatMinutes(segment.startMin)}
-                      </Text>
-                    </View>
-                    {renderDotCol(isFirst, isLast, evColor)}
-                    <View style={styles.flowContent}>
-                      <View style={[styles.flowEventCard, {backgroundColor: evColor, minHeight: height - 8}]}>
-                        <Text style={[styles.flowEventTitle, {color: colors.onEvent}]} numberOfLines={2}>
-                          {item.title}
-                        </Text>
-                        <Text style={[styles.flowEventTime, {color: colors.onEvent}]}>
-                          {formatMinutes(item.startMinutes)}〜{formatMinutes(item.endMinutes)}  {(() => {
-                            const dur = item.endMinutes - item.startMinutes;
-                            const h = Math.floor(dur / 60);
-                            const m = dur % 60;
-                            return h > 0 && m > 0 ? `${h}時間${m}分` : h > 0 ? `${h}時間` : `${m}分`;
-                          })()}
-                        </Text>
-                        {item.location ? (
-                          <Text style={[styles.flowEventLocation, {color: colors.onEvent}]} numberOfLines={1}>
-                            {item.location}
-                          </Text>
-                        ) : null}
-                      </View>
-                    </View>
-                  </TouchableOpacity>
+          {/* ── Full-width timeline ── */}
+          <View
+            ref={rightColumnRef}
+            onLayout={() => {
+              if (rightColumnRef.current && gridContainerRef.current) {
+                rightColumnRef.current.measureLayout(
+                  gridContainerRef.current as any,
+                  (_x: number, y: number) => { rightColumnScrollYRef.current = flowTimelineYRef.current + y; },
+                  () => {},
                 );
               }
-
-              if (item.type === 'task') {
-                const task = item.original as Task;
-                const isEditing = editingTimelineTaskId === task.id;
-                return (
-                  <View key={item.id}>
-                    <View
-                      style={[styles.flowRow, {minHeight: height}]}
-                      onLayout={(e) => handleSegmentLayout(segIndex, segment.startMin, segment.endMin, e)}>
-                      <View style={styles.flowTimeCol}>
-                        <Text style={[styles.flowTimeText, {color: colors.textTertiary}]}>
-                          {formatMinutes(segment.startMin)}
-                        </Text>
-                      </View>
-                      {renderDotCol(isFirst, isLast, colors.primary)}
-                      <View style={styles.flowContent}>
-                        <View style={[
-                          styles.flowTaskCard,
-                          {
-                            borderColor: colors.primary,
-                            backgroundColor: item.completed ? `${colors.primary}20` : `${colors.primary}10`,
-                            borderStyle: isEditing ? 'solid' : 'dashed',
-                            minHeight: height - 8,
-                          },
-                        ]}>
-                          <View style={styles.flowTaskRow}>
+            }}>
+              {isDetailMode && detailModeLayout ? (
+                <View
+                  {...detailPanResponder.panHandlers}
+                  onTouchStart={handleDetailTouchStart}
+                  onTouchMove={handleDetailTouchMove}
+                  onTouchEnd={handleDetailTouchEnd}
+                  style={{height: detailModeLayout.overlayHeight}}>
+                  <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                    {detailModeLayout.hours.map(hour => {
+                      const y = (hour - displayStartHour) * CREATION_HOUR_HEIGHT;
+                      return (
+                        <View key={hour} style={[styles.creationHourRow, {top: y}]}>
+                          <View style={styles.creationHourLabelCol}>
+                            <Text style={[styles.creationHourLabel, {color: colors.textTertiary}]}>
+                              {`${hour.toString().padStart(2, '0')}:00`}
+                            </Text>
+                          </View>
+                          <View style={[styles.creationHourLine, {backgroundColor: colors.borderLight}]} />
+                        </View>
+                      );
+                    })}
+                  </View>
+                  <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+                    {(() => {
+                      const cardAreaLeft = FLOW_LEFT_WIDTH + 4;
+                      const cardAreaWidth = (SCREEN_WIDTH - cardAreaLeft - 8) * 0.6;
+                      return detailModeLayout.items.map(item => {
+                        const colWidth = cardAreaWidth / item.totalCols;
+                        const itemLeft = cardAreaLeft + item.col * colWidth;
+                        const itemWidth = colWidth - (item.totalCols > 1 ? 2 : 0);
+                        if (item.type === 'event') {
+                          const evColor = item.color || colors.primary;
+                          return (
                             <TouchableOpacity
-                              onPress={() => handleToggleTask(task.id)}
-                              hitSlop={{top: 6, bottom: 6, left: 6, right: 6}}>
-                              <View style={[
-                                styles.checkbox,
-                                {borderColor: colors.primary},
-                                item.completed && {backgroundColor: colors.primary, borderColor: colors.primary},
+                              key={`detail-${item.id}`}
+                              activeOpacity={0.7}
+                              onPress={() => { setIsDetailMode(false); onEventPress?.(item.original as CalendarEventReadable); }}
+                              style={[
+                                styles.detailEventBlock,
+                                {top: item.topY, height: item.height, left: itemLeft, width: itemWidth, backgroundColor: evColor},
                               ]}>
-                                {item.completed && <Text style={styles.checkmark}>✓</Text>}
-                              </View>
+                              <Text style={[styles.flowEventTitle, {color: colors.onEvent}]} numberOfLines={1}>
+                                {item.title}
+                              </Text>
+                              <Text style={[styles.flowEventTime, {color: colors.onEvent}]}>
+                                {formatMinutes(item.startMinutes)}〜{formatMinutes(item.endMinutes)}  {(() => {
+                                  const dur = item.endMinutes - item.startMinutes;
+                                  const h = Math.floor(dur / 60);
+                                  const m = dur % 60;
+                                  return h > 0 && m > 0 ? `${h}時間${m}分` : h > 0 ? `${h}時間` : `${m}分`;
+                                })()}
+                              </Text>
+                              {item.location ? (
+                                <Text style={[styles.flowEventLocation, {color: colors.onEvent}]} numberOfLines={1}>
+                                  {item.location}
+                                </Text>
+                              ) : null}
                             </TouchableOpacity>
+                          );
+                        }
+                        if (item.type === 'task') {
+                          const task = item.original as Task;
+                          return (
                             <TouchableOpacity
-                              style={{flex: 1}}
-                              activeOpacity={0.6}
-                              onPress={() => handleEditTimelineTask(task)}>
+                              key={`detail-${item.id}`}
+                              activeOpacity={0.7}
+                              onPress={() => { setIsDetailMode(false); handleEditTimelineTask(task); }}
+                              style={[
+                                styles.detailTaskBlock,
+                                {
+                                  top: item.topY,
+                                  height: item.height,
+                                  left: itemLeft,
+                                  width: itemWidth,
+                                  backgroundColor: item.isTodo
+                                    ? (item.completed ? `${colors.textTertiary}20` : `${colors.textTertiary}08`)
+                                    : (item.completed ? `${colors.primary}20` : `${colors.primary}10`),
+                                  borderColor: item.isTodo ? colors.textTertiary : colors.primary,
+                                },
+                              ]}>
+                              {item.isTodo && (
+                                <Text style={{fontSize: 8, color: colors.textTertiary}}>あとでやる</Text>
+                              )}
                               <Text
                                 style={[
                                   styles.flowTaskTitle,
                                   {color: colors.text},
                                   item.completed && {textDecorationLine: 'line-through', color: colors.textTertiary},
                                 ]}
-                                numberOfLines={2}>
+                                numberOfLines={1}>
                                 {item.title}
                               </Text>
                               <Text style={[styles.flowTaskTime, {color: colors.textSecondary}]}>
@@ -1946,214 +1798,364 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                                 })()}
                               </Text>
                             </TouchableOpacity>
-                          </View>
-                        </View>
-                      </View>
-                    </View>
-                    {/* Inline edit panel */}
-                    {isEditing && (
-                      <View style={[styles.flowEditPanel, {backgroundColor: colors.surface, borderColor: colors.border}]}>
-                        <Text style={[styles.taskEditLabel, {color: colors.textSecondary}]}>所要時間</Text>
-                        <View style={styles.durationOptions}>
-                          {DURATION_OPTIONS.map(opt => (
-                            <TouchableOpacity
-                              key={opt.value}
-                              style={[
-                                styles.durationChip,
-                                {borderColor: colors.border},
-                                editTaskDuration === opt.value && !editDurationCustom && {backgroundColor: colors.primary, borderColor: colors.primary},
-                              ]}
-                              onPress={() => { setEditDurationCustom(false); setEditTaskDuration(editTaskDuration === opt.value ? null : opt.value); }}>
-                              <Text style={[
-                                styles.durationChipText,
-                                {color: colors.textSecondary},
-                                editTaskDuration === opt.value && !editDurationCustom && {color: colors.onPrimary},
-                              ]}>{opt.label}</Text>
-                            </TouchableOpacity>
-                          ))}
-                          <TouchableOpacity
-                            style={[
-                              styles.durationChip,
-                              {borderColor: colors.border},
-                              editDurationCustom && {backgroundColor: colors.primary, borderColor: colors.primary},
-                            ]}
-                            onPress={() => {
-                              if (editDurationCustom) {
-                                setEditDurationCustom(false);
-                                setEditTaskDuration(null);
-                              } else {
-                                setEditDurationCustom(true);
-                                setEditTaskDuration(null);
-                                setEditCustomMinutes('');
-                              }
-                            }}>
-                            <Text style={[
-                              styles.durationChipText,
-                              {color: colors.textSecondary},
-                              editDurationCustom && {color: colors.onPrimary},
-                            ]}>カスタム</Text>
-                          </TouchableOpacity>
-                        </View>
-                        {editDurationCustom && (
-                          <View style={styles.customDurationRow}>
-                            <TextInput
-                              style={[styles.customDurationInput, {color: colors.text, borderColor: colors.border, backgroundColor: colors.inputBackground}]}
-                              value={editCustomMinutes}
-                              onChangeText={t => {
-                                const cleaned = t.replace(/[^0-9]/g, '');
-                                setEditCustomMinutes(cleaned);
-                                const num = parseInt(cleaned, 10);
-                                setEditTaskDuration(num > 0 ? num : null);
-                              }}
-                              keyboardType="number-pad"
-                              placeholder="0"
-                              placeholderTextColor={colors.textTertiary}
-                            />
-                            <Text style={[styles.customDurationUnit, {color: colors.textSecondary}]}>分</Text>
-                          </View>
-                        )}
-                        <Text style={[styles.taskEditLabel, {color: colors.textSecondary, marginTop: 8}]}>時間</Text>
-                        <View style={styles.taskEditTimeRow}>
-                          <View style={styles.addTimeInputs}>
-                            <TextInput
-                              style={[styles.addTimeField, {color: colors.text, borderColor: colors.border, backgroundColor: colors.inputBackground}]}
-                              value={editTaskTimeHour}
-                              onChangeText={t => setEditTaskTimeHour(t.replace(/[^0-9]/g, '').slice(0, 2))}
-                              keyboardType="number-pad"
-                              maxLength={2}
-                            />
-                            <Text style={{color: colors.text, fontWeight: '600', marginHorizontal: 2}}>:</Text>
-                            <TextInput
-                              style={[styles.addTimeField, {color: colors.text, borderColor: colors.border, backgroundColor: colors.inputBackground}]}
-                              value={editTaskTimeMinute}
-                              onChangeText={t => setEditTaskTimeMinute(t.replace(/[^0-9]/g, '').slice(0, 2))}
-                              keyboardType="number-pad"
-                              maxLength={2}
-                            />
-                          </View>
-                          <TouchableOpacity
-                            style={[styles.placeBtn, {backgroundColor: colors.primary}]}
-                            onPress={() => handleSaveTimelineTask(task.id)}>
-                            <Text style={[styles.placeBtnText, {color: colors.onPrimary}]}>保存</Text>
-                          </TouchableOpacity>
-                        </View>
-                        <TouchableOpacity
-                          style={[styles.removeTimeBtn, {borderColor: colors.error}]}
-                          onPress={() => handleRemoveFromTimeline(task.id)}>
-                          <Text style={[styles.removeTimeBtnText, {color: colors.error}]}>時間を外す</Text>
-                        </TouchableOpacity>
-                      </View>
-                    )}
+                          );
+                        }
+                        return null;
+                      });
+                    })()}
                   </View>
-                );
-              }
-            }
-
-            return null;
-          })}
-
-          {/* ── Creation mode: hourly grid overlay ── */}
-          {isCreating && creatingEvent && (() => {
-            const totalHours = displayEndHour - displayStartHour;
-            const overlayHeight = totalHours * CREATION_HOUR_HEIGHT;
-            const hours = Array.from({length: totalHours + 1}, (_, i) => displayStartHour + i);
-            const eventTopY = ((creatingEvent.startMin - displayStartHour * 60) / 60) * CREATION_HOUR_HEIGHT;
-            const eventHeight = Math.max(
-              CREATION_HOUR_HEIGHT / 4,
-              ((creatingEvent.endMin - creatingEvent.startMin) / 60) * CREATION_HOUR_HEIGHT,
-            );
-            return (
-              <View
-                style={[styles.creationOverlay, {height: overlayHeight, backgroundColor: isDark ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.92)'}]}
-                {...creationOverlayPanResponder.panHandlers}>
-                {/* Hour grid lines */}
-                {hours.map(hour => {
-                  const y = (hour - displayStartHour) * CREATION_HOUR_HEIGHT;
-                  return (
-                    <View key={hour} style={[styles.creationHourRow, {top: y}]}>
-                      <View style={styles.creationHourLabelCol}>
-                        <Text style={[styles.creationHourLabel, {color: colors.textTertiary}]}>
-                          {`${hour.toString().padStart(2, '0')}:00`}
+                  {creatingEvent && (
+                    <View pointerEvents="none" style={[styles.creationEventBlock, {
+                      top: ((creatingEvent.startMin - displayStartHour * 60) / 60) * CREATION_HOUR_HEIGHT,
+                      height: Math.max(CREATION_HOUR_HEIGHT / 4, ((creatingEvent.endMin - creatingEvent.startMin) / 60) * CREATION_HOUR_HEIGHT),
+                      backgroundColor: `${colors.primary}30`, borderColor: colors.primary,
+                    }]}>
+                      <Text style={[styles.creationEventTime, {color: colors.primary}]}>
+                        {formatMinutes(creatingEvent.startMin)} 〜 {formatMinutes(creatingEvent.endMin)}
+                      </Text>
+                    </View>
+                  )}
+                  {isTodayDate && detailCurrentTimeY != null && (
+                    <View style={[styles.flowCurrentTime, {top: detailCurrentTimeY}]} pointerEvents="none">
+                      <View style={[styles.currentTimeBadge, {backgroundColor: colors.currentTimeIndicator}]}>
+                        <Text style={[styles.currentTimeBadgeText, {color: colors.onPrimary}]}>
+                          {currentTime.getHours().toString().padStart(2, '0')}:{currentTime.getMinutes().toString().padStart(2, '0')}
                         </Text>
                       </View>
-                      <View style={[styles.creationHourLine, {backgroundColor: colors.borderLight}]} />
+                      <View style={[styles.currentTimeLine, {backgroundColor: colors.currentTimeIndicator}]} />
                     </View>
-                  );
-                })}
-                {/* New event block */}
-                <View style={[
-                  styles.creationEventBlock,
-                  {
-                    top: eventTopY,
-                    height: eventHeight,
-                    backgroundColor: `${colors.primary}30`,
-                    borderColor: colors.primary,
-                  },
-                ]}>
-                  <Text style={[styles.creationEventTime, {color: colors.primary}]}>
-                    {formatMinutes(creatingEvent.startMin)} 〜 {formatMinutes(creatingEvent.endMin)}
-                  </Text>
+                  )}
                 </View>
-                {/* Cancel button */}
-                <TouchableOpacity
-                  style={[styles.creationCancelBtn, {backgroundColor: colors.surfaceSecondary}]}
-                  onPress={cancelCreation}>
-                  <Text style={[styles.creationCancelText, {color: colors.textSecondary}]}>キャンセル</Text>
-                </TouchableOpacity>
-              </View>
-            );
-          })()}
+              ) : (
+                segments.map((segment, segIndex) => {
+                  if (segment.type === 'wake' || segment.type === 'sleep') return null;
 
-          {/* Current time indicator (flow mode only) */}
-          {!isDetailMode && isTodayDate && currentTimeYPosition != null && (
-            <View
-              style={[styles.flowCurrentTime, {top: currentTimeYPosition}]}
-              pointerEvents="none">
-              <View style={[styles.currentTimeBadge, {backgroundColor: colors.currentTimeIndicator}]}>
-                <Text style={[styles.currentTimeBadgeText, {color: colors.onPrimary}]}>
-                  {currentTime.getHours().toString().padStart(2, '0')}:{currentTime.getMinutes().toString().padStart(2, '0')}
-                </Text>
-              </View>
-              <View style={[styles.currentTimeLine, {backgroundColor: colors.currentTimeIndicator}]} />
-            </View>
-          )}
+                  if (segment.type === 'gap') {
+                    return (
+                      <TouchableOpacity
+                        key={`gap-${segIndex}`}
+                        style={{paddingVertical: FLOW_GAP_PADDING / 2}}
+                        onLayout={(e) => {
+                          const {y, height} = e.nativeEvent.layout;
+                          segmentLayoutsRef.current[segIndex] = {y, height, startMin: segment.startMin, endMin: segment.endMin};
+                        }}
+                        activeOpacity={0.7}
+                        onPress={(e) => {
+                          if (!isCreating && !editingTimelineTaskId && !draggingTask) {
+                            const pageY = e.nativeEvent.pageY;
+                            rightColumnRef.current?.measureInWindow((_x: number, rcY: number) => {
+                              const gridY = pageY - rcY;
+                              const layouts = segmentLayoutsRef.current;
+                              let tapMin = (segment.startMin + segment.endMin) / 2;
+                              for (let i = 0; i < layouts.length; i++) {
+                                const layout = layouts[i];
+                                if (!layout) continue;
+                                if (gridY >= layout.y && gridY < layout.y + layout.height && layout.endMin > layout.startMin) {
+                                  const ratio = Math.max(0, Math.min(1, (gridY - layout.y) / layout.height));
+                                  tapMin = layout.startMin + ratio * (layout.endMin - layout.startMin);
+                                  break;
+                                }
+                              }
+                              detailTargetMinRef.current = tapMin;
+                              setIsDetailMode(true);
+                            });
+                          }
+                        }}>
+                        {segment.markers.map((marker, mi) => (
+                          <View key={mi} style={[styles.flowRow, {height: FLOW_GAP_MARKER_HEIGHT}]}>
+                            <View style={styles.flowTimeCol}>
+                              <Text style={[styles.flowTimeTextSmall, {color: colors.textTertiary}]}>
+                                {marker.label}
+                              </Text>
+                            </View>
+                            <View style={styles.flowDotCol}>
+                              <View style={[styles.flowLineSegment, {backgroundColor: colors.border}]} />
+                              <View style={[styles.flowDotSmall, {backgroundColor: colors.textTertiary, opacity: 0.4}]} />
+                              <View style={[styles.flowLineSegment, {backgroundColor: colors.border}]} />
+                            </View>
+                            <View style={{flex: 1}} />
+                          </View>
+                        ))}
+                      </TouchableOpacity>
+                    );
+                  }
 
-          {/* Drop indicator during drag (flow mode only) */}
-          {!isDetailMode && draggingTask && dropTimePreview && dropIndicatorY != null && (() => {
-            const dur = draggingTask.duration || 60;
-            const [dh, dm] = dropTimePreview.split(':').map(Number);
-            const dropMin = dh * 60 + dm;
-            // Compute end Y
-            let endY = dropIndicatorY;
-            let y = 0;
-            for (let i = 0; i < segments.length; i++) {
-              const seg = segments[i];
-              const h = segmentHeights[i];
-              if (seg.type === 'gap' || seg.type === 'item') {
-                const endMin = dropMin + dur;
-                if (endMin >= seg.startMin && endMin <= seg.endMin) {
-                  const ratio = (endMin - seg.startMin) / Math.max(1, seg.endMin - seg.startMin);
-                  endY = y + ratio * h;
-                  break;
+                  if (segment.type === 'item') {
+                    const height = segmentHeights[segIndex];
+                    const items = segment.items;
+                    const isMulti = items.length > 1;
+
+                    // Helper to render a single item card
+                    const renderItemCard = (item: TimelineItem) => {
+                      if (item.type === 'event') {
+                        const evColor = item.color || colors.primary;
+                        return (
+                          <TouchableOpacity
+                            key={item.id}
+                            activeOpacity={0.7}
+                            onPress={() => onEventPress?.(item.original as CalendarEventReadable)}
+                            style={{flex: 1}}>
+                            <View style={[styles.flowEventCard, {backgroundColor: evColor, minHeight: height - 8}]}>
+                              <Text style={[styles.flowEventTitle, {color: colors.onEvent}]} numberOfLines={2}>
+                                {item.title}
+                              </Text>
+                              <Text style={[styles.flowEventTime, {color: colors.onEvent}]}>
+                                {formatMinutes(item.startMinutes)}〜{formatMinutes(item.endMinutes)}  {(() => {
+                                  const dur = item.endMinutes - item.startMinutes;
+                                  const h = Math.floor(dur / 60);
+                                  const m = dur % 60;
+                                  return h > 0 && m > 0 ? `${h}時間${m}分` : h > 0 ? `${h}時間` : `${m}分`;
+                                })()}
+                              </Text>
+                              {item.location ? (
+                                <Text style={[styles.flowEventLocation, {color: colors.onEvent}]} numberOfLines={1}>
+                                  {item.location}
+                                </Text>
+                              ) : null}
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      }
+                      if (item.type === 'task') {
+                        const task = item.original as Task;
+                        return (
+                          <TouchableOpacity
+                            key={item.id}
+                            activeOpacity={0.6}
+                            onPress={() => handleEditTimelineTask(task)}
+                            style={{flex: 1}}>
+                            <View style={[styles.flowTaskCard, {
+                              borderColor: item.isTodo ? colors.textTertiary : colors.primary,
+                              backgroundColor: item.isTodo
+                                ? (item.completed ? `${colors.textTertiary}20` : `${colors.textTertiary}08`)
+                                : (item.completed ? `${colors.primary}20` : `${colors.primary}10`),
+                              borderStyle: 'dashed',
+                              minHeight: height - 8,
+                            }]}>
+                              {item.isTodo && (
+                                <Text style={{fontSize: 9, color: colors.textTertiary, marginBottom: 2}}>あとでやる</Text>
+                              )}
+                              <View style={styles.flowTaskRow}>
+                                <TouchableOpacity onPress={() => handleToggleTask(task.id)} hitSlop={{top: 6, bottom: 6, left: 6, right: 6}}>
+                                  <View style={[styles.checkbox, {borderColor: item.isTodo ? colors.textTertiary : colors.primary}, item.completed && {backgroundColor: colors.primary, borderColor: colors.primary}]}>
+                                    {item.completed && <Text style={styles.checkmark}>✓</Text>}
+                                  </View>
+                                </TouchableOpacity>
+                                <View style={{flex: 1}}>
+                                  <Text style={[styles.flowTaskTitle, {color: colors.text}, item.completed && {textDecorationLine: 'line-through', color: colors.textTertiary}]} numberOfLines={2}>
+                                    {item.title}
+                                  </Text>
+                                  <Text style={[styles.flowTaskTime, {color: colors.textSecondary}]}>
+                                    {formatMinutes(item.startMinutes)}〜{formatMinutes(item.endMinutes)}
+                                  </Text>
+                                </View>
+                              </View>
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      }
+                      return null;
+                    };
+
+                    // Find if any task in this segment is being edited
+                    const editingTask = items.find(i => i.type === 'task' && editingTimelineTaskId === (i.original as Task).id);
+
+                    return (
+                      <View key={`seg-${segIndex}`}>
+                        <View
+                          style={[styles.flowRow, {minHeight: height}]}
+                          onLayout={(e) => {
+                            const {y, height: h} = e.nativeEvent.layout;
+                            segmentLayoutsRef.current[segIndex] = {y, height: h, startMin: segment.startMin, endMin: segment.endMin};
+                          }}>
+                          <View style={styles.flowTimeCol}>
+                            <Text style={[styles.flowTimeText, {color: colors.textTertiary}]}>
+                              {formatMinutes(segment.startMin)}
+                            </Text>
+                          </View>
+                          {renderDotCol(false, false, items[0].color || colors.primary)}
+                          <View style={[styles.flowContent, isMulti && {flexDirection: 'row', gap: 4}]}>
+                            {items.map(item => renderItemCard(item))}
+                          </View>
+                          <TouchableOpacity
+                            style={{flex: 1, minWidth: 44}}
+                            activeOpacity={0.7}
+                            onPress={(e) => {
+                              if (!isCreating && !editingTimelineTaskId && !draggingTask) {
+                                const pageY = e.nativeEvent.pageY;
+                                rightColumnRef.current?.measureInWindow((_x: number, rcY: number) => {
+                                  const gridY = pageY - rcY;
+                                  const layouts = segmentLayoutsRef.current;
+                                  let tapMin = (segment.startMin + segment.endMin) / 2;
+                                  for (let i = 0; i < layouts.length; i++) {
+                                    const layout = layouts[i];
+                                    if (!layout) continue;
+                                    if (gridY >= layout.y && gridY < layout.y + layout.height && layout.endMin > layout.startMin) {
+                                      const ratio = Math.max(0, Math.min(1, (gridY - layout.y) / layout.height));
+                                      tapMin = layout.startMin + ratio * (layout.endMin - layout.startMin);
+                                      break;
+                                    }
+                                  }
+                                  detailTargetMinRef.current = tapMin;
+                                  setIsDetailMode(true);
+                                });
+                              }
+                            }}
+                          />
+                        </View>
+                        {editingTask && (() => {
+                          const task = editingTask.original as Task;
+                          return (
+                            <View style={[styles.flowEditPanel, {backgroundColor: colors.surface, borderColor: colors.border, marginLeft: 0}]}>
+                              <Text style={[styles.taskEditLabel, {color: colors.textSecondary}]}>所要時間</Text>
+                              <View style={styles.durationOptions}>
+                                {DURATION_OPTIONS.map(opt => (
+                                  <TouchableOpacity key={opt.value} style={[styles.durationChip, {borderColor: colors.border}, editTaskDuration === opt.value && !editDurationCustom && {backgroundColor: colors.primary, borderColor: colors.primary}]}
+                                    onPress={() => { setEditDurationCustom(false); setEditTaskDuration(editTaskDuration === opt.value ? null : opt.value); }}>
+                                    <Text style={[styles.durationChipText, {color: colors.textSecondary}, editTaskDuration === opt.value && !editDurationCustom && {color: colors.onPrimary}]}>{opt.label}</Text>
+                                  </TouchableOpacity>
+                                ))}
+                                <TouchableOpacity style={[styles.durationChip, {borderColor: colors.border}, editDurationCustom && {backgroundColor: colors.primary, borderColor: colors.primary}]}
+                                  onPress={() => { if (editDurationCustom) { setEditDurationCustom(false); setEditTaskDuration(null); } else { setEditDurationCustom(true); setEditTaskDuration(null); setEditCustomMinutes(''); } }}>
+                                  <Text style={[styles.durationChipText, {color: colors.textSecondary}, editDurationCustom && {color: colors.onPrimary}]}>カスタム</Text>
+                                </TouchableOpacity>
+                              </View>
+                              {editDurationCustom && (
+                                <View style={styles.customDurationRow}>
+                                  <TextInput style={[styles.customDurationInput, {color: colors.text, borderColor: colors.border, backgroundColor: colors.inputBackground}]}
+                                    value={editCustomMinutes} onChangeText={t => { const cleaned = t.replace(/[^0-9]/g, ''); setEditCustomMinutes(cleaned); const num = parseInt(cleaned, 10); setEditTaskDuration(num > 0 ? num : null); }}
+                                    keyboardType="number-pad" placeholder="0" placeholderTextColor={colors.textTertiary} />
+                                  <Text style={[styles.customDurationUnit, {color: colors.textSecondary}]}>分</Text>
+                                </View>
+                              )}
+                              <Text style={[styles.taskEditLabel, {color: colors.textSecondary, marginTop: 8}]}>時間</Text>
+                              <View style={styles.taskEditTimeRow}>
+                                <View style={styles.addTimeInputs}>
+                                  <TextInput style={[styles.addTimeField, {color: colors.text, borderColor: colors.border, backgroundColor: colors.inputBackground}]}
+                                    value={editTaskTimeHour} onChangeText={t => setEditTaskTimeHour(t.replace(/[^0-9]/g, '').slice(0, 2))} keyboardType="number-pad" maxLength={2} />
+                                  <Text style={{color: colors.text, fontWeight: '600', marginHorizontal: 2}}>:</Text>
+                                  <TextInput style={[styles.addTimeField, {color: colors.text, borderColor: colors.border, backgroundColor: colors.inputBackground}]}
+                                    value={editTaskTimeMinute} onChangeText={t => setEditTaskTimeMinute(t.replace(/[^0-9]/g, '').slice(0, 2))} keyboardType="number-pad" maxLength={2} />
+                                </View>
+                                <TouchableOpacity style={[styles.placeBtn, {backgroundColor: colors.primary}]} onPress={() => handleSaveTimelineTask(task.id)}>
+                                  <Text style={[styles.placeBtnText, {color: colors.onPrimary}]}>保存</Text>
+                                </TouchableOpacity>
+                              </View>
+                              <TouchableOpacity style={[styles.removeTimeBtn, {borderColor: colors.error}]} onPress={() => handleRemoveFromTimeline(task.id)}>
+                                <Text style={[styles.removeTimeBtnText, {color: colors.error}]}>時間を外す</Text>
+                              </TouchableOpacity>
+                            </View>
+                          );
+                        })()}
+                      </View>
+                    );
+                  }
+                  return null;
+                })
+              )}
+
+              {/* Creation overlay */}
+              {isCreating && creatingEvent && (() => {
+                const totalHours = displayEndHour - displayStartHour;
+                const overlayHeight = totalHours * CREATION_HOUR_HEIGHT;
+                const hours = Array.from({length: totalHours + 1}, (_, i) => displayStartHour + i);
+                const eventTopY = ((creatingEvent.startMin - displayStartHour * 60) / 60) * CREATION_HOUR_HEIGHT;
+                const eventHeight = Math.max(CREATION_HOUR_HEIGHT / 4, ((creatingEvent.endMin - creatingEvent.startMin) / 60) * CREATION_HOUR_HEIGHT);
+                return (
+                  <View style={[styles.creationOverlay, {height: overlayHeight, backgroundColor: isDark ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.92)'}]}
+                    {...creationOverlayPanResponder.panHandlers}>
+                    {hours.map(hour => {
+                      const y = (hour - displayStartHour) * CREATION_HOUR_HEIGHT;
+                      return (
+                        <View key={hour} style={[styles.creationHourRow, {top: y}]}>
+                          <View style={styles.creationHourLabelCol}>
+                            <Text style={[styles.creationHourLabel, {color: colors.textTertiary}]}>{`${hour.toString().padStart(2, '0')}:00`}</Text>
+                          </View>
+                          <View style={[styles.creationHourLine, {backgroundColor: colors.borderLight}]} />
+                        </View>
+                      );
+                    })}
+                    <View style={[styles.creationEventBlock, {top: eventTopY, height: eventHeight, backgroundColor: `${colors.primary}30`, borderColor: colors.primary}]}>
+                      <Text style={[styles.creationEventTime, {color: colors.primary}]}>{formatMinutes(creatingEvent.startMin)} 〜 {formatMinutes(creatingEvent.endMin)}</Text>
+                    </View>
+                    <TouchableOpacity style={[styles.creationCancelBtn, {backgroundColor: colors.surfaceSecondary}]} onPress={cancelCreation}>
+                      <Text style={[styles.creationCancelText, {color: colors.textSecondary}]}>キャンセル</Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              })()}
+
+              {/* Current time indicator */}
+              {!isDetailMode && isTodayDate && currentTimeYPosition != null && (
+                <View style={[styles.flowCurrentTime, {top: currentTimeYPosition}]} pointerEvents="none">
+                  <View style={[styles.currentTimeBadge, {backgroundColor: colors.currentTimeIndicator}]}>
+                    <Text style={[styles.currentTimeBadgeText, {color: colors.onPrimary}]}>
+                      {currentTime.getHours().toString().padStart(2, '0')}:{currentTime.getMinutes().toString().padStart(2, '0')}
+                    </Text>
+                  </View>
+                  <View style={[styles.currentTimeLine, {backgroundColor: colors.currentTimeIndicator}]} />
+                </View>
+              )}
+
+              {/* Drop indicator */}
+              {!isDetailMode && draggingTask && dropTimePreview && dropIndicatorY != null && (() => {
+                const dur = draggingTask.duration || 60;
+                const [dh, dm] = dropTimePreview.split(':').map(Number);
+                const dropMin = dh * 60 + dm;
+                let endY = dropIndicatorY;
+                let y = 0;
+                for (let i = 0; i < segments.length; i++) {
+                  const seg = segments[i];
+                  const h = segmentHeights[i];
+                  if (seg.type === 'wake' || seg.type === 'sleep') continue;
+                  if (seg.type === 'gap' || seg.type === 'item') {
+                    const endMin = dropMin + dur;
+                    if (endMin >= seg.startMin && endMin <= seg.endMin) {
+                      const ratio = (endMin - seg.startMin) / Math.max(1, seg.endMin - seg.startMin);
+                      endY = y + ratio * h;
+                      break;
+                    }
+                  }
+                  y += h;
                 }
-              }
-              y += h;
-            }
-            const dropHeight = Math.max(20, endY - dropIndicatorY);
+                const dropHeight = Math.max(20, endY - dropIndicatorY);
+                return (
+                  <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                    <View style={[styles.flowDropLine, {top: dropIndicatorY, backgroundColor: colors.primary}]} />
+                    <View style={[styles.flowDropPreview, {top: dropIndicatorY, height: dropHeight, backgroundColor: `${colors.primary}15`, borderColor: colors.primary}]}>
+                      <Text style={[styles.flowDropPreviewText, {color: colors.primary}]}>{dropTimePreview} - {formatMinutes(dropMin + dur)}</Text>
+                    </View>
+                  </View>
+                );
+              })()}
+          </View>
+
+          {/* ── Sleep segment (full width) ── */}
+          {segments.length > 1 && segments[segments.length - 1].type === 'sleep' && (() => {
+            const segment = segments[segments.length - 1] as { type: 'sleep'; hour: number; minute: number };
+            const segIndex = segments.length - 1;
             return (
-              <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-                <View style={[styles.flowDropLine, {top: dropIndicatorY, backgroundColor: colors.primary}]} />
-                <View style={[styles.flowDropPreview, {
-                  top: dropIndicatorY,
-                  height: dropHeight,
-                  backgroundColor: `${colors.primary}15`,
-                  borderColor: colors.primary,
-                }]}>
-                  <Text style={[styles.flowDropPreviewText, {color: colors.primary}]}>
-                    {dropTimePreview} - {formatMinutes(dropMin + dur)}
+              <TouchableOpacity
+                key="sleep"
+                style={[styles.flowRow, {height: FLOW_SLEEP_HEIGHT}]}
+                activeOpacity={0.7}
+                onPress={() => setEditingTime(editingTime === 'sleep' ? null : 'sleep')}
+                onLayout={(e) => handleSegmentLayout(segIndex, sleepMinVal, sleepMinVal, e)}>
+                <View style={styles.flowTimeCol}>
+                  <Text style={[styles.flowTimeText, {color: editingTime === 'sleep' ? colors.primary : colors.textTertiary}]}>
+                    {formatMinutes(segment.hour * 60 + segment.minute)}
                   </Text>
                 </View>
-              </View>
+                {renderDotCol(false, true, colors.primary)}
+                <View style={styles.flowContent}>
+                  <View style={[styles.lifeCard, {backgroundColor: colors.surfaceSecondary}]}>
+                    <View style={styles.lifeCardInner}>
+                      <Text style={styles.lifeCardEmoji}>🌙</Text>
+                      <Text style={[styles.lifeCardText, {color: colors.text}]}>就寝</Text>
+                    </View>
+                  </View>
+                </View>
+              </TouchableOpacity>
             );
           })()}
         </View>
@@ -2176,9 +2178,9 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
           <View style={styles.sheetHeaderSplit}>
             <View style={styles.sheetHeaderCol}>
               <Text style={[styles.sheetTitle, {color: colors.text}]}>あとでやる</Text>
-              {untimedTasks.length > 0 && (
+              {todoTasks.length > 0 && (
                 <View style={[styles.sheetBadge, {backgroundColor: colors.primary}]}>
-                  <Text style={[styles.sheetBadgeText, {color: colors.onPrimary}]}>{untimedTasks.length}</Text>
+                  <Text style={[styles.sheetBadgeText, {color: colors.onPrimary}]}>{todoTasks.length}</Text>
                 </View>
               )}
             </View>
@@ -2195,10 +2197,10 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
         </View>
         <View style={styles.sheetColumnsContainer}>
           <ScrollView style={styles.sheetColumnLeft} showsVerticalScrollIndicator={false} scrollEnabled={!draggingTask}>
-            {untimedTasks.length === 0 ? (
+            {todoTasks.length === 0 ? (
               <Text style={[styles.sheetEmpty, {color: colors.textTertiary}]}>タスクなし</Text>
             ) : (
-              untimedTasks.map(task => (
+              todoTasks.map(task => (
                 <View key={task.id} style={styles.swipeRow}>
                   <TouchableOpacity
                     style={styles.swipeDeleteBtn}
@@ -2224,6 +2226,11 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                       </View>
                     </TouchableOpacity>
                     <View style={styles.sheetEventInfo}>
+                      {task.time && (
+                        <Text style={[styles.sheetEventTime, {color: colors.textSecondary}]}>
+                          {task.time}〜
+                        </Text>
+                      )}
                       <Text
                         style={[
                           styles.sheetEventTitle,
@@ -2242,7 +2249,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
               ))
             )}
           {expandedTaskId && (() => {
-            const task = untimedTasks.find(t => t.id === expandedTaskId);
+            const task = todoTasks.find(t => t.id === expandedTaskId);
             if (!task) return null;
             return (
               <View style={[styles.bookmarkEditPanel, {backgroundColor: colors.surfaceSecondary, borderTopColor: colors.borderLight}]}>
@@ -2491,7 +2498,6 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                 </Text>
               </TouchableOpacity>
             </View>
-            {taskTimeEnabled && (
               <View style={styles.addTimeRow}>
                 <View style={styles.addTimeInputs}>
                   <TextInput
@@ -2565,7 +2571,6 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                   />
                 </View>
               </View>
-            )}
             <View style={styles.durationRow}>
               <Text style={[styles.durationLabel, {color: colors.textSecondary}]}>所要時間</Text>
               <View style={styles.durationOptions}>
@@ -2581,7 +2586,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                       setTaskDurationCustom(false);
                       const newDur = taskDuration === opt.value ? null : opt.value;
                       setTaskDuration(newDur);
-                      if (taskTimeEnabled) { updateEndTime(taskTimeHour, taskTimeMinute, newDur); }
+                      if (taskTimeHour && taskTimeMinute) { updateEndTime(taskTimeHour, taskTimeMinute, newDur); }
                     }}>
                     <Text style={[
                       styles.durationChipText,
@@ -2785,7 +2790,7 @@ const styles = StyleSheet.create({
   },
   flowContent: {
     flex: 1,
-    paddingRight: 16,
+    paddingRight: 10,
     paddingVertical: 4,
     justifyContent: 'center',
   },
@@ -3351,16 +3356,12 @@ const styles = StyleSheet.create({
   // Detail mode blocks
   detailEventBlock: {
     position: 'absolute',
-    left: FLOW_LEFT_WIDTH + 4,
-    right: 16,
     borderRadius: 8,
     padding: 8,
     overflow: 'hidden',
   },
   detailTaskBlock: {
     position: 'absolute',
-    left: FLOW_LEFT_WIDTH + 4,
-    right: 16,
     borderRadius: 8,
     borderWidth: 1.5,
     borderStyle: 'dashed' as any,
@@ -3471,6 +3472,33 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     paddingLeft: 10,
     marginTop: 2,
+  },
+
+  // Flow 2-column layout
+  flowTwoColumnBody: {
+    flexDirection: 'row',
+  },
+  flowColumnLeft: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+  },
+  flowColumnRight: {
+    flex: 1,
+  },
+  flowUntimedItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+  },
+  flowUntimedTitle: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  flowUntimedDuration: {
+    fontSize: 11,
+    marginTop: 1,
   },
 });
 

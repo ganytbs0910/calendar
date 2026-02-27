@@ -8,6 +8,7 @@ export interface Task {
   dateKey: string; // "YYYY-MM-DD"
   time?: string; // "HH:MM" e.g. "09:00"
   duration?: number; // minutes
+  taskType?: 'todo' | 'schedule'; // 'todo' = あとでやる, 'schedule' = 予定
 }
 
 const STORAGE_KEY = '@today_tasks';
@@ -50,7 +51,7 @@ export const getTasksForDateRange = async (dateKeys: string[]): Promise<Map<stri
   return result;
 };
 
-export const addTaskForDate = async (title: string, dateKey: string, time?: string, duration?: number): Promise<Task[]> => {
+export const addTaskForDate = async (title: string, dateKey: string, time?: string, duration?: number, taskType?: 'todo' | 'schedule'): Promise<Task[]> => {
   const all = await loadTasks();
   const newTask: Task = {
     id: Date.now().toString(),
@@ -60,6 +61,7 @@ export const addTaskForDate = async (title: string, dateKey: string, time?: stri
     dateKey,
     time,
     duration,
+    taskType,
   };
   all.push(newTask);
   await saveTasks(all);
@@ -75,7 +77,7 @@ export const updateTaskTime = async (taskId: string, time?: string): Promise<voi
   }
 };
 
-export const updateTask = async (taskId: string, updates: { time?: string; duration?: number; clearTime?: boolean; clearDuration?: boolean }): Promise<void> => {
+export const updateTask = async (taskId: string, updates: { time?: string; duration?: number; clearTime?: boolean; clearDuration?: boolean; taskType?: 'todo' | 'schedule' }): Promise<void> => {
   const all = await loadTasks();
   const idx = all.findIndex(t => t.id === taskId);
   if (idx !== -1) {
@@ -88,6 +90,9 @@ export const updateTask = async (taskId: string, updates: { time?: string; durat
       all[idx].duration = undefined;
     } else if (updates.duration !== undefined) {
       all[idx].duration = updates.duration;
+    }
+    if (updates.taskType !== undefined) {
+      all[idx].taskType = updates.taskType;
     }
     await saveTasks(all);
   }

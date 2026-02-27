@@ -49,7 +49,11 @@
       "Bash(node --version:*)",
       "Bash(ln:*)",
       "Bash(npx react-native:*)",
-      "Bash(kill 33536:*)"
+      "Bash(kill 33536:*)",
+      "Bash(killall:*)",
+      "Bash(log stream:*)",
+      "Bash(sudo xcodebuild:*)",
+      "Bash(xcode-select:*)"
     ]
   }
 }
