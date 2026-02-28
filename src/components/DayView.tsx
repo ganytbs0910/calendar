@@ -918,9 +918,14 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
   // ── Segments ──
 
   const showWake = !!(sleepSettings && daySetting && displayStartHour > 0);
-  const showSleep = !!(sleepSettings && daySetting && displayEndHour < 24);
+  const showSleep = !!(sleepSettings && daySetting);
   const wakeMin = showWake ? daySetting!.wakeUpHour * 60 + daySetting!.wakeUpMinute : 0;
-  const sleepMinVal = showSleep ? daySetting!.sleepHour * 60 + daySetting!.sleepMinute : 24 * 60;
+  const sleepMinVal = (() => {
+    if (!daySetting) return 24 * 60;
+    const raw = daySetting.sleepHour * 60 + daySetting.sleepMinute;
+    // 就寝が起床以前（0時越え）なら24:00として扱う
+    return raw <= wakeMin ? 24 * 60 : raw;
+  })();
 
   const segments = useMemo((): Segment[] => {
     const result: Segment[] = [];
@@ -979,7 +984,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
     }
 
     if (showSleep) {
-      result.push({ type: 'sleep', hour: daySetting!.sleepHour, minute: daySetting!.sleepMinute });
+      result.push({ type: 'sleep', hour: Math.floor(sleepMinVal / 60), minute: sleepMinVal % 60 });
     }
 
     return result;
@@ -1016,7 +1021,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
         case 'wake': return FLOW_WAKE_HEIGHT;
         case 'sleep': return FLOW_SLEEP_HEIGHT;
         case 'gap': return seg.markers.length * FLOW_GAP_MARKER_HEIGHT + FLOW_GAP_PADDING;
-        case 'item': return FLOW_MIN_ITEM_HEIGHT;
+        case 'item': return Math.max(FLOW_MIN_ITEM_HEIGHT, seg.durationMin * pxPerMinute);
       }
     });
   }, [segments, timelineHeight, showWake, showSleep]);
@@ -1486,7 +1491,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                     const isMulti = items.length > 1;
 
                     // Helper to render a single item card
-                    const renderItemCard = (item: TimelineItem) => {
+                    const renderItemCard = (item: TimelineItem, cardHeight: number) => {
                       if (item.type === 'event') {
                         const evColor = item.color || colors.primary;
                         return (
@@ -1495,7 +1500,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                             activeOpacity={0.7}
                             onPress={() => onEventPress?.(item.original as CalendarEventReadable)}
                             style={{flex: 1}}>
-                            <View style={[styles.flowEventCard, {backgroundColor: evColor, minHeight: height - 8}]}>
+                            <View style={[styles.flowEventCard, {backgroundColor: evColor, minHeight: cardHeight - 8}]}>
                               <Text style={[styles.flowEventTitle, {color: colors.onEvent}]} numberOfLines={2}>
                                 {item.title}
                               </Text>
@@ -1530,7 +1535,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                                 ? (item.completed ? `${colors.textTertiary}20` : `${colors.textTertiary}08`)
                                 : (item.completed ? `${colors.primary}20` : `${colors.primary}10`),
                               borderStyle: 'dashed',
-                              minHeight: height - 8,
+                              minHeight: cardHeight - 8,
                             }]}>
                               {item.isTodo && (
                                 <Text style={{fontSize: 9, color: colors.textTertiary, marginBottom: 2}}>あとでやる</Text>
@@ -1568,16 +1573,36 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                         }}>
                         <View
                           style={[styles.flowRow, {minHeight: height}]}>
-                          <View style={styles.flowTimeCol}>
+                          <View style={[styles.flowTimeCol, {justifyContent: 'space-between'}]}>
                             <Text style={[styles.flowTimeText, {color: colors.textTertiary}]}>
                               {formatMinutes(segment.startMin)}
                             </Text>
+                            {segment.endMin > segment.startMin && (
+                              <Text style={[styles.flowTimeTextSmall, {color: colors.textTertiary}]}>
+                                {formatMinutes(segment.endMin)}
+                              </Text>
+                            )}
                           </View>
                           {renderDotCol(false, false, items[0].color || colors.primary)}
-                          <View style={[styles.flowContent, isMulti && {flexDirection: 'row', gap: 4}]}>
-                            {items.map(item => renderItemCard(item))}
-                          </View>
-                          <View style={{flex: 1, minWidth: 44}} />
+                          {isMulti ? (
+                            <View style={[styles.flowContent, {flexDirection: 'row', gap: 4, alignItems: 'flex-start'}]}>
+                              {items.map(item => {
+                                const itemDur = item.endMinutes - item.startMinutes;
+                                const cardH = Math.max(48, (itemDur / segment.durationMin) * height);
+                                const topOff = ((Math.max(item.startMinutes, segment.startMin) - segment.startMin) / segment.durationMin) * height;
+                                return (
+                                  <View key={`wrap-${item.id}`} style={{flex: 1, marginTop: topOff, height: cardH}}>
+                                    {renderItemCard(item, cardH)}
+                                  </View>
+                                );
+                              })}
+                            </View>
+                          ) : (
+                            <View style={styles.flowContent}>
+                              {items.map(item => renderItemCard(item, height))}
+                            </View>
+                          )}
+                          <View style={{width: 8}} />
                         </View>
                         {editingTask && (() => {
                           const task = editingTask.original as Task;
