@@ -162,6 +162,8 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
   const [currentTime, setCurrentTime] = useState(new Date());
   const [eventColors, setEventColors] = useState<Record<string, string>>({});
   const [dayTasks, setDayTasks] = useState<Task[]>([]);
+  const [showAddTypeSelect, setShowAddTypeSelect] = useState(false);
+  const [pendingTimeRange, setPendingTimeRange] = useState<{start: Date; end: Date} | null>(null);
   const [addingTask, setAddingTask] = useState(false);
   const [taskInputText, setTaskInputText] = useState('');
   const [taskTimeEnabled, setTaskTimeEnabled] = useState(false);
@@ -201,6 +203,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
   const flowTimelineYRef = useRef(0);
   const rightColumnRef = useRef<View>(null);
   const rightColumnScrollYRef = useRef(0);
+  const rightColumnOffsetYRef = useRef(0);
 
   // Event creation (long-press + drag)
   const [creatingEvent, setCreatingEvent] = useState<{startMin: number; endMin: number} | null>(null);
@@ -208,6 +211,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
   const lpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lpTouchYRef = useRef(0);
   const lpActiveRef = useRef(false);
+  const lpLastPageYRef = useRef(0);
 
   // Swipe-to-delete
   const swipedItemIdRef = useRef<string | null>(null);
@@ -510,27 +514,30 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
 
   // ── Task handlers ──
 
+  const [taskInputError, setTaskInputError] = useState(false);
   const handleAddTask = useCallback(async () => {
     const trimmed = taskInputText.trim();
-    if (!trimmed) return;
-    const hasTime = taskTimeHour.length > 0 && taskTimeMinute.length > 0;
-    const time = hasTime ? `${taskTimeHour.padStart(2, '0')}:${taskTimeMinute.padStart(2, '0')}` : undefined;
-    const duration = taskDuration || undefined;
-    const taskType: 'todo' | 'schedule' = taskTimeEnabled ? 'schedule' : 'todo';
-    await addTaskForDate(trimmed, dateKey, time, duration, taskType);
-    setTaskInputText('');
-    setAddingTask(false);
-    setTaskTimeEnabled(false);
-    setTaskTimeHour('');
-    setTaskTimeMinute('');
-    setTaskEndTimeHour('');
-    setTaskEndTimeMinute('');
-    setTaskDuration(null);
-    setTaskDurationCustom(false);
-    setTaskCustomMinutes('');
-    Keyboard.dismiss();
-    fetchTasks();
-  }, [taskInputText, dateKey, fetchTasks, taskTimeEnabled, taskTimeHour, taskTimeMinute, taskDuration]);
+    if (!trimmed) { setTaskInputError(true); return; }
+    try {
+      const duration = taskDuration || undefined;
+      await addTaskForDate(trimmed, dateKey, undefined, duration, 'todo');
+      setTaskInputText('');
+      setAddingTask(false);
+      setTaskTimeEnabled(false);
+      setTaskTimeHour('');
+      setTaskTimeMinute('');
+      setTaskEndTimeHour('');
+      setTaskEndTimeMinute('');
+      setTaskDuration(null);
+      setTaskDurationCustom(false);
+      setTaskCustomMinutes('');
+      setTaskInputError(false);
+      Keyboard.dismiss();
+      fetchTasks();
+    } catch (e) {
+      console.error('handleAddTask error:', e);
+    }
+  }, [taskInputText, dateKey, fetchTasks, taskDuration]);
 
   const handleToggleTask = useCallback(async (taskId: string) => {
     await toggleTask(taskId);
@@ -1164,27 +1171,38 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
   }, [displayStartHour, displayEndHour, editingTimelineTaskId, draggingTask]);
 
   const handleCreationTouchMove = useCallback((e: any) => {
+    const pageY = e.nativeEvent.pageY;
     if (!lpActiveRef.current) {
       if (!lpTimerRef.current) return;
-      if (Math.abs(e.nativeEvent.pageY - lpTouchYRef.current) > 10) {
+      if (Math.abs(pageY - lpTouchYRef.current) > 10) {
         clearTimeout(lpTimerRef.current);
         lpTimerRef.current = null;
       }
       return;
     }
-    // Move the 1-hour block
-    const gridY = e.nativeEvent.pageY - gridTopOnScreenRef.current;
+    lpLastPageYRef.current = pageY;
+    const gridY = pageY - gridTopOnScreenRef.current;
+    // Find if finger is inside any gap/item segment
     const layouts = segmentLayoutsRef.current;
+    let insideTimeline = false;
     let minutes = displayStartHour * 60;
     for (let i = 0; i < layouts.length; i++) {
       const layout = layouts[i];
       if (!layout) continue;
       if (gridY >= layout.y && gridY < layout.y + layout.height && layout.endMin > layout.startMin) {
+        insideTimeline = true;
         const ratio = Math.max(0, Math.min(1, (gridY - layout.y) / layout.height));
         minutes = layout.startMin + ratio * (layout.endMin - layout.startMin);
         break;
       }
     }
+    if (!insideTimeline) {
+      // Cancel immediately
+      lpActiveRef.current = false;
+      setCreatingEvent(null);
+      return;
+    }
+    // Move the 1-hour block
     minutes = Math.round(minutes / 15) * 15;
     minutes = Math.max(displayStartHour * 60, Math.min(displayEndHour * 60 - 60, minutes));
     setCreatingEvent({startMin: minutes, endMin: minutes + 60});
@@ -1198,16 +1216,17 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
     if (lpActiveRef.current) {
       lpActiveRef.current = false;
       const ce = creatingEventRef.current;
-      if (ce && onTimeRangeSelect) {
+      if (ce) {
         const s = new Date(dayStart);
         s.setHours(Math.floor(ce.startMin / 60), ce.startMin % 60, 0, 0);
         const ed = new Date(dayStart);
         ed.setHours(Math.floor(ce.endMin / 60), ce.endMin % 60, 0, 0);
-        onTimeRangeSelect(s, ed);
+        setPendingTimeRange({start: s, end: ed});
+        setShowAddTypeSelect(true);
       }
       setCreatingEvent(null);
     }
-  }, [dayStart, onTimeRangeSelect]);
+  }, [dayStart]);
 
   // ── Segment layout handler ──
 
@@ -1419,8 +1438,19 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                 key="wake"
                 style={[styles.flowRow, {height: FLOW_WAKE_HEIGHT}]}
                 activeOpacity={0.7}
+                delayLongPress={300}
                 onPress={() => setEditingTime(editingTime === 'wake' ? null : 'wake')}
-                onLayout={(e) => handleSegmentLayout(0, wakeMin, wakeMin, e)}>
+                onLongPress={() => {
+                  Vibration.vibrate(50);
+                  const tapMin = Math.round(wakeMin / 15) * 15;
+                  const s = new Date(dayStart);
+                  s.setHours(Math.floor(tapMin / 60), tapMin % 60, 0, 0);
+                  const ed = new Date(s);
+                  ed.setHours(ed.getHours() + 1);
+                  setPendingTimeRange({start: s, end: ed});
+                  setShowAddTypeSelect(true);
+                }}
+                onLayout={(e) => handleSegmentLayout(0, displayStartHour * 60, wakeMin, e)}>
                 <View style={styles.flowTimeCol}>
                   <Text style={[styles.flowTimeText, {color: editingTime === 'wake' ? colors.primary : colors.textTertiary}]}>
                     {formatMinutes(segment.hour * 60 + segment.minute)}
@@ -1449,7 +1479,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
               if (rightColumnRef.current && gridContainerRef.current) {
                 rightColumnRef.current.measureLayout(
                   gridContainerRef.current as any,
-                  (_x: number, y: number) => { rightColumnScrollYRef.current = flowTimelineYRef.current + y; },
+                  (_x: number, y: number) => { rightColumnScrollYRef.current = flowTimelineYRef.current + y; rightColumnOffsetYRef.current = y; },
                   () => {},
                 );
               }
@@ -1573,15 +1603,30 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                         }}>
                         <View
                           style={[styles.flowRow, {minHeight: height}]}>
-                          <View style={[styles.flowTimeCol, {justifyContent: 'space-between'}]}>
+                          <View style={[styles.flowTimeCol, {justifyContent: 'flex-start'}]}>
                             <Text style={[styles.flowTimeText, {color: colors.textTertiary}]}>
                               {formatMinutes(segment.startMin)}
                             </Text>
-                            {segment.endMin > segment.startMin && (
-                              <Text style={[styles.flowTimeTextSmall, {color: colors.textTertiary}]}>
-                                {formatMinutes(segment.endMin)}
-                              </Text>
-                            )}
+                            {/* 各アイテムの終了時刻を正しいY位置に表示 */}
+                            {(() => {
+                              const endTimes = items
+                                .map(it => it.endMinutes)
+                                .filter((v, i, a) => a.indexOf(v) === i && v !== segment.startMin)
+                                .sort((a, b) => a - b);
+                              return endTimes.map(endMin => {
+                                const topOff = ((endMin - segment.startMin) / segment.durationMin) * height - 14;
+                                return (
+                                  <Text key={`end-${endMin}`}
+                                    style={[styles.flowTimeTextSmall, {
+                                      color: colors.textTertiary,
+                                      position: 'absolute',
+                                      top: Math.max(18, topOff),
+                                    }]}>
+                                    {formatMinutes(endMin)}
+                                  </Text>
+                                );
+                              });
+                            })()}
                           </View>
                           {renderDotCol(false, false, items[0].color || colors.primary)}
                           {isMulti ? (
@@ -1654,36 +1699,6 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                   return null;
                 })}
 
-              {/* Creation preview (long-press drag) */}
-              {creatingEvent && (() => {
-                const layouts = segmentLayoutsRef.current;
-                let topY = 0, bottomY = 0;
-                for (let i = 0; i < layouts.length; i++) {
-                  const layout = layouts[i];
-                  if (!layout) continue;
-                  if (creatingEvent.startMin >= layout.startMin && creatingEvent.startMin <= layout.endMin && layout.endMin > layout.startMin) {
-                    const ratio = (creatingEvent.startMin - layout.startMin) / (layout.endMin - layout.startMin);
-                    topY = layout.y + ratio * layout.height;
-                  }
-                  if (creatingEvent.endMin >= layout.startMin && creatingEvent.endMin <= layout.endMin && layout.endMin > layout.startMin) {
-                    const ratio = (creatingEvent.endMin - layout.startMin) / (layout.endMin - layout.startMin);
-                    bottomY = layout.y + ratio * layout.height;
-                  }
-                }
-                const boxHeight = Math.max(40, bottomY - topY);
-                return (
-                  <View pointerEvents="none" style={{
-                    position: 'absolute', top: topY, left: FLOW_LEFT_WIDTH + FLOW_DOT_COL_WIDTH, right: 8,
-                    height: boxHeight, backgroundColor: `${colors.primary}25`,
-                    borderColor: colors.primary, borderWidth: 2, borderRadius: 10,
-                    justifyContent: 'center', paddingHorizontal: 12,
-                  }}>
-                    <Text style={{color: colors.primary, fontSize: 14, fontWeight: '700', fontVariant: ['tabular-nums']}}>
-                      {formatMinutes(creatingEvent.startMin)} 〜 {formatMinutes(creatingEvent.endMin)}
-                    </Text>
-                  </View>
-                );
-              })()}
 
               {/* Current time indicator */}
               {isTodayDate && currentTimeYPosition != null && (
@@ -1739,8 +1754,19 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                 key="sleep"
                 style={[styles.flowRow, {height: FLOW_SLEEP_HEIGHT}]}
                 activeOpacity={0.7}
+                delayLongPress={300}
                 onPress={() => setEditingTime(editingTime === 'sleep' ? null : 'sleep')}
-                onLayout={(e) => handleSegmentLayout(segIndex, sleepMinVal, sleepMinVal, e)}>
+                onLongPress={() => {
+                  Vibration.vibrate(50);
+                  const tapMin = Math.round(sleepMinVal / 15) * 15;
+                  const s = new Date(dayStart);
+                  s.setHours(Math.floor(tapMin / 60), tapMin % 60, 0, 0);
+                  const ed = new Date(s);
+                  ed.setHours(ed.getHours() + 1);
+                  setPendingTimeRange({start: s, end: ed});
+                  setShowAddTypeSelect(true);
+                }}
+                onLayout={(e) => handleSegmentLayout(segIndex, sleepMinVal, displayEndHour * 60, e)}>
                 <View style={styles.flowTimeCol}>
                   <Text style={[styles.flowTimeText, {color: editingTime === 'sleep' ? colors.primary : colors.textTertiary}]}>
                     {formatMinutes(segment.hour * 60 + segment.minute)}
@@ -1756,6 +1782,48 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                   </View>
                 </View>
               </TouchableOpacity>
+            );
+          })()}
+
+          {/* Creation preview (long-press drag) */}
+          {creatingEvent && (() => {
+            const layouts = segmentLayoutsRef.current;
+            const rcOffset = rightColumnOffsetYRef.current;
+            let topY = 0, bottomY = 0;
+            for (let i = 0; i < layouts.length; i++) {
+              const layout = layouts[i];
+              if (!layout || layout.endMin <= layout.startMin) continue;
+              if (creatingEvent.startMin >= layout.startMin && creatingEvent.startMin <= layout.endMin) {
+                const ratio = (creatingEvent.startMin - layout.startMin) / (layout.endMin - layout.startMin);
+                topY = layout.y + ratio * layout.height + rcOffset;
+              }
+              if (creatingEvent.endMin >= layout.startMin && creatingEvent.endMin <= layout.endMin) {
+                const ratio = (creatingEvent.endMin - layout.startMin) / (layout.endMin - layout.startMin);
+                bottomY = layout.y + ratio * layout.height + rcOffset;
+              }
+            }
+            const boxHeight = Math.max(50, bottomY - topY);
+            return (
+              <View pointerEvents="none" style={{
+                position: 'absolute', top: topY, left: FLOW_LEFT_WIDTH + FLOW_DOT_COL_WIDTH - 2, right: 6,
+                height: boxHeight, zIndex: 70,
+                backgroundColor: isDark ? 'rgba(255,255,255,0.12)' : '#fff',
+                borderColor: isDark ? 'rgba(255,255,255,0.5)' : colors.text,
+                borderWidth: 2,
+                borderRadius: 14,
+                borderStyle: 'dashed',
+                justifyContent: 'center',
+                paddingHorizontal: 12,
+                shadowColor: '#000',
+                shadowOffset: {width: 0, height: 2},
+                shadowOpacity: isDark ? 0.4 : 0.1,
+                shadowRadius: 8,
+                elevation: 4,
+              }}>
+                <Text style={{color: isDark ? '#fff' : colors.text, fontSize: 14, fontWeight: '700', fontVariant: ['tabular-nums']}}>
+                  {formatMinutes(creatingEvent.startMin)} − {formatMinutes(creatingEvent.endMin)}
+                </Text>
+              </View>
             );
           })()}
         </View>
@@ -2028,7 +2096,15 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
       {/* ── FAB ── */}
       <TouchableOpacity
         style={[styles.fab, {backgroundColor: isDark ? '#ffffff' : '#000000'}]}
-        onPress={() => setAddingTask(true)}
+        onPress={() => {
+          const now = new Date(dayStart);
+          const cur = new Date();
+          now.setHours(cur.getHours(), Math.round(cur.getMinutes() / 15) * 15, 0, 0);
+          const end = new Date(now);
+          end.setHours(end.getHours() + 1);
+          setPendingTimeRange({start: now, end});
+          setShowAddTypeSelect(true);
+        }}
         activeOpacity={0.8}>
         <Text style={[styles.fabText, {color: isDark ? '#000000' : '#ffffff'}]}>+</Text>
       </TouchableOpacity>
@@ -2061,116 +2137,55 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
         </Animated.View>
       )}
 
+      {/* ── Add Type Selection Overlay ── */}
+      {showAddTypeSelect && (
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => { setShowAddTypeSelect(false); setPendingTimeRange(null); }}
+          style={[styles.addOverlay, {backgroundColor: colors.overlay}]}>
+          <TouchableOpacity activeOpacity={1} style={[styles.addCard, {backgroundColor: colors.surface, paddingVertical: 28}]}>
+            <Text style={[styles.addCardTitle, {color: colors.text}]}>追加</Text>
+            <View style={{flexDirection: 'row', gap: 12, marginTop: 8}}>
+              <TouchableOpacity
+                onPress={() => {
+                  setShowAddTypeSelect(false);
+                  setPendingTimeRange(null);
+                  setAddingTask(true);
+                }}
+                style={{flex: 1, paddingVertical: 16, borderRadius: 14, backgroundColor: colors.primary, alignItems: 'center'}}>
+                <Text style={{color: colors.onPrimary, fontSize: 15, fontWeight: '700'}}>あとでやる</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => {
+                  setShowAddTypeSelect(false);
+                  if (onTimeRangeSelect && pendingTimeRange) {
+                    onTimeRangeSelect(pendingTimeRange.start, pendingTimeRange.end);
+                  }
+                  setPendingTimeRange(null);
+                }}
+                style={{flex: 1, paddingVertical: 16, borderRadius: 14, backgroundColor: colors.primary, alignItems: 'center'}}>
+                <Text style={{color: colors.onPrimary, fontSize: 15, fontWeight: '700'}}>予定</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      )}
+
       {/* ── Add Task Overlay ── */}
       {addingTask && (
         <View style={[styles.addOverlay, {backgroundColor: colors.overlay}]}>
           <View style={[styles.addCard, {backgroundColor: colors.surface}]}>
             <Text style={[styles.addCardTitle, {color: colors.text}]}>タスクを追加</Text>
             <TextInput
-              style={[styles.addInput, {backgroundColor: colors.inputBackground, color: colors.text}]}
+              style={[styles.addInput, {backgroundColor: colors.inputBackground, color: colors.text}, taskInputError && {borderColor: colors.error, borderWidth: 1}]}
               placeholder="タスクを入力..."
-              placeholderTextColor={colors.textTertiary}
+              placeholderTextColor={taskInputError ? colors.error : colors.textTertiary}
               value={taskInputText}
-              onChangeText={setTaskInputText}
+              onChangeText={(t) => { setTaskInputText(t); setTaskInputError(false); }}
               autoFocus
               returnKeyType="done"
               onSubmitEditing={handleAddTask}
             />
-            <View style={styles.addTypeRow}>
-              <TouchableOpacity
-                onPress={() => setTaskTimeEnabled(false)}
-                style={[
-                  styles.addTypeButton,
-                  !taskTimeEnabled && {backgroundColor: colors.primary},
-                ]}>
-                <Text style={{color: !taskTimeEnabled ? colors.onPrimary : colors.textSecondary, fontSize: 14, fontWeight: !taskTimeEnabled ? '700' : '500'}}>
-                  あとでやる
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => setTaskTimeEnabled(true)}
-                style={[
-                  styles.addTypeButton,
-                  taskTimeEnabled && {backgroundColor: colors.primary},
-                ]}>
-                <Text style={{color: taskTimeEnabled ? colors.onPrimary : colors.textSecondary, fontSize: 14, fontWeight: taskTimeEnabled ? '700' : '500'}}>
-                  予定
-                </Text>
-              </TouchableOpacity>
-            </View>
-              <View style={styles.addTimeRow}>
-                <View style={styles.addTimeInputs}>
-                  <TextInput
-                    style={[styles.addTimeField, {color: colors.text, borderColor: colors.border, backgroundColor: colors.inputBackground}]}
-                    value={taskTimeHour}
-                    onChangeText={t => {
-                      const v = t.replace(/[^0-9]/g, '').slice(0, 2);
-                      setTaskTimeHour(v);
-                      updateEndTime(v, taskTimeMinute, taskDuration);
-                    }}
-                    keyboardType="number-pad"
-                    maxLength={2}
-                    placeholder="HH"
-                    placeholderTextColor={colors.textTertiary}
-                  />
-                  <Text style={[{color: colors.text, fontWeight: '600', marginHorizontal: 2}]}>:</Text>
-                  <TextInput
-                    style={[styles.addTimeField, {color: colors.text, borderColor: colors.border, backgroundColor: colors.inputBackground}]}
-                    value={taskTimeMinute}
-                    onChangeText={t => {
-                      const v = t.replace(/[^0-9]/g, '').slice(0, 2);
-                      setTaskTimeMinute(v);
-                      updateEndTime(taskTimeHour, v, taskDuration);
-                    }}
-                    keyboardType="number-pad"
-                    maxLength={2}
-                    placeholder="MM"
-                    placeholderTextColor={colors.textTertiary}
-                  />
-                </View>
-                <Text style={{color: colors.textTertiary, fontSize: 16, marginHorizontal: 6}}>→</Text>
-                <View style={styles.addTimeInputs}>
-                  <TextInput
-                    style={[styles.addTimeField, {color: colors.text, borderColor: colors.border, backgroundColor: colors.inputBackground}]}
-                    value={taskEndTimeHour}
-                    onChangeText={t => {
-                      const v = t.replace(/[^0-9]/g, '').slice(0, 2);
-                      setTaskEndTimeHour(v);
-                      // Recalculate duration from start/end
-                      const sH = parseInt(taskTimeHour, 10) || 0;
-                      const sM = parseInt(taskTimeMinute, 10) || 0;
-                      const eH = parseInt(v, 10) || 0;
-                      const eM = parseInt(taskEndTimeMinute, 10) || 0;
-                      const diff = (eH * 60 + eM) - (sH * 60 + sM);
-                      if (diff > 0) { setTaskDuration(diff); setTaskDurationCustom(false); }
-                    }}
-                    keyboardType="number-pad"
-                    maxLength={2}
-                    placeholder="HH"
-                    placeholderTextColor={colors.textTertiary}
-                  />
-                  <Text style={[{color: colors.text, fontWeight: '600', marginHorizontal: 2}]}>:</Text>
-                  <TextInput
-                    style={[styles.addTimeField, {color: colors.text, borderColor: colors.border, backgroundColor: colors.inputBackground}]}
-                    value={taskEndTimeMinute}
-                    onChangeText={t => {
-                      const v = t.replace(/[^0-9]/g, '').slice(0, 2);
-                      setTaskEndTimeMinute(v);
-                      // Recalculate duration from start/end
-                      const sH = parseInt(taskTimeHour, 10) || 0;
-                      const sM = parseInt(taskTimeMinute, 10) || 0;
-                      const eH = parseInt(taskEndTimeHour, 10) || 0;
-                      const eM = parseInt(v, 10) || 0;
-                      const diff = (eH * 60 + eM) - (sH * 60 + sM);
-                      if (diff > 0) { setTaskDuration(diff); setTaskDurationCustom(false); }
-                    }}
-                    keyboardType="number-pad"
-                    maxLength={2}
-                    placeholder="MM"
-                    placeholderTextColor={colors.textTertiary}
-                  />
-                </View>
-              </View>
             <View style={styles.durationRow}>
               <Text style={[styles.durationLabel, {color: colors.textSecondary}]}>所要時間</Text>
               <View style={styles.durationOptions}>
@@ -2199,7 +2214,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
             </View>
             <View style={styles.addActions}>
               <TouchableOpacity
-                onPress={() => { setAddingTask(false); setTaskInputText(''); setTaskTimeEnabled(false); setTaskDuration(null); setTaskDurationCustom(false); setTaskCustomMinutes(''); Keyboard.dismiss(); }}
+                onPress={() => { setAddingTask(false); setTaskInputText(''); setTaskTimeEnabled(false); setTaskDuration(null); setTaskDurationCustom(false); setTaskCustomMinutes(''); setTaskInputError(false); Keyboard.dismiss(); }}
                 style={[styles.addActionBtn, {backgroundColor: colors.inputBackground}]}>
                 <Text style={[styles.addActionText, {color: colors.textSecondary}]}>キャンセル</Text>
               </TouchableOpacity>
