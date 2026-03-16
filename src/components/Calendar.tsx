@@ -24,7 +24,7 @@ const SCREEN_WIDTH = Dimensions.get('window').width;
 const DAY_WIDTH = Math.floor((SCREEN_WIDTH - 24) / 7);
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 // Calculate day height to fill screen (subtract header, weekday row, margins, safe area)
-const CALENDAR_AVAILABLE_HEIGHT = SCREEN_HEIGHT - 440;
+const CALENDAR_AVAILABLE_HEIGHT = SCREEN_HEIGHT - 280;
 const EVENT_BAR_HEIGHT = 24; // Height of multi-day event bar
 const DAY_NUMBER_HEIGHT = 20; // Space for day number
 
@@ -1107,7 +1107,43 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                           {totalEvents > 0 && (
                             <View style={styles.singleDayEventsContainer}>
                               {/* All-day / multi-day events */}
-                              {allDayEvents.slice(0, 2).map(event => (
+                              {allDayEvents.slice(0, 2).map(event => {
+                                // For multi-day timed events (not allDay), show time+title on start/end day
+                                const isTimedMultiDay = !event.allDay && event.startDate && event.endDate;
+                                let isStartDay = false;
+                                let isEndDay = false;
+                                if (isTimedMultiDay && item.date) {
+                                  const evStart = new Date(event.startDate!);
+                                  const evEnd = new Date(event.endDate!);
+                                  isStartDay = item.date.getFullYear() === evStart.getFullYear() &&
+                                    item.date.getMonth() === evStart.getMonth() &&
+                                    item.date.getDate() === evStart.getDate();
+                                  isEndDay = item.date.getFullYear() === evEnd.getFullYear() &&
+                                    item.date.getMonth() === evEnd.getMonth() &&
+                                    item.date.getDate() === evEnd.getDate();
+                                }
+                                // Start/end day of timed multi-day: show with allDay style (light bg) + time + title
+                                if (isTimedMultiDay && (isStartDay || isEndDay)) {
+                                  const textColor = event.calendar?.color || colors.allDayEventText;
+                                  return (
+                                    <TouchableOpacity
+                                      key={event.id}
+                                      style={[
+                                        styles.allDayEventBox,
+                                        {backgroundColor: colors.allDayEvent},
+                                      ]}
+                                      onPress={() => onEventPress?.(event)}>
+                                      <Text style={[styles.allDayEventTitle, {color: textColor}]} numberOfLines={1}>
+                                        {isStartDay ? formatTimeCompact(event.startDate!) + '〜' : '〜' + formatTimeCompact(event.endDate!)}
+                                      </Text>
+                                      <Text style={[styles.allDayEventTitle, {color: textColor}]} numberOfLines={1}>
+                                        {event.title}
+                                      </Text>
+                                    </TouchableOpacity>
+                                  );
+                                }
+                                // Middle days or allDay: show title only
+                                return (
                                 <TouchableOpacity
                                   key={event.id}
                                   style={[
@@ -1119,7 +1155,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                                     {event.title}
                                   </Text>
                                 </TouchableOpacity>
-                              ))}
+                              );})}
                               {/* Single-day timed events */}
                               {singleDayEvents.slice(0, Math.max(0, 2 - allDayEvents.length)).map(event => {
                                 const isDraggedEvent = isEventDragSource && draggingEvent?.event.id === event.id;

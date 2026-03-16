@@ -50,7 +50,9 @@ const FLOW_WAKE_HEIGHT = 56;
 const FLOW_SLEEP_HEIGHT = 56;
 const FLOW_GAP_MARKER_HEIGHT = 28;
 const FLOW_GAP_PADDING = 8;
-const FLOW_MIN_ITEM_HEIGHT = 72;
+const FLOW_ITEM_PX_PER_MIN = 20 / 60; // 1時間 = 20px
+const FLOW_MAX_ITEM_HEIGHT = 80;
+const FLOW_MIN_ITEM_HEIGHT = 56;
 const FLOW_LEFT_WIDTH = 46;
 const FLOW_DOT_COL_WIDTH = 20;
 // ── Types ──
@@ -174,7 +176,16 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
   const [taskDuration, setTaskDuration] = useState<number | null>(null);
   const [taskDurationCustom, setTaskDurationCustom] = useState(false);
   const [taskCustomMinutes, setTaskCustomMinutes] = useState('');
+  const [taskMemo, setTaskMemo] = useState('');
+  const [taskDeadlineHour, setTaskDeadlineHour] = useState('');
+  const [taskDeadlineMinute, setTaskDeadlineMinute] = useState('');
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  const [editingTodoTaskId, setEditingTodoTaskId] = useState<string | null>(null);
+  const [editTodoTitle, setEditTodoTitle] = useState('');
+  const [editTodoMemo, setEditTodoMemo] = useState('');
+  const [editTodoDeadlineHour, setEditTodoDeadlineHour] = useState('');
+  const [editTodoDeadlineMinute, setEditTodoDeadlineMinute] = useState('');
+  const [editTodoDuration, setEditTodoDuration] = useState<number | null>(null);
   const [editTaskTimeHour, setEditTaskTimeHour] = useState('');
   const [editTaskTimeMinute, setEditTaskTimeMinute] = useState('');
   const [editTaskDuration, setEditTaskDuration] = useState<number | null>(null);
@@ -182,6 +193,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
   const [editCustomMinutes, setEditCustomMinutes] = useState('');
   const [editingTimelineTaskId, setEditingTimelineTaskId] = useState<string | null>(null);
   const [draggingTask, setDraggingTask] = useState<Task | null>(null);
+  const [draggingEvent, setDraggingEvent] = useState<TimelineItem | null>(null);
   const [dropTimePreview, setDropTimePreview] = useState<string | null>(null);
   const dragAnimX = useRef(new Animated.Value(0)).current;
   const dragAnimY = useRef(new Animated.Value(0)).current;
@@ -190,6 +202,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
   const gridTopOnScreenRef = useRef(0);
   const dragStartedRef = useRef(false);
   const dragTaskIdRef = useRef<string | null>(null);
+  const dragEventItemRef = useRef<TimelineItem | null>(null);
   const dropTimeRef = useRef<string | null>(null);
   const [sleepSettingsLocal, setSleepSettingsLocal] = useState<SleepSettings | null>(null);
   const sleepSettings = sleepSettingsProp !== undefined ? sleepSettingsProp : sleepSettingsLocal;
@@ -520,7 +533,11 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
     if (!trimmed) { setTaskInputError(true); return; }
     try {
       const duration = taskDuration || undefined;
-      await addTaskForDate(trimmed, dateKey, undefined, duration, 'todo');
+      const memo = taskMemo.trim() || undefined;
+      const deadline = (taskDeadlineHour && taskDeadlineMinute)
+        ? `${taskDeadlineHour.padStart(2, '0')}:${taskDeadlineMinute.padStart(2, '0')}`
+        : undefined;
+      await addTaskForDate(trimmed, dateKey, undefined, duration, 'todo', memo, deadline);
       setTaskInputText('');
       setAddingTask(false);
       setTaskTimeEnabled(false);
@@ -531,13 +548,16 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
       setTaskDuration(null);
       setTaskDurationCustom(false);
       setTaskCustomMinutes('');
+      setTaskMemo('');
+      setTaskDeadlineHour('');
+      setTaskDeadlineMinute('');
       setTaskInputError(false);
       Keyboard.dismiss();
       fetchTasks();
     } catch (e) {
       console.error('handleAddTask error:', e);
     }
-  }, [taskInputText, dateKey, fetchTasks, taskDuration]);
+  }, [taskInputText, dateKey, fetchTasks, taskDuration, taskMemo, taskDeadlineHour, taskDeadlineMinute]);
 
   const handleToggleTask = useCallback(async (taskId: string) => {
     await toggleTask(taskId);
@@ -548,6 +568,45 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
     await deleteTask(taskId);
     fetchTasks();
   }, [fetchTasks]);
+
+  const handleStartEditTodo = useCallback((task: Task) => {
+    setEditingTodoTaskId(task.id);
+    setEditTodoTitle(task.title);
+    setEditTodoMemo(task.memo || '');
+    setEditTodoDuration(task.duration || null);
+    if (task.deadline) {
+      const [h, m] = task.deadline.split(':');
+      setEditTodoDeadlineHour(h);
+      setEditTodoDeadlineMinute(m);
+    } else {
+      setEditTodoDeadlineHour('');
+      setEditTodoDeadlineMinute('');
+    }
+  }, []);
+
+  const handleSaveEditTodo = useCallback(async () => {
+    if (!editingTodoTaskId) return;
+    const title = editTodoTitle.trim();
+    if (!title) return;
+    const deadline = (editTodoDeadlineHour && editTodoDeadlineMinute)
+      ? `${editTodoDeadlineHour.padStart(2, '0')}:${editTodoDeadlineMinute.padStart(2, '0')}`
+      : undefined;
+    await updateTask(editingTodoTaskId, {
+      title,
+      duration: editTodoDuration || undefined,
+      clearDuration: !editTodoDuration,
+      memo: editTodoMemo.trim(),
+      deadline,
+      clearDeadline: !deadline,
+    });
+    setEditingTodoTaskId(null);
+    Keyboard.dismiss();
+    fetchTasks();
+  }, [editingTodoTaskId, editTodoTitle, editTodoMemo, editTodoDuration, editTodoDeadlineHour, editTodoDeadlineMinute, fetchTasks]);
+
+  const handleCancelEditTodo = useCallback(() => {
+    setEditingTodoTaskId(null);
+  }, []);
 
   const handleExpandTask = useCallback((task: Task) => {
     if (expandedTaskId === task.id) {
@@ -647,7 +706,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
     onDragMove: (_px: number, _py: number) => {},
     finalizeDrag: async () => {},
     onDragCancel: () => {},
-    onDragTap: (_taskId: string) => {},
+    onDragTap: (_taskId: string, _pageX?: number) => {},
   });
 
   // Keep segments/heights in refs so drag callbacks can use them without stale closures
@@ -768,14 +827,208 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
     finalizeDrag();
   }, [finalizeDrag]);
 
-  const onDragTap = useCallback((taskId: string) => {
+  const onDragTap = useCallback((taskId: string, pageX?: number) => {
+    // If tapped on checkbox area (left ~44px of the row), toggle completion
+    if (pageX !== undefined && pageX < 60) {
+      handleToggleTask(taskId);
+      return;
+    }
     const task = untimedTasks.find(t => t.id === taskId);
-    if (task) handleExpandTask(task);
-  }, [untimedTasks, handleExpandTask]);
+    if (task) handleStartEditTodo(task);
+  }, [untimedTasks, handleStartEditTodo, handleToggleTask]);
 
   dragCallbacksRef.current = { onDragGrant, onDragMove, finalizeDrag, onDragCancel, onDragTap };
 
+  // ── Event Drag & Drop ──
+  const eventLpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const eventDragActiveRef = useRef(false);
+
+  const onEventDragGrant = useCallback((item: TimelineItem, _pageX: number, _pageY: number) => {
+    dragStartedRef.current = false;
+    eventDragActiveRef.current = false;
+    dragEventItemRef.current = item;
+    // Cancel any creation long-press timer
+    if (lpTimerRef.current) {
+      clearTimeout(lpTimerRef.current);
+      lpTimerRef.current = null;
+    }
+    (rightColumnRef.current || gridContainerRef.current)?.measureInWindow((_x: number, y: number) => {
+      gridTopOnScreenRef.current = y;
+    });
+  }, []);
+
+  const onEventDragMove = useCallback((pageX: number, pageY: number) => {
+    if (!eventDragActiveRef.current) return;
+    if (!dragStartedRef.current) {
+      dragStartedRef.current = true;
+      const item = dragEventItemRef.current;
+      if (!item) return;
+      setDraggingEvent(item);
+      (rightColumnRef.current || gridContainerRef.current)?.measureInWindow((_x: number, y: number) => {
+        gridTopOnScreenRef.current = y;
+      });
+      dragAnimX.setValue(pageX - 48);
+      dragAnimY.setValue(pageY - 44);
+      return;
+    }
+    dragAnimX.setValue(pageX - 48);
+    dragAnimY.setValue(pageY - 44);
+
+    // Reuse same drop-time calculation as task drag
+    const gridY = pageY - gridTopOnScreenRef.current;
+    const wMin = displayStartHour * 60;
+    const sMin = displayEndHour * 60;
+    let totalMinutes = wMin;
+
+    const layouts = segmentLayoutsRef.current;
+    let found = false;
+    for (let i = 0; i < layouts.length; i++) {
+      const layout = layouts[i];
+      if (!layout) continue;
+      if (gridY >= layout.y && gridY < layout.y + layout.height) {
+        if (layout.endMin > layout.startMin) {
+          const ratio = Math.max(0, Math.min(1, (gridY - layout.y) / layout.height));
+          totalMinutes = layout.startMin + ratio * (layout.endMin - layout.startMin);
+        } else {
+          totalMinutes = layout.startMin;
+        }
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
+      const segs = segmentsRef.current;
+      const heights = segmentHeightsRef.current;
+      if (segs.length > 0 && heights.length === segs.length) {
+        let cumY = 4;
+        for (let i = 0; i < segs.length; i++) {
+          const seg = segs[i];
+          const h = heights[i];
+          if (gridY >= cumY && gridY < cumY + h) {
+            if (seg.type === 'gap' || seg.type === 'item') {
+              const ratio = Math.max(0, Math.min(1, (gridY - cumY) / h));
+              totalMinutes = seg.startMin + ratio * (seg.endMin - seg.startMin);
+            } else if (seg.type === 'wake') {
+              totalMinutes = seg.hour * 60 + seg.minute;
+            } else if (seg.type === 'sleep') {
+              totalMinutes = seg.hour * 60 + seg.minute;
+            }
+            found = true;
+            break;
+          }
+          cumY += h;
+        }
+        if (!found) {
+          if (gridY < 4) totalMinutes = wMin;
+          else totalMinutes = sMin - 1;
+        }
+      }
+    }
+
+    const roundedMinutes = Math.max(wMin, Math.min(sMin - 1, Math.round(totalMinutes / 15) * 15));
+    const h = Math.floor(roundedMinutes / 60);
+    const m = roundedMinutes % 60;
+    const timeStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+    dropTimeRef.current = timeStr;
+    setDropTimePreview(timeStr);
+  }, [dragAnimX, dragAnimY, displayStartHour, displayEndHour]);
+
+  const finalizeEventDrag = useCallback(async () => {
+    const item = dragEventItemRef.current;
+    const currentDropTime = dropTimeRef.current;
+    const wasStarted = dragStartedRef.current;
+    setDraggingEvent(null);
+    setDropTimePreview(null);
+    dropTimeRef.current = null;
+    dragStartedRef.current = false;
+    dragEventItemRef.current = null;
+    eventDragActiveRef.current = false;
+    if (wasStarted && item && currentDropTime && item.type === 'event') {
+      const event = item.original as CalendarEventReadable;
+      const duration = item.endMinutes - item.startMinutes;
+      const [dh, dm] = currentDropTime.split(':').map(Number);
+      const newStartMin = dh * 60 + dm;
+      // Only update if time actually changed
+      if (newStartMin === item.startMinutes) return;
+      const dayDate = new Date(currentDate);
+      const newStart = new Date(dayDate);
+      newStart.setHours(dh, dm, 0, 0);
+      const newEnd = new Date(newStart.getTime() + duration * 60000);
+      try {
+        await RNCalendarEvents.saveEvent(event.title || '(タイトルなし)', {
+          id: event.id,
+          startDate: newStart.toISOString(),
+          endDate: newEnd.toISOString(),
+          allDay: false,
+        });
+        fetchEvents();
+      } catch (_e) {
+        // silently fail
+      }
+    }
+  }, [currentDate, fetchEvents]);
+
+  const eventPanResponderRefs = useRef<Record<string, ReturnType<typeof PanResponder.create>>>({});
+
+  const getEventPanResponder = useCallback((item: TimelineItem) => {
+    if (eventPanResponderRefs.current[item.id]) return eventPanResponderRefs.current[item.id];
+    const responder = PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dy) > 8,
+      onPanResponderGrant: (e) => {
+        onEventDragGrant(item, e.nativeEvent.pageX, e.nativeEvent.pageY);
+        eventLpTimerRef.current = setTimeout(() => {
+          eventDragActiveRef.current = true;
+          Vibration.vibrate(10);
+        }, 400);
+      },
+      onPanResponderMove: (e, gs) => {
+        if (Math.abs(gs.dx) > 8 || Math.abs(gs.dy) > 8) {
+          if (!eventDragActiveRef.current && eventLpTimerRef.current) {
+            clearTimeout(eventLpTimerRef.current);
+            eventLpTimerRef.current = null;
+          }
+        }
+        if (eventDragActiveRef.current) {
+          onEventDragMove(e.nativeEvent.pageX, e.nativeEvent.pageY);
+        }
+      },
+      onPanResponderRelease: (_e, gs) => {
+        if (eventLpTimerRef.current) {
+          clearTimeout(eventLpTimerRef.current);
+          eventLpTimerRef.current = null;
+        }
+        if (eventDragActiveRef.current) {
+          finalizeEventDrag();
+        } else if (Math.abs(gs.dx) < 5 && Math.abs(gs.dy) < 5) {
+          // Tap - trigger event press
+          onEventPress?.(item.original as CalendarEventReadable);
+        }
+      },
+      onPanResponderTerminate: () => {
+        if (eventLpTimerRef.current) {
+          clearTimeout(eventLpTimerRef.current);
+          eventLpTimerRef.current = null;
+        }
+        if (eventDragActiveRef.current) {
+          finalizeEventDrag();
+        }
+      },
+    });
+    eventPanResponderRefs.current[item.id] = responder;
+    return responder;
+  }, [onEventDragGrant, onEventDragMove, finalizeEventDrag, onEventPress]);
+
+  // Clear cached pan responders when events change
+  useEffect(() => {
+    eventPanResponderRefs.current = {};
+  }, [events]);
+
   const swipeDirRef = useRef<Record<string, 'h' | 'v' | null>>({});
+  const taskLpTimerRef = useRef<Record<string, ReturnType<typeof setTimeout> | null>>({});
+  const taskDragActiveRef = useRef<Record<string, boolean>>({});
+  const taskTouchStartRef = useRef<Record<string, {px: number; py: number}>>({});
 
   const taskPanResponders = useMemo(() => {
     const responders: Record<string, ReturnType<typeof PanResponder.create>> = {};
@@ -783,29 +1036,53 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
       const taskId = task.id;
       responders[taskId] = PanResponder.create({
         onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: () => true,
-        onStartShouldSetPanResponderCapture: () => true,
-        onMoveShouldSetPanResponderCapture: () => true,
-        onPanResponderTerminationRequest: () => false,
+        onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dx) > 8 || Math.abs(gs.dy) > 8,
+        onPanResponderTerminationRequest: () => !taskDragActiveRef.current[taskId],
         onPanResponderGrant: (e) => {
           swipeDirRef.current[taskId] = null;
+          taskDragActiveRef.current[taskId] = false;
+          taskTouchStartRef.current[taskId] = {px: e.nativeEvent.pageX, py: e.nativeEvent.pageY};
           dragCallbacksRef.current.onDragGrant(taskId, e.nativeEvent.pageX, e.nativeEvent.pageY);
+          // Start long-press timer for vertical drag
+          taskLpTimerRef.current[taskId] = setTimeout(() => {
+            taskLpTimerRef.current[taskId] = null;
+            taskDragActiveRef.current[taskId] = true;
+            swipeDirRef.current[taskId] = 'v';
+            Vibration.vibrate(10);
+          }, 400);
         },
         onPanResponderMove: (e, gs) => {
-          if (!swipeDirRef.current[taskId] && (Math.abs(gs.dx) > 8 || Math.abs(gs.dy) > 8)) {
-            swipeDirRef.current[taskId] = Math.abs(gs.dx) > Math.abs(gs.dy) ? 'h' : 'v';
+          // If moved before long-press timer, cancel it and detect h/v
+          if (!taskDragActiveRef.current[taskId] && !swipeDirRef.current[taskId] && (Math.abs(gs.dx) > 8 || Math.abs(gs.dy) > 8)) {
+            if (taskLpTimerRef.current[taskId]) {
+              clearTimeout(taskLpTimerRef.current[taskId]!);
+              taskLpTimerRef.current[taskId] = null;
+            }
+            // Only allow horizontal swipe before long-press
+            if (Math.abs(gs.dx) > Math.abs(gs.dy)) {
+              swipeDirRef.current[taskId] = 'h';
+            } else {
+              // Vertical movement before long-press = scroll, release responder
+              return;
+            }
           }
           const dir = swipeDirRef.current[taskId];
           if (dir === 'h') {
             const anim = getSwipeAnim(taskId);
             anim.setValue(Math.min(0, Math.max(-72, gs.dx)));
-          } else if (dir === 'v') {
+          } else if (dir === 'v' && taskDragActiveRef.current[taskId]) {
             dragCallbacksRef.current.onDragMove(e.nativeEvent.pageX, e.nativeEvent.pageY);
           }
         },
-        onPanResponderRelease: (_e, gs) => {
+        onPanResponderRelease: (e, gs) => {
+          if (taskLpTimerRef.current[taskId]) {
+            clearTimeout(taskLpTimerRef.current[taskId]!);
+            taskLpTimerRef.current[taskId] = null;
+          }
           const dir = swipeDirRef.current[taskId];
+          const wasDragActive = taskDragActiveRef.current[taskId];
           swipeDirRef.current[taskId] = null;
+          taskDragActiveRef.current[taskId] = false;
           if (dir === 'h') {
             const anim = getSwipeAnim(taskId);
             if (gs.dx < -36) {
@@ -816,7 +1093,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
             } else {
               resetSwipe(taskId);
             }
-          } else if (dir === 'v') {
+          } else if (dir === 'v' && wasDragActive) {
             dragCallbacksRef.current.finalizeDrag();
           } else {
             // Tap
@@ -826,14 +1103,20 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
             if (swipedItemIdRef.current) {
               resetSwipe(swipedItemIdRef.current);
             } else {
-              dragCallbacksRef.current.onDragTap(taskId);
+              dragCallbacksRef.current.onDragTap(taskId, e.nativeEvent.pageX);
             }
           }
         },
         onPanResponderTerminate: () => {
+          if (taskLpTimerRef.current[taskId]) {
+            clearTimeout(taskLpTimerRef.current[taskId]!);
+            taskLpTimerRef.current[taskId] = null;
+          }
           const dir = swipeDirRef.current[taskId];
+          const wasDragActive = taskDragActiveRef.current[taskId];
           swipeDirRef.current[taskId] = null;
-          if (dir === 'v') {
+          taskDragActiveRef.current[taskId] = false;
+          if (dir === 'v' && wasDragActive) {
             dragCallbacksRef.current.finalizeDrag();
           } else if (dir === 'h') {
             resetSwipe(taskId);
@@ -997,12 +1280,34 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
     return result;
   }, [timelineItems, showWake, showSleep, daySetting, wakeMin, sleepMinVal]);
 
+  // ── Largest gap segment index & total free time ──
+  const largestGapIndex = useMemo(() => {
+    let maxDur = 0;
+    let maxIdx = -1;
+    segments.forEach((seg, i) => {
+      if (seg.type === 'gap') {
+        const dur = seg.endMin - seg.startMin;
+        if (dur > maxDur) { maxDur = dur; maxIdx = i; }
+      }
+    });
+    return maxIdx;
+  }, [segments]);
+
+  const totalFreeMinutes = useMemo(() =>
+    segments.reduce((sum, seg) =>
+      seg.type === 'gap' ? sum + (seg.endMin - seg.startMin) : sum, 0),
+  [segments]);
+
+  const incompleteTodos = useMemo(() =>
+    todoTasks.filter(t => !t.completed),
+  [todoTasks]);
+
   // Keep refs in sync for drag callbacks
   segmentsRef.current = segments;
 
-  // Reset segment layouts when segments change
+  // Reset segment layouts when segments change (extra slot for split gap)
   useEffect(() => {
-    segmentLayoutsRef.current = new Array(segments.length).fill(null);
+    segmentLayoutsRef.current = new Array(segments.length + 1).fill(null);
   }, [segments.length]);
 
   // ── Segment heights ──
@@ -1028,7 +1333,11 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
         case 'wake': return FLOW_WAKE_HEIGHT;
         case 'sleep': return FLOW_SLEEP_HEIGHT;
         case 'gap': return seg.markers.length * FLOW_GAP_MARKER_HEIGHT + FLOW_GAP_PADDING;
-        case 'item': return Math.max(FLOW_MIN_ITEM_HEIGHT, seg.durationMin * pxPerMinute);
+        case 'item': {
+          if (seg.durationMin <= 60) return FLOW_MIN_ITEM_HEIGHT;
+          if (seg.durationMin >= 180) return FLOW_MAX_ITEM_HEIGHT;
+          return Math.max(FLOW_MIN_ITEM_HEIGHT, seg.durationMin * FLOW_ITEM_PX_PER_MIN);
+        }
       }
     });
   }, [segments, timelineHeight, showWake, showSleep]);
@@ -1065,7 +1374,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
   // ── Drop indicator Y position ──
 
   const dropIndicatorY = useMemo(() => {
-    if (!draggingTask || !dropTimePreview) return null;
+    if ((!draggingTask && !draggingEvent) || !dropTimePreview) return null;
     const [dh, dm] = dropTimePreview.split(':').map(Number);
     const dropMin = dh * 60 + dm;
 
@@ -1084,7 +1393,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
       y += h;
     }
     return y;
-  }, [draggingTask, dropTimePreview, segments, segmentHeights]);
+  }, [draggingTask, draggingEvent, dropTimePreview, segments, segmentHeights]);
 
   // ── Imperative handle ──
 
@@ -1130,6 +1439,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
 
   useEffect(() => {
     hasScrolledRef.current = false;
+    setCreatingEvent(null);
   }, [dateKey]);
 
   // ── Event creation (long-press + drag) ──
@@ -1139,7 +1449,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
   }, [creatingEvent]);
 
   const handleCreationTouchStart = useCallback((e: any) => {
-    if (editingTimelineTaskId || draggingTask) return;
+    if (editingTimelineTaskId || draggingTask || draggingEvent) return;
     lpActiveRef.current = false;
     lpTouchYRef.current = e.nativeEvent.pageY;
 
@@ -1149,6 +1459,8 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
 
     lpTimerRef.current = setTimeout(() => {
       lpTimerRef.current = null;
+      // If an event drag was initiated, skip creation
+      if (dragEventItemRef.current || eventDragActiveRef.current) return;
       lpActiveRef.current = true;
       Vibration.vibrate(50);
 
@@ -1400,7 +1712,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
         showsVerticalScrollIndicator={false}
         onScroll={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y; }}
         scrollEventThrottle={16}
-        scrollEnabled={!draggingTask && !creatingEvent}
+        scrollEnabled={!draggingTask && !draggingEvent && !creatingEvent}
         onLayout={(e) => setTimelineHeight(e.nativeEvent.layout.height)}>
 
         {/* All-day events */}
@@ -1488,30 +1800,104 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                   if (segment.type === 'wake' || segment.type === 'sleep') return null;
 
                   if (segment.type === 'gap') {
+                    const showCard = segIndex === largestGapIndex && incompleteTodos.length > 0;
+                    const cardInsertAfterMarker = showCard ? Math.min(1, segment.markers.length - 1) : -1;
                     return (
-                      <View
-                        key={`gap-${segIndex}`}
-                        style={{paddingVertical: FLOW_GAP_PADDING / 2}}
-                        onLayout={(e) => {
-                          const {y, height} = e.nativeEvent.layout;
-                          segmentLayoutsRef.current[segIndex] = {y, height, startMin: segment.startMin, endMin: segment.endMin};
-                        }}>
-                        {segment.markers.map((marker, mi) => (
-                          <View key={mi} style={[styles.flowRow, {height: FLOW_GAP_MARKER_HEIGHT}]}>
-                            <View style={styles.flowTimeCol}>
-                              <Text style={[styles.flowTimeTextSmall, {color: colors.textTertiary}]}>
-                                {marker.label}
-                              </Text>
+                      <React.Fragment key={`gap-${segIndex}`}>
+                        <View
+                          style={{paddingVertical: FLOW_GAP_PADDING / 2}}
+                          onLayout={(e) => {
+                            const {y, height} = e.nativeEvent.layout;
+                            if (cardInsertAfterMarker >= 0) {
+                              const markersBefore = cardInsertAfterMarker + 1;
+                              const totalMarkers = segment.markers.length;
+                              const fullDur = segment.endMin - segment.startMin;
+                              const splitMin = segment.startMin + Math.round(fullDur * markersBefore / totalMarkers);
+                              segmentLayoutsRef.current[segIndex] = {y, height, startMin: segment.startMin, endMin: splitMin};
+                            } else {
+                              segmentLayoutsRef.current[segIndex] = {y, height, startMin: segment.startMin, endMin: segment.endMin};
+                            }
+                          }}>
+                          {segment.markers.slice(0, cardInsertAfterMarker >= 0 ? cardInsertAfterMarker + 1 : undefined).map((marker, mi) => (
+                            <View key={mi} style={[styles.flowRow, {height: FLOW_GAP_MARKER_HEIGHT}]}>
+                              <View style={styles.flowTimeCol}>
+                                <Text style={[styles.flowTimeTextSmall, {color: colors.textTertiary}]}>
+                                  {marker.label}
+                                </Text>
+                              </View>
+                              <View style={styles.flowDotCol}>
+                                <View style={[styles.flowLineSegment, {backgroundColor: colors.border}]} />
+                                <View style={[styles.flowDotSmall, {backgroundColor: colors.textTertiary, opacity: 0.4}]} />
+                                <View style={[styles.flowLineSegment, {backgroundColor: colors.border}]} />
+                              </View>
+                              <View style={{flex: 1}} />
                             </View>
-                            <View style={styles.flowDotCol}>
-                              <View style={[styles.flowLineSegment, {backgroundColor: colors.border}]} />
-                              <View style={[styles.flowDotSmall, {backgroundColor: colors.textTertiary, opacity: 0.4}]} />
-                              <View style={[styles.flowLineSegment, {backgroundColor: colors.border}]} />
+                          ))}
+                        </View>
+                        {showCard && (() => {
+                          const gapH = Math.floor(totalFreeMinutes / 60);
+                          const gapM = totalFreeMinutes % 60;
+                          return (
+                            <View style={{marginLeft: FLOW_LEFT_WIDTH + FLOW_DOT_COL_WIDTH, marginRight: 4, marginVertical: 12}}>
+                              <View style={{backgroundColor: colors.surfaceSecondary, borderRadius: 16, padding: 16}}>
+                                <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 8}}>
+                                  <Text style={{fontSize: 14, color: colors.textSecondary}}>🕐 空き時間</Text>
+                                </View>
+                                <View style={{flexDirection: 'row', alignItems: 'baseline', marginBottom: 12}}>
+                                  {gapH > 0 && (
+                                    <>
+                                      <Text style={{fontSize: 24, fontWeight: 'bold', color: colors.text}}>{gapH}</Text>
+                                      <Text style={{fontSize: 14, color: colors.textSecondary, marginRight: 4}}>時間</Text>
+                                    </>
+                                  )}
+                                  {gapM > 0 && (
+                                    <>
+                                      <Text style={{fontSize: 24, fontWeight: 'bold', color: colors.text}}>{gapM}</Text>
+                                      <Text style={{fontSize: 14, color: colors.textSecondary}}>分</Text>
+                                    </>
+                                  )}
+                                </View>
+                                <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 6}}>
+                                  {incompleteTodos.map(task => (
+                                    <View key={task.id} style={{backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6}}>
+                                      <Text style={{fontSize: 13, color: colors.text}} numberOfLines={1}>{task.title}</Text>
+                                    </View>
+                                  ))}
+                                </View>
+                              </View>
                             </View>
-                            <View style={{flex: 1}} />
+                          );
+                        })()}
+                        {cardInsertAfterMarker >= 0 && segment.markers.length > cardInsertAfterMarker + 1 && (
+                          <View
+                            style={{paddingVertical: FLOW_GAP_PADDING / 2}}
+                            onLayout={(e) => {
+                              const {y, height} = e.nativeEvent.layout;
+                              // Store in extra slot at end for long-press detection
+                              const markersBefore = cardInsertAfterMarker + 1;
+                              const totalMarkers = segment.markers.length;
+                              const fullDur = segment.endMin - segment.startMin;
+                              const splitMin = segment.startMin + Math.round(fullDur * markersBefore / totalMarkers);
+                              segmentLayoutsRef.current[segments.length] = {y, height, startMin: splitMin, endMin: segment.endMin};
+                            }}>
+                            {segment.markers.slice(cardInsertAfterMarker + 1).map((marker, mi) => (
+                              <View key={mi} style={[styles.flowRow, {height: FLOW_GAP_MARKER_HEIGHT}]}>
+                                <View style={styles.flowTimeCol}>
+                                  <Text style={[styles.flowTimeTextSmall, {color: colors.textTertiary}]}>
+                                    {marker.label}
+                                  </Text>
+                                </View>
+                                <View style={styles.flowDotCol}>
+                                  <View style={[styles.flowLineSegment, {backgroundColor: colors.border}]} />
+                                  <View style={[styles.flowDotSmall, {backgroundColor: colors.textTertiary, opacity: 0.4}]} />
+                                  <View style={[styles.flowLineSegment, {backgroundColor: colors.border}]} />
+                                </View>
+                                <View style={{flex: 1}} />
+                              </View>
+                            ))}
                           </View>
-                        ))}
-                      </View>
+                        )}
+                      </React.Fragment>
                     );
                   }
 
@@ -1521,16 +1907,16 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                     const isMulti = items.length > 1;
 
                     // Helper to render a single item card
-                    const renderItemCard = (item: TimelineItem, cardHeight: number) => {
+                    const renderItemCard = (item: TimelineItem, cardHeight: number, centerVertical?: boolean) => {
                       if (item.type === 'event') {
                         const evColor = item.color || colors.primary;
+                        const panHandlers = getEventPanResponder(item).panHandlers;
                         return (
-                          <TouchableOpacity
+                          <View
                             key={item.id}
-                            activeOpacity={0.7}
-                            onPress={() => onEventPress?.(item.original as CalendarEventReadable)}
-                            style={{flex: 1}}>
-                            <View style={[styles.flowEventCard, {backgroundColor: evColor, minHeight: cardHeight - 8}]}>
+                            style={{flex: 1}}
+                            {...panHandlers}>
+                            <View style={[styles.flowEventCard, {backgroundColor: evColor, minHeight: cardHeight - 8}, centerVertical && {justifyContent: 'center'}]}>
                               <Text style={[styles.flowEventTitle, {color: colors.onEvent}]} numberOfLines={2}>
                                 {item.title}
                               </Text>
@@ -1548,7 +1934,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                                 </Text>
                               ) : null}
                             </View>
-                          </TouchableOpacity>
+                          </View>
                         );
                       }
                       if (item.type === 'task') {
@@ -1602,7 +1988,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                           segmentLayoutsRef.current[segIndex] = {y, height: h, startMin: segment.startMin, endMin: segment.endMin};
                         }}>
                         <View
-                          style={[styles.flowRow, {minHeight: height}]}>
+                          style={[styles.flowRow, {height: height, maxHeight: height, overflow: 'hidden'}]}>
                           <View style={[styles.flowTimeCol, {justifyContent: 'flex-start'}]}>
                             <Text style={[styles.flowTimeText, {color: colors.textTertiary}]}>
                               {formatMinutes(segment.startMin)}
@@ -1633,7 +2019,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                             <View style={[styles.flowContent, {flexDirection: 'row', gap: 4, alignItems: 'flex-start'}]}>
                               {items.map(item => {
                                 const itemDur = item.endMinutes - item.startMinutes;
-                                const cardH = Math.max(48, (itemDur / segment.durationMin) * height);
+                                const cardH = Math.max(20, (itemDur / segment.durationMin) * height);
                                 const topOff = ((Math.max(item.startMinutes, segment.startMin) - segment.startMin) / segment.durationMin) * height;
                                 return (
                                   <View key={`wrap-${item.id}`} style={{flex: 1, marginTop: topOff, height: cardH}}>
@@ -1644,7 +2030,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                             </View>
                           ) : (
                             <View style={styles.flowContent}>
-                              {items.map(item => renderItemCard(item, height))}
+                              {items.map(item => renderItemCard(item, height, true))}
                             </View>
                           )}
                           <View style={{width: 8}} />
@@ -1713,8 +2099,8 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
               )}
 
               {/* Drop indicator */}
-              {draggingTask && dropTimePreview && dropIndicatorY != null && (() => {
-                const dur = draggingTask.duration || 60;
+              {(draggingTask || draggingEvent) && dropTimePreview && dropIndicatorY != null && (() => {
+                const dur = draggingTask ? (draggingTask.duration || 60) : (draggingEvent ? draggingEvent.endMinutes - draggingEvent.startMinutes : 60);
                 const [dh, dm] = dropTimePreview.split(':').map(Number);
                 const dropMin = dh * 60 + dm;
                 let endY = dropIndicatorY;
@@ -1802,7 +2188,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                 bottomY = layout.y + ratio * layout.height + rcOffset;
               }
             }
-            const boxHeight = Math.max(50, bottomY - topY);
+            const boxHeight = 50;
             return (
               <View pointerEvents="none" style={{
                 position: 'absolute', top: topY, left: FLOW_LEFT_WIDTH + FLOW_DOT_COL_WIDTH - 2, right: 6,
@@ -1864,7 +2250,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
           </View>
         </View>
         <View style={styles.sheetColumnsContainer}>
-          <ScrollView style={styles.sheetColumnLeft} showsVerticalScrollIndicator={false} scrollEnabled={!draggingTask}>
+          <ScrollView style={styles.sheetColumnLeft} showsVerticalScrollIndicator={false} scrollEnabled={!draggingTask && !draggingEvent}>
             {todoTasks.length === 0 ? (
               <Text style={[styles.sheetEmpty, {color: colors.textTertiary}]}>タスクなし</Text>
             ) : (
@@ -1894,11 +2280,6 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                       </View>
                     </TouchableOpacity>
                     <View style={styles.sheetEventInfo}>
-                      {task.time && (
-                        <Text style={[styles.sheetEventTime, {color: colors.textSecondary}]}>
-                          {task.time}〜
-                        </Text>
-                      )}
                       <Text
                         style={[
                           styles.sheetEventTitle,
@@ -1906,9 +2287,21 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                           task.completed && {textDecorationLine: 'line-through', color: colors.textTertiary},
                         ]}
                         numberOfLines={1}>{task.title}</Text>
-                      {task.duration ? (
-                        <Text style={[styles.sheetEventTime, {color: colors.textSecondary}]}>
-                          {formatDuration(task.duration)}
+                      <View style={{flexDirection: 'row', gap: 6, flexWrap: 'wrap'}}>
+                        {task.duration ? (
+                          <Text style={[styles.sheetEventTime, {color: colors.textSecondary}]}>
+                            {formatDuration(task.duration)}
+                          </Text>
+                        ) : null}
+                        {task.deadline ? (
+                          <Text style={[styles.sheetEventTime, {color: colors.textSecondary}]}>
+                            {task.deadline}まで
+                          </Text>
+                        ) : null}
+                      </View>
+                      {task.memo ? (
+                        <Text style={{fontSize: 11, color: colors.textTertiary, marginTop: 1}} numberOfLines={1}>
+                          {task.memo}
                         </Text>
                       ) : null}
                     </View>
@@ -2137,6 +2530,33 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
         </Animated.View>
       )}
 
+      {/* ── Floating drag element for events ── */}
+      {draggingEvent && (
+        <Animated.View
+          style={[
+            styles.floatingBookmark,
+            {
+              transform: [{translateX: dragAnimX}, {translateY: dragAnimY}],
+              backgroundColor: draggingEvent.color || colors.primary,
+              borderColor: draggingEvent.color || colors.primary,
+            },
+          ]}
+          pointerEvents="none">
+          <Text style={[styles.floatingBookmarkTitle, {color: colors.onEvent}]} numberOfLines={2}>
+            {draggingEvent.title}
+          </Text>
+          {dropTimePreview ? (
+            <Text style={[styles.floatingBookmarkTime, {color: colors.onEvent, opacity: 0.8}]}>
+              {dropTimePreview}
+            </Text>
+          ) : (
+            <Text style={[styles.floatingBookmarkDuration, {color: colors.onEvent, opacity: 0.8}]}>
+              {formatDuration(draggingEvent.endMinutes - draggingEvent.startMinutes)}
+            </Text>
+          )}
+        </Animated.View>
+      )}
+
       {/* ── Add Type Selection Overlay ── */}
       {showAddTypeSelect && (
         <TouchableOpacity
@@ -2144,7 +2564,17 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
           onPress={() => { setShowAddTypeSelect(false); setPendingTimeRange(null); }}
           style={[styles.addOverlay, {backgroundColor: colors.overlay}]}>
           <TouchableOpacity activeOpacity={1} style={[styles.addCard, {backgroundColor: colors.surface, paddingVertical: 28}]}>
-            <Text style={[styles.addCardTitle, {color: colors.text}]}>追加</Text>
+            <Text style={[styles.addCardTitle, {color: colors.text}]}>予定を追加</Text>
+            {pendingTimeRange && (
+              <View style={{marginTop: 8, marginBottom: 4, backgroundColor: colors.inputBackground, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 14}}>
+                <Text style={{fontSize: 14, color: colors.textSecondary, textAlign: 'center'}}>
+                  {`${pendingTimeRange.start.getMonth() + 1}月${pendingTimeRange.start.getDate()}日（${WEEKDAYS_JA[pendingTimeRange.start.getDay()]}）`}
+                </Text>
+                <Text style={{fontSize: 22, fontWeight: '700', color: colors.text, textAlign: 'center', marginTop: 2}}>
+                  {`${pendingTimeRange.start.getHours().toString().padStart(2, '0')}:${pendingTimeRange.start.getMinutes().toString().padStart(2, '0')} 〜 ${pendingTimeRange.end.getHours().toString().padStart(2, '0')}:${pendingTimeRange.end.getMinutes().toString().padStart(2, '0')}`}
+                </Text>
+              </View>
+            )}
             <View style={{flexDirection: 'row', gap: 12, marginTop: 8}}>
               <TouchableOpacity
                 onPress={() => {
@@ -2212,9 +2642,53 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                 ))}
               </View>
             </View>
+            {/* 期限 */}
+            <View style={{marginTop: 12}}>
+              <Text style={[styles.durationLabel, {color: colors.textSecondary}]}>何時までに</Text>
+              <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 4}}>
+                <TextInput
+                  style={[styles.addInput, {backgroundColor: colors.inputBackground, color: colors.text, width: 48, textAlign: 'center', flex: 0}]}
+                  placeholder="--"
+                  placeholderTextColor={colors.textTertiary}
+                  value={taskDeadlineHour}
+                  onChangeText={(t) => {
+                    const num = t.replace(/[^0-9]/g, '').slice(0, 2);
+                    setTaskDeadlineHour(num);
+                  }}
+                  keyboardType="number-pad"
+                  maxLength={2}
+                />
+                <Text style={{fontSize: 16, color: colors.textSecondary, fontWeight: '600'}}>:</Text>
+                <TextInput
+                  style={[styles.addInput, {backgroundColor: colors.inputBackground, color: colors.text, width: 48, textAlign: 'center', flex: 0}]}
+                  placeholder="--"
+                  placeholderTextColor={colors.textTertiary}
+                  value={taskDeadlineMinute}
+                  onChangeText={(t) => {
+                    const num = t.replace(/[^0-9]/g, '').slice(0, 2);
+                    setTaskDeadlineMinute(num);
+                  }}
+                  keyboardType="number-pad"
+                  maxLength={2}
+                />
+                <Text style={{fontSize: 13, color: colors.textTertiary, marginLeft: 4}}>（任意）</Text>
+              </View>
+            </View>
+            {/* メモ */}
+            <View style={{marginTop: 12}}>
+              <Text style={[styles.durationLabel, {color: colors.textSecondary}]}>メモ</Text>
+              <TextInput
+                style={[styles.addInput, {backgroundColor: colors.inputBackground, color: colors.text, height: 64, textAlignVertical: 'top', paddingTop: 8}]}
+                placeholder="メモを入力..."
+                placeholderTextColor={colors.textTertiary}
+                value={taskMemo}
+                onChangeText={setTaskMemo}
+                multiline
+              />
+            </View>
             <View style={styles.addActions}>
               <TouchableOpacity
-                onPress={() => { setAddingTask(false); setTaskInputText(''); setTaskTimeEnabled(false); setTaskDuration(null); setTaskDurationCustom(false); setTaskCustomMinutes(''); setTaskInputError(false); Keyboard.dismiss(); }}
+                onPress={() => { setAddingTask(false); setTaskInputText(''); setTaskTimeEnabled(false); setTaskDuration(null); setTaskDurationCustom(false); setTaskCustomMinutes(''); setTaskMemo(''); setTaskDeadlineHour(''); setTaskDeadlineMinute(''); setTaskInputError(false); Keyboard.dismiss(); }}
                 style={[styles.addActionBtn, {backgroundColor: colors.inputBackground}]}>
                 <Text style={[styles.addActionText, {color: colors.textSecondary}]}>キャンセル</Text>
               </TouchableOpacity>
@@ -2226,6 +2700,95 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
             </View>
           </View>
         </View>
+      )}
+
+      {/* ── Edit Todo Popup ── */}
+      {editingTodoTaskId && (
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={handleCancelEditTodo}
+          style={[styles.addOverlay, {backgroundColor: colors.overlay}]}>
+          <TouchableOpacity activeOpacity={1} style={[styles.addCard, {backgroundColor: colors.surface}]}>
+            <Text style={[styles.addCardTitle, {color: colors.text}]}>タスクを編集</Text>
+            <TextInput
+              style={[styles.addInput, {backgroundColor: colors.inputBackground, color: colors.text}]}
+              value={editTodoTitle}
+              onChangeText={setEditTodoTitle}
+              placeholder="タイトル"
+              placeholderTextColor={colors.textTertiary}
+              autoFocus
+            />
+            <View style={styles.durationRow}>
+              <Text style={[styles.durationLabel, {color: colors.textSecondary}]}>所要時間</Text>
+              <View style={styles.durationOptions}>
+                {DURATION_OPTIONS.map(opt => (
+                  <TouchableOpacity
+                    key={opt.value}
+                    style={[
+                      styles.durationChip,
+                      {borderColor: colors.border},
+                      editTodoDuration === opt.value && {backgroundColor: colors.primary, borderColor: colors.primary},
+                    ]}
+                    onPress={() => setEditTodoDuration(editTodoDuration === opt.value ? null : opt.value)}>
+                    <Text style={[
+                      styles.durationChipText,
+                      {color: colors.textSecondary},
+                      editTodoDuration === opt.value && {color: colors.onPrimary},
+                    ]}>{opt.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+            <View style={{marginTop: 12}}>
+              <Text style={[styles.durationLabel, {color: colors.textSecondary}]}>何時までに</Text>
+              <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 4}}>
+                <TextInput
+                  style={[styles.addInput, {backgroundColor: colors.inputBackground, color: colors.text, width: 48, textAlign: 'center', flex: 0}]}
+                  placeholder="--"
+                  placeholderTextColor={colors.textTertiary}
+                  value={editTodoDeadlineHour}
+                  onChangeText={(t) => setEditTodoDeadlineHour(t.replace(/[^0-9]/g, '').slice(0, 2))}
+                  keyboardType="number-pad"
+                  maxLength={2}
+                />
+                <Text style={{fontSize: 16, color: colors.textSecondary, fontWeight: '600'}}>:</Text>
+                <TextInput
+                  style={[styles.addInput, {backgroundColor: colors.inputBackground, color: colors.text, width: 48, textAlign: 'center', flex: 0}]}
+                  placeholder="--"
+                  placeholderTextColor={colors.textTertiary}
+                  value={editTodoDeadlineMinute}
+                  onChangeText={(t) => setEditTodoDeadlineMinute(t.replace(/[^0-9]/g, '').slice(0, 2))}
+                  keyboardType="number-pad"
+                  maxLength={2}
+                />
+                <Text style={{fontSize: 13, color: colors.textTertiary, marginLeft: 4}}>（任意）</Text>
+              </View>
+            </View>
+            <View style={{marginTop: 12}}>
+              <Text style={[styles.durationLabel, {color: colors.textSecondary}]}>メモ</Text>
+              <TextInput
+                style={[styles.addInput, {backgroundColor: colors.inputBackground, color: colors.text, height: 64, textAlignVertical: 'top', paddingTop: 8}]}
+                placeholder="メモを入力..."
+                placeholderTextColor={colors.textTertiary}
+                value={editTodoMemo}
+                onChangeText={setEditTodoMemo}
+                multiline
+              />
+            </View>
+            <View style={styles.addActions}>
+              <TouchableOpacity
+                onPress={handleCancelEditTodo}
+                style={[styles.addActionBtn, {backgroundColor: colors.inputBackground}]}>
+                <Text style={[styles.addActionText, {color: colors.textSecondary}]}>キャンセル</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleSaveEditTodo}
+                style={[styles.addActionBtn, {backgroundColor: colors.primary}]}>
+                <Text style={[styles.addActionText, {color: colors.onPrimary}]}>保存</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
       )}
     </View>
   );
@@ -2431,8 +2994,9 @@ const styles = StyleSheet.create({
 
   // Flow event card
   flowEventCard: {
-    borderRadius: 10,
-    padding: 10,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     overflow: 'hidden',
   },
   flowEventTitle: {

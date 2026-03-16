@@ -365,26 +365,21 @@ function AppContent() {
     checkAndRequestPermission();
   }, []);
 
-  // Update app icon based on current month
+  // Reset app icon to default (month icons disabled for now)
   useEffect(() => {
-    const updateAppIcon = async () => {
-      const month = new Date().getMonth() + 1;
-      const monthStr = String(month).padStart(2, '0');
-      const iconName = `Month${monthStr}`;
+    const resetAppIcon = async () => {
       try {
         if (Platform.OS === 'ios') {
           const currentIcon = await AppIconManager.getIcon();
-          if (currentIcon !== iconName) {
-            await AppIconManager.changeIcon(iconName);
+          if (currentIcon) {
+            await AppIconManager.changeIcon(null);
           }
-        } else {
-          await AppIconManager.changeIcon(monthStr);
         }
       } catch (_e) {
         // Icon switch is non-critical, silently ignore
       }
     };
-    updateAppIcon();
+    resetAppIcon();
   }, []);
 
   const handleDateSelect = useCallback((date: Date) => {
@@ -858,7 +853,7 @@ function AppContent() {
                         <Text style={styles.settingsSectionTitle}>アプリについて</Text>
                         <View style={styles.settingsItem}>
                           <Text style={styles.settingsItemLabel}>バージョン</Text>
-                          <Text style={styles.settingsItemValue}>1.5.0</Text>
+                          <Text style={styles.settingsItemValue}>1.6.0</Text>
                         </View>
                         <View style={styles.settingsItem}>
                           <Text style={styles.settingsItemLabel}>ビルド</Text>

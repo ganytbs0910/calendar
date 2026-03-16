@@ -9,6 +9,8 @@ export interface Task {
   time?: string; // "HH:MM" e.g. "09:00"
   duration?: number; // minutes
   taskType?: 'todo' | 'schedule'; // 'todo' = あとでやる, 'schedule' = 予定
+  memo?: string;
+  deadline?: string; // "HH:MM" e.g. "17:00"
 }
 
 const STORAGE_KEY = '@today_tasks';
@@ -51,7 +53,7 @@ export const getTasksForDateRange = async (dateKeys: string[]): Promise<Map<stri
   return result;
 };
 
-export const addTaskForDate = async (title: string, dateKey: string, time?: string, duration?: number, taskType?: 'todo' | 'schedule'): Promise<Task[]> => {
+export const addTaskForDate = async (title: string, dateKey: string, time?: string, duration?: number, taskType?: 'todo' | 'schedule', memo?: string, deadline?: string): Promise<Task[]> => {
   const all = await loadTasks();
   const newTask: Task = {
     id: Date.now().toString(),
@@ -62,6 +64,8 @@ export const addTaskForDate = async (title: string, dateKey: string, time?: stri
     time,
     duration,
     taskType,
+    memo: memo || undefined,
+    deadline: deadline || undefined,
   };
   all.push(newTask);
   await saveTasks(all);
@@ -77,10 +81,13 @@ export const updateTaskTime = async (taskId: string, time?: string): Promise<voi
   }
 };
 
-export const updateTask = async (taskId: string, updates: { time?: string; duration?: number; clearTime?: boolean; clearDuration?: boolean; taskType?: 'todo' | 'schedule' }): Promise<void> => {
+export const updateTask = async (taskId: string, updates: { title?: string; time?: string; duration?: number; clearTime?: boolean; clearDuration?: boolean; taskType?: 'todo' | 'schedule'; memo?: string; deadline?: string; clearDeadline?: boolean }): Promise<void> => {
   const all = await loadTasks();
   const idx = all.findIndex(t => t.id === taskId);
   if (idx !== -1) {
+    if (updates.title !== undefined) {
+      all[idx].title = updates.title;
+    }
     if (updates.clearTime) {
       all[idx].time = undefined;
     } else if (updates.time !== undefined) {
@@ -93,6 +100,14 @@ export const updateTask = async (taskId: string, updates: { time?: string; durat
     }
     if (updates.taskType !== undefined) {
       all[idx].taskType = updates.taskType;
+    }
+    if (updates.memo !== undefined) {
+      all[idx].memo = updates.memo;
+    }
+    if (updates.clearDeadline) {
+      all[idx].deadline = undefined;
+    } else if (updates.deadline !== undefined) {
+      all[idx].deadline = updates.deadline;
     }
     await saveTasks(all);
   }
@@ -149,14 +164,13 @@ export const addTask = async (title: string): Promise<Task[]> => {
   return getTodayTasks();
 };
 
-export const toggleTask = async (taskId: string): Promise<Task[]> => {
+export const toggleTask = async (taskId: string): Promise<void> => {
   const all = await loadTasks();
   const idx = all.findIndex(t => t.id === taskId);
   if (idx !== -1) {
     all[idx].completed = !all[idx].completed;
     await saveTasks(all);
   }
-  return getTodayTasks();
 };
 
 export const deleteTask = async (taskId: string): Promise<Task[]> => {

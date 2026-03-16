@@ -10,6 +10,18 @@
 	<string>理想のカレンダー</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIcons</key>
+	<dict>
+		<key>CFBundlePrimaryIcon</key>
+		<dict>
+			<key>CFBundleIconFiles</key>
+			<array>
+				<string>AppIcon60x60</string>
+			</array>
+			<key>UIPrerenderedIcon</key>
+			<false/>
+		</dict>
+	</dict>
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
@@ -24,6 +36,8 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>GADApplicationIdentifier</key>
+	<string>ca-app-pub-4317478239934902~1648918071</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSAppTransportSecurity</key>
@@ -41,121 +55,6 @@
 	<string>天気予報を表示するために現在地を使用します</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
-	<key>UILaunchStoryboardName</key>
-	<string>LaunchScreen</string>
-	<key>UIRequiredDeviceCapabilities</key>
-	<array>
-		<string>arm64</string>
-	</array>
-	<key>UISupportedInterfaceOrientations</key>
-	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
-	</array>
-	<key>CFBundleIcons</key>
-	<dict>
-		<key>CFBundlePrimaryIcon</key>
-		<dict>
-			<key>CFBundleIconFiles</key>
-			<array>
-				<string>AppIcon60x60</string>
-			</array>
-			<key>UIPrerenderedIcon</key>
-			<false/>
-		</dict>
-		<key>CFBundleAlternateIcons</key>
-		<dict>
-			<key>Month01</key>
-			<dict>
-				<key>CFBundleIconFiles</key>
-				<array><string>Month01</string></array>
-				<key>UIPrerenderedIcon</key>
-				<false/>
-			</dict>
-			<key>Month02</key>
-			<dict>
-				<key>CFBundleIconFiles</key>
-				<array><string>Month02</string></array>
-				<key>UIPrerenderedIcon</key>
-				<false/>
-			</dict>
-			<key>Month03</key>
-			<dict>
-				<key>CFBundleIconFiles</key>
-				<array><string>Month03</string></array>
-				<key>UIPrerenderedIcon</key>
-				<false/>
-			</dict>
-			<key>Month04</key>
-			<dict>
-				<key>CFBundleIconFiles</key>
-				<array><string>Month04</string></array>
-				<key>UIPrerenderedIcon</key>
-				<false/>
-			</dict>
-			<key>Month05</key>
-			<dict>
-				<key>CFBundleIconFiles</key>
-				<array><string>Month05</string></array>
-				<key>UIPrerenderedIcon</key>
-				<false/>
-			</dict>
-			<key>Month06</key>
-			<dict>
-				<key>CFBundleIconFiles</key>
-				<array><string>Month06</string></array>
-				<key>UIPrerenderedIcon</key>
-				<false/>
-			</dict>
-			<key>Month07</key>
-			<dict>
-				<key>CFBundleIconFiles</key>
-				<array><string>Month07</string></array>
-				<key>UIPrerenderedIcon</key>
-				<false/>
-			</dict>
-			<key>Month08</key>
-			<dict>
-				<key>CFBundleIconFiles</key>
-				<array><string>Month08</string></array>
-				<key>UIPrerenderedIcon</key>
-				<false/>
-			</dict>
-			<key>Month09</key>
-			<dict>
-				<key>CFBundleIconFiles</key>
-				<array><string>Month09</string></array>
-				<key>UIPrerenderedIcon</key>
-				<false/>
-			</dict>
-			<key>Month10</key>
-			<dict>
-				<key>CFBundleIconFiles</key>
-				<array><string>Month10</string></array>
-				<key>UIPrerenderedIcon</key>
-				<false/>
-			</dict>
-			<key>Month11</key>
-			<dict>
-				<key>CFBundleIconFiles</key>
-				<array><string>Month11</string></array>
-				<key>UIPrerenderedIcon</key>
-				<false/>
-			</dict>
-			<key>Month12</key>
-			<dict>
-				<key>CFBundleIconFiles</key>
-				<array><string>Month12</string></array>
-				<key>UIPrerenderedIcon</key>
-				<false/>
-			</dict>
-		</dict>
-	</dict>
-	<key>UIViewControllerBasedStatusBarAppearance</key>
-	<false/>
-	<key>GADApplicationIdentifier</key>
-	<string>ca-app-pub-4317478239934902~1648918071</string>
 	<key>SKAdNetworkItems</key>
 	<array>
 		<dict>
@@ -377,5 +276,23 @@
 		<string>FontAwesome6_Brands.ttf</string>
 		<string>MaterialIcons.ttf</string>
 	</array>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
+	<key>UIRequiredDeviceCapabilities</key>
+	<array>
+		<string>arm64</string>
+	</array>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+	<key>UIViewControllerBasedStatusBarAppearance</key>
+	<false/>
 </dict>
 </plist>
