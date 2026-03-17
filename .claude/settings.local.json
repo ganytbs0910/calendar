@@ -53,7 +53,8 @@
       "Bash(killall:*)",
       "Bash(log stream:*)",
       "Bash(sudo xcodebuild:*)",
-      "Bash(xcode-select:*)"
+      "Bash(xcode-select:*)",
+      "Bash(wc:*)"
     ]
   }
 }

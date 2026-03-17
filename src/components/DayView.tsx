@@ -55,6 +55,7 @@ const FLOW_MAX_ITEM_HEIGHT = 80;
 const FLOW_MIN_ITEM_HEIGHT = 56;
 const FLOW_LEFT_WIDTH = 46;
 const FLOW_DOT_COL_WIDTH = 20;
+const HOURLY_ROW_HEIGHT = 44;
 // ── Types ──
 
 interface TimelineItem {
@@ -215,6 +216,8 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
   const segmentLayoutsRef = useRef<Array<SegmentLayout | null>>([]);
   const flowTimelineYRef = useRef(0);
   const rightColumnRef = useRef<View>(null);
+  const hourlyGridRef = useRef<View>(null);
+  const hourlyGridOffsetRef = useRef(0); // offset of hourlyGrid within rightColumnRef
   const rightColumnScrollYRef = useRef(0);
   const rightColumnOffsetYRef = useRef(0);
 
@@ -223,8 +226,12 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
   const creatingEventRef = useRef<{startMin: number; endMin: number} | null>(null);
   const lpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lpTouchYRef = useRef(0);
+  const lpTouchXRef = useRef(0);
   const lpActiveRef = useRef(false);
   const lpLastPageYRef = useRef(0);
+  const lpStartMinRef = useRef(0);
+  const lpSnapRef = useRef(15); // snap granularity in minutes
+  const lpAutoScrollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Swipe-to-delete
   const swipedItemIdRef = useRef<string | null>(null);
@@ -501,6 +508,40 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
 
   useEffect(() => { fetchEvents(); }, [fetchEvents]);
 
+  // ── Strip event counts ──
+  const [stripEventCounts, setStripEventCounts] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    if (!hasPermission) return;
+    const fetchStripCounts = async () => {
+      const weekStart = new Date(dayStart);
+      weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+      weekStart.setHours(0, 0, 0, 0);
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekEnd.getDate() + 7);
+      try {
+        const allEvents = await RNCalendarEvents.fetchAllEvents(weekStart.toISOString(), weekEnd.toISOString());
+        const filtered = allEvents.filter(event => {
+          const cal = event.calendar;
+          if (!cal) return true;
+          const title = (cal.title || '').toLowerCase();
+          if (title.includes('祝日') || title.includes('holiday') || title.includes('holidays')) return false;
+          if (cal.allowsModifications === false && event.allDay) return false;
+          return true;
+        });
+        const counts: Record<string, number> = {};
+        for (const ev of filtered) {
+          if (!ev.startDate) continue;
+          const d = new Date(ev.startDate);
+          const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+          counts[key] = (counts[key] || 0) + 1;
+        }
+        setStripEventCounts(counts);
+      } catch (_e) {}
+    };
+    fetchStripCounts();
+  }, [dayStart, hasPermission]);
+
   // ── Current time ──
 
   useEffect(() => {
@@ -699,6 +740,18 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
     }
   }, [fetchEvents, fetchTasks]);
 
+  // Helper: compute minutes from screen pageY position
+  // Uses gridTopOnScreenRef which must point to the top of the hourly grid (not rightColumnRef)
+  const pageYToMinutes = useCallback((pageY: number) => {
+    const gridScreenTop = gridTopOnScreenRef.current;
+    const totalRows = displayEndHour - displayStartHour;
+    const totalHeight = totalRows * HOURLY_ROW_HEIGHT;
+    const relY = pageY - gridScreenTop;
+    if (relY <= 0) return displayStartHour * 60;
+    if (relY >= totalHeight) return displayEndHour * 60;
+    return displayStartHour * 60 + (relY / totalHeight) * (displayEndHour - displayStartHour) * 60;
+  }, [displayStartHour, displayEndHour]);
+
   // ── Drag & Drop handlers ──
 
   const dragCallbacksRef = useRef({
@@ -717,7 +770,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
     dragStartedRef.current = false;
     dragTaskIdRef.current = taskId;
     // Pre-measure immediately so value is ready by the time onDragMove fires
-    (rightColumnRef.current || gridContainerRef.current)?.measureInWindow((_x: number, y: number) => {
+    (hourlyGridRef.current || rightColumnRef.current || gridContainerRef.current)?.measureInWindow((_x: number, y: number) => {
       gridTopOnScreenRef.current = y;
     });
   }, []);
@@ -743,68 +796,17 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
     dragAnimX.setValue(pageX - 48);
     dragAnimY.setValue(pageY - 44);
 
-    // Calculate drop time using cumulative segment heights (no reliance on native layout refs)
-    const gridY = pageY - gridTopOnScreenRef.current;
+    // Calculate drop time using pageY → minutes
     const wMin = displayStartHour * 60;
     const sMin = displayEndHour * 60;
-    let totalMinutes = wMin;
-
-    // Primary: use segmentLayoutsRef (native-measured positions)
-    const layouts = segmentLayoutsRef.current;
-    let found = false;
-    for (let i = 0; i < layouts.length; i++) {
-      const layout = layouts[i];
-      if (!layout) continue;
-      if (gridY >= layout.y && gridY < layout.y + layout.height) {
-        if (layout.endMin > layout.startMin) {
-          const ratio = Math.max(0, Math.min(1, (gridY - layout.y) / layout.height));
-          totalMinutes = layout.startMin + ratio * (layout.endMin - layout.startMin);
-        } else {
-          totalMinutes = layout.startMin;
-        }
-        found = true;
-        break;
-      }
-    }
-
-    // Fallback: use cumulative segment heights from refs
-    if (!found) {
-      const segs = segmentsRef.current;
-      const heights = segmentHeightsRef.current;
-      if (segs.length > 0 && heights.length === segs.length) {
-        let cumY = 4; // flowTimeline paddingTop
-        for (let i = 0; i < segs.length; i++) {
-          const seg = segs[i];
-          const h = heights[i];
-          if (gridY >= cumY && gridY < cumY + h) {
-            if (seg.type === 'gap' || seg.type === 'item') {
-              const ratio = Math.max(0, Math.min(1, (gridY - cumY) / h));
-              totalMinutes = seg.startMin + ratio * (seg.endMin - seg.startMin);
-            } else if (seg.type === 'wake') {
-              totalMinutes = seg.hour * 60 + seg.minute;
-            } else if (seg.type === 'sleep') {
-              totalMinutes = seg.hour * 60 + seg.minute;
-            }
-            found = true;
-            break;
-          }
-          cumY += h;
-        }
-        // If still not found, clamp to nearest boundary
-        if (!found) {
-          if (gridY < 4) totalMinutes = wMin;
-          else totalMinutes = sMin - 1;
-        }
-      }
-    }
-
+    const totalMinutes = pageYToMinutes(pageY);
     const roundedMinutes = Math.max(wMin, Math.min(sMin - 1, Math.round(totalMinutes / 15) * 15));
     const h = Math.floor(roundedMinutes / 60);
     const m = roundedMinutes % 60;
     const timeStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
     dropTimeRef.current = timeStr;
     setDropTimePreview(timeStr);
-  }, [untimedTasks, sheetAnim, dragAnimX, dragAnimY, displayStartHour, displayEndHour]);
+  }, [untimedTasks, sheetAnim, dragAnimX, dragAnimY, displayStartHour, displayEndHour, pageYToMinutes]);
 
   const finalizeDrag = useCallback(async () => {
     const taskId = dragTaskIdRef.current;
@@ -852,7 +854,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
       clearTimeout(lpTimerRef.current);
       lpTimerRef.current = null;
     }
-    (rightColumnRef.current || gridContainerRef.current)?.measureInWindow((_x: number, y: number) => {
+    (hourlyGridRef.current || rightColumnRef.current || gridContainerRef.current)?.measureInWindow((_x: number, y: number) => {
       gridTopOnScreenRef.current = y;
     });
   }, []);
@@ -874,65 +876,17 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
     dragAnimX.setValue(pageX - 48);
     dragAnimY.setValue(pageY - 44);
 
-    // Reuse same drop-time calculation as task drag
-    const gridY = pageY - gridTopOnScreenRef.current;
+    // Calculate drop time using pageY → minutes
     const wMin = displayStartHour * 60;
     const sMin = displayEndHour * 60;
-    let totalMinutes = wMin;
-
-    const layouts = segmentLayoutsRef.current;
-    let found = false;
-    for (let i = 0; i < layouts.length; i++) {
-      const layout = layouts[i];
-      if (!layout) continue;
-      if (gridY >= layout.y && gridY < layout.y + layout.height) {
-        if (layout.endMin > layout.startMin) {
-          const ratio = Math.max(0, Math.min(1, (gridY - layout.y) / layout.height));
-          totalMinutes = layout.startMin + ratio * (layout.endMin - layout.startMin);
-        } else {
-          totalMinutes = layout.startMin;
-        }
-        found = true;
-        break;
-      }
-    }
-
-    if (!found) {
-      const segs = segmentsRef.current;
-      const heights = segmentHeightsRef.current;
-      if (segs.length > 0 && heights.length === segs.length) {
-        let cumY = 4;
-        for (let i = 0; i < segs.length; i++) {
-          const seg = segs[i];
-          const h = heights[i];
-          if (gridY >= cumY && gridY < cumY + h) {
-            if (seg.type === 'gap' || seg.type === 'item') {
-              const ratio = Math.max(0, Math.min(1, (gridY - cumY) / h));
-              totalMinutes = seg.startMin + ratio * (seg.endMin - seg.startMin);
-            } else if (seg.type === 'wake') {
-              totalMinutes = seg.hour * 60 + seg.minute;
-            } else if (seg.type === 'sleep') {
-              totalMinutes = seg.hour * 60 + seg.minute;
-            }
-            found = true;
-            break;
-          }
-          cumY += h;
-        }
-        if (!found) {
-          if (gridY < 4) totalMinutes = wMin;
-          else totalMinutes = sMin - 1;
-        }
-      }
-    }
-
+    const totalMinutes = pageYToMinutes(pageY);
     const roundedMinutes = Math.max(wMin, Math.min(sMin - 1, Math.round(totalMinutes / 15) * 15));
     const h = Math.floor(roundedMinutes / 60);
     const m = roundedMinutes % 60;
     const timeStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
     dropTimeRef.current = timeStr;
     setDropTimePreview(timeStr);
-  }, [dragAnimX, dragAnimY, displayStartHour, displayEndHour]);
+  }, [dragAnimX, dragAnimY, displayStartHour, displayEndHour, pageYToMinutes]);
 
   const finalizeEventDrag = useCallback(async () => {
     const item = dragEventItemRef.current;
@@ -1001,9 +955,14 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
         }
         if (eventDragActiveRef.current) {
           finalizeEventDrag();
-        } else if (Math.abs(gs.dx) < 5 && Math.abs(gs.dy) < 5) {
-          // Tap - trigger event press
-          onEventPress?.(item.original as CalendarEventReadable);
+        } else {
+          // Not dragging - clean up refs
+          dragEventItemRef.current = null;
+          eventDragActiveRef.current = false;
+          if (Math.abs(gs.dx) < 5 && Math.abs(gs.dy) < 5) {
+            // Tap - trigger event press
+            onEventPress?.(item.original as CalendarEventReadable);
+          }
         }
       },
       onPanResponderTerminate: () => {
@@ -1013,6 +972,9 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
         }
         if (eventDragActiveRef.current) {
           finalizeEventDrag();
+        } else {
+          dragEventItemRef.current = null;
+          eventDragActiveRef.current = false;
         }
       },
     });
@@ -1345,31 +1307,49 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
   // Keep heights ref in sync
   segmentHeightsRef.current = segmentHeights;
 
+  // ── Hourly slots for timeline bar UI ──
+  type HourSlot = {
+    hour: number;
+    items: Array<{
+      type: 'event' | 'task';
+      item: TimelineItem;
+      isFirst: boolean; // first hour of this item
+    }>;
+  };
+
+  const hourlySlots = useMemo((): HourSlot[] => {
+    const startH = displayStartHour;
+    const endH = displayEndHour;
+    const slots: HourSlot[] = [];
+    for (let h = startH; h < endH; h++) {
+      const hourStart = h * 60;
+      const hourEnd = (h + 1) * 60;
+      const overlapping = timelineItems.filter(item => {
+        return item.startMinutes < hourEnd && item.endMinutes > hourStart;
+      });
+      slots.push({
+        hour: h,
+        items: overlapping.map(item => ({
+          type: item.type,
+          item,
+          isFirst: item.startMinutes >= hourStart && item.startMinutes < hourEnd,
+        })),
+      });
+    }
+    return slots;
+  }, [timelineItems, displayStartHour, displayEndHour]);
+
   // ── Current time Y position in flow ──
 
   const currentTimeYPosition = useMemo(() => {
-    if (!isTodayDate || segments.length === 0) return null;
-    if (nowMinutes < wakeMin || nowMinutes > sleepMinVal) return null;
-
-    // Y is relative to the right column (skip wake/sleep heights)
-    let y = 0;
-    for (let i = 0; i < segments.length; i++) {
-      const seg = segments[i];
-      const h = segmentHeights[i];
-
-      if (seg.type === 'wake' || seg.type === 'sleep') continue;
-
-      if (seg.type === 'gap' || seg.type === 'item') {
-        if (nowMinutes >= seg.startMin && nowMinutes < seg.endMin) {
-          const ratio = (nowMinutes - seg.startMin) / (seg.endMin - seg.startMin);
-          return y + ratio * h;
-        }
-      }
-
-      y += h;
-    }
-    return null;
-  }, [isTodayDate, segments, segmentHeights, nowMinutes, wakeMin, sleepMinVal]);
+    if (!isTodayDate) return null;
+    const startMin = displayStartHour * 60;
+    const endMin = displayEndHour * 60;
+    if (nowMinutes < startMin || nowMinutes > endMin) return null;
+    const slotIndex = Math.floor((nowMinutes - startMin) / 60);
+    const withinSlot = (nowMinutes - startMin - slotIndex * 60) / 60;
+    return hourlyGridOffsetRef.current + slotIndex * HOURLY_ROW_HEIGHT + withinSlot * HOURLY_ROW_HEIGHT;
+  }, [isTodayDate, nowMinutes, displayStartHour, displayEndHour]);
 
   // ── Drop indicator Y position ──
 
@@ -1377,23 +1357,11 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
     if ((!draggingTask && !draggingEvent) || !dropTimePreview) return null;
     const [dh, dm] = dropTimePreview.split(':').map(Number);
     const dropMin = dh * 60 + dm;
-
-    // Y is relative to the right column (skip wake/sleep heights)
-    let y = 0;
-    for (let i = 0; i < segments.length; i++) {
-      const seg = segments[i];
-      const h = segmentHeights[i];
-      if (seg.type === 'wake' || seg.type === 'sleep') continue;
-      if (seg.type === 'gap' || seg.type === 'item') {
-        if (dropMin >= seg.startMin && dropMin <= seg.endMin) {
-          const ratio = (dropMin - seg.startMin) / Math.max(1, seg.endMin - seg.startMin);
-          return y + ratio * h;
-        }
-      }
-      y += h;
-    }
-    return y;
-  }, [draggingTask, draggingEvent, dropTimePreview, segments, segmentHeights]);
+    const startMin = displayStartHour * 60;
+    const slotIndex = Math.floor((dropMin - startMin) / 60);
+    const withinSlot = ((dropMin - startMin) % 60) / 60;
+    return hourlyGridOffsetRef.current + slotIndex * HOURLY_ROW_HEIGHT + withinSlot * HOURLY_ROW_HEIGHT;
+  }, [draggingTask, draggingEvent, dropTimePreview, displayStartHour]);
 
   // ── Imperative handle ──
 
@@ -1448,79 +1416,112 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
     creatingEventRef.current = creatingEvent;
   }, [creatingEvent]);
 
+  // (pageYToMinutes moved above drag handlers)
+
+  const stopAutoScroll = useCallback(() => {
+    if (lpAutoScrollRef.current) {
+      clearInterval(lpAutoScrollRef.current);
+      lpAutoScrollRef.current = null;
+    }
+  }, []);
+
   const handleCreationTouchStart = useCallback((e: any) => {
     if (editingTimelineTaskId || draggingTask || draggingEvent) return;
     lpActiveRef.current = false;
     lpTouchYRef.current = e.nativeEvent.pageY;
+    lpTouchXRef.current = e.nativeEvent.pageX;
+    lpSnapRef.current = 15;
 
-    rightColumnRef.current?.measureInWindow((_x: number, y: number) => {
+    (hourlyGridRef.current || rightColumnRef.current)?.measureInWindow((_x: number, y: number) => {
       gridTopOnScreenRef.current = y;
     });
 
     lpTimerRef.current = setTimeout(() => {
       lpTimerRef.current = null;
-      // If an event drag was initiated, skip creation
       if (dragEventItemRef.current || eventDragActiveRef.current) return;
       lpActiveRef.current = true;
       Vibration.vibrate(50);
 
-      const gridY = lpTouchYRef.current - gridTopOnScreenRef.current;
-      const layouts = segmentLayoutsRef.current;
-      let tapMin = displayStartHour * 60;
-      for (let i = 0; i < layouts.length; i++) {
-        const layout = layouts[i];
-        if (!layout) continue;
-        if (gridY >= layout.y && gridY < layout.y + layout.height && layout.endMin > layout.startMin) {
-          const ratio = Math.max(0, Math.min(1, (gridY - layout.y) / layout.height));
-          tapMin = layout.startMin + ratio * (layout.endMin - layout.startMin);
-          break;
-        }
-      }
-      tapMin = Math.round(tapMin / 15) * 15;
-      tapMin = Math.max(displayStartHour * 60, Math.min(displayEndHour * 60 - 60, tapMin));
-      setCreatingEvent({startMin: tapMin, endMin: tapMin + 60});
+      // Measure the hourly grid (not rightColumnRef which includes legend)
+      hourlyGridRef.current?.measureInWindow((_x: number, gridScreenY: number) => {
+        gridTopOnScreenRef.current = gridScreenY;
+        const touchPageY = lpTouchYRef.current;
+        let tapMin = pageYToMinutes(touchPageY);
+        tapMin = Math.round(tapMin / 5) * 5;
+        tapMin = Math.max(displayStartHour * 60, Math.min(displayEndHour * 60 - 5, tapMin));
+        lpStartMinRef.current = tapMin;
+        setCreatingEvent({startMin: tapMin, endMin: tapMin + 5});
+      });
     }, 300);
-  }, [displayStartHour, displayEndHour, editingTimelineTaskId, draggingTask]);
+  }, [displayStartHour, displayEndHour, editingTimelineTaskId, draggingTask, pageYToMinutes]);
+
+  // Compute endMin from drag displacement
+  // 縦 = 何時間分か（行数）、横 = 指のX位置が0〜60分（バーの面積が指まで広がる）
+  const computeEndFromDrag = useCallback((pageY: number, pageX: number) => {
+    const dy = pageY - lpTouchYRef.current;
+
+    // 縦: 下に1行 = +1時間分
+    const rows = Math.max(0, Math.floor(dy / HOURLY_ROW_HEIGHT));
+
+    // 横: バー領域の左端=0分、右端=60分
+    const barLeft = FLOW_LEFT_WIDTH;
+    const barRight = SCREEN_WIDTH - 14;
+    const barWidth = barRight - barLeft;
+    const xRatio = Math.max(0, Math.min(1, (pageX - barLeft) / barWidth));
+    const mins = Math.round(xRatio * 60 / 5) * 5; // 5分刻み、0〜60
+
+    const startMin = lpStartMinRef.current;
+    const maxEnd = displayEndHour * 60;
+    // rows行分の時間 + 指のX位置分の分
+    const endMin = startMin + rows * 60 + mins;
+    return Math.min(maxEnd, Math.max(startMin + 5, endMin));
+  }, [displayEndHour]);
 
   const handleCreationTouchMove = useCallback((e: any) => {
     const pageY = e.nativeEvent.pageY;
+    const pageX = e.nativeEvent.pageX;
     if (!lpActiveRef.current) {
       if (!lpTimerRef.current) return;
-      if (Math.abs(pageY - lpTouchYRef.current) > 10) {
+      if (Math.abs(pageY - lpTouchYRef.current) > 10 || Math.abs(pageX - lpTouchXRef.current) > 10) {
         clearTimeout(lpTimerRef.current);
         lpTimerRef.current = null;
       }
       return;
     }
     lpLastPageYRef.current = pageY;
-    const gridY = pageY - gridTopOnScreenRef.current;
-    // Find if finger is inside any gap/item segment
-    const layouts = segmentLayoutsRef.current;
-    let insideTimeline = false;
-    let minutes = displayStartHour * 60;
-    for (let i = 0; i < layouts.length; i++) {
-      const layout = layouts[i];
-      if (!layout) continue;
-      if (gridY >= layout.y && gridY < layout.y + layout.height && layout.endMin > layout.startMin) {
-        insideTimeline = true;
-        const ratio = Math.max(0, Math.min(1, (gridY - layout.y) / layout.height));
-        minutes = layout.startMin + ratio * (layout.endMin - layout.startMin);
-        break;
-      }
+
+    const startMin = lpStartMinRef.current;
+    const endMin = computeEndFromDrag(pageY, pageX);
+    setCreatingEvent({startMin, endMin});
+
+    // Auto-scroll when near bottom or top of screen
+    const screenH = Dimensions.get('window').height;
+    stopAutoScroll();
+    if (pageY > screenH - 100) {
+      lpAutoScrollRef.current = setInterval(() => {
+        scrollViewRef.current?.scrollTo({
+          y: scrollOffsetRef.current + 30,
+          animated: false,
+        });
+        rightColumnRef.current?.measureInWindow((_x: number, y: number) => {
+          gridTopOnScreenRef.current = y;
+        });
+      }, 50);
+    } else if (pageY < 200) {
+      lpAutoScrollRef.current = setInterval(() => {
+        scrollViewRef.current?.scrollTo({
+          y: Math.max(0, scrollOffsetRef.current - 30),
+          animated: false,
+        });
+        rightColumnRef.current?.measureInWindow((_x: number, y: number) => {
+          gridTopOnScreenRef.current = y;
+        });
+      }, 50);
     }
-    if (!insideTimeline) {
-      // Cancel immediately
-      lpActiveRef.current = false;
-      setCreatingEvent(null);
-      return;
-    }
-    // Move the 1-hour block
-    minutes = Math.round(minutes / 15) * 15;
-    minutes = Math.max(displayStartHour * 60, Math.min(displayEndHour * 60 - 60, minutes));
-    setCreatingEvent({startMin: minutes, endMin: minutes + 60});
-  }, [displayStartHour, displayEndHour]);
+  }, [computeEndFromDrag, stopAutoScroll]);
 
   const handleCreationTouchEnd = useCallback(() => {
+    stopAutoScroll();
     if (lpTimerRef.current) {
       clearTimeout(lpTimerRef.current);
       lpTimerRef.current = null;
@@ -1538,7 +1539,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
       }
       setCreatingEvent(null);
     }
-  }, [dayStart]);
+  }, [dayStart, stopAutoScroll]);
 
   // ── Segment layout handler ──
 
@@ -1670,21 +1671,33 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                 ]}>
                   {WEEKDAYS_JA[dow]}
                 </Text>
-                <View style={[
-                  styles.weekStripCircle,
-                  isSelected && {backgroundColor: isDark ? '#ffffff' : '#000000'},
-                  isToday && !isSelected && {backgroundColor: colors.primary},
-                ]}>
-                  <Text style={[
-                    styles.weekStripDate,
-                    {color: colors.text},
-                    isSelected && {color: isDark ? '#000000' : '#ffffff'},
-                    isToday && !isSelected && {color: colors.onPrimary},
-                    !isSelected && !isToday && dow === 0 && {color: colors.sunday},
-                    !isSelected && !isToday && dow === 6 && {color: colors.saturday},
+                <View style={{position: 'relative'}}>
+                  <View style={[
+                    styles.weekStripCircle,
+                    isSelected && {backgroundColor: isDark ? '#ffffff' : '#000000'},
+                    isToday && !isSelected && {backgroundColor: colors.primary},
                   ]}>
-                    {wd.getDate()}
-                  </Text>
+                    <Text style={[
+                      styles.weekStripDate,
+                      {color: colors.text},
+                      isSelected && {color: isDark ? '#000000' : '#ffffff'},
+                      isToday && !isSelected && {color: colors.onPrimary},
+                      !isSelected && !isToday && dow === 0 && {color: colors.sunday},
+                      !isSelected && !isToday && dow === 6 && {color: colors.saturday},
+                    ]}>
+                      {wd.getDate()}
+                    </Text>
+                  </View>
+                  {(() => {
+                    const key = `${wd.getFullYear()}-${wd.getMonth()}-${wd.getDate()}`;
+                    const count = stripEventCounts[key];
+                    if (!count) return null;
+                    return (
+                      <View style={styles.stripBadge}>
+                        <Text style={styles.stripBadgeText}>{count}</Text>
+                      </View>
+                    );
+                  })()}
                 </View>
               </TouchableOpacity>
             );
@@ -1742,46 +1755,21 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
           style={styles.flowTimeline}
           onLayout={(e) => { flowTimelineYRef.current = e.nativeEvent.layout.y; }}>
 
-          {/* ── Wake segment (full width) ── */}
-          {segments.length > 0 && segments[0].type === 'wake' && (() => {
-            const segment = segments[0] as { type: 'wake'; hour: number; minute: number };
-            return (
-              <TouchableOpacity
-                key="wake"
-                style={[styles.flowRow, {height: FLOW_WAKE_HEIGHT}]}
-                activeOpacity={0.7}
-                delayLongPress={300}
-                onPress={() => setEditingTime(editingTime === 'wake' ? null : 'wake')}
-                onLongPress={() => {
-                  Vibration.vibrate(50);
-                  const tapMin = Math.round(wakeMin / 15) * 15;
-                  const s = new Date(dayStart);
-                  s.setHours(Math.floor(tapMin / 60), tapMin % 60, 0, 0);
-                  const ed = new Date(s);
-                  ed.setHours(ed.getHours() + 1);
-                  setPendingTimeRange({start: s, end: ed});
-                  setShowAddTypeSelect(true);
-                }}
-                onLayout={(e) => handleSegmentLayout(0, displayStartHour * 60, wakeMin, e)}>
-                <View style={styles.flowTimeCol}>
-                  <Text style={[styles.flowTimeText, {color: editingTime === 'wake' ? colors.primary : colors.textTertiary}]}>
-                    {formatMinutes(segment.hour * 60 + segment.minute)}
-                  </Text>
-                </View>
-                {renderDotCol(true, false, colors.primary)}
-                <View style={styles.flowContent}>
-                  <View style={[styles.lifeCard, {backgroundColor: colors.surfaceSecondary}]}>
-                    <View style={styles.lifeCardInner}>
-                      <Text style={styles.lifeCardEmoji}>☀️</Text>
-                      <Text style={[styles.lifeCardText, {color: colors.text}]}>起床</Text>
-                    </View>
-                  </View>
-                </View>
-              </TouchableOpacity>
-            );
-          })()}
+          {/* ── Wake pill ── */}
+          {showWake && (
+            <TouchableOpacity
+              key="wake"
+              activeOpacity={0.7}
+              onPress={() => setEditingTime(editingTime === 'wake' ? null : 'wake')}
+              style={{paddingHorizontal: 12, paddingVertical: 8}}>
+              <View style={{flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', backgroundColor: colors.surfaceSecondary, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 4}}>
+                <Text style={{fontSize: 13}}>☀️</Text>
+                <Text style={{fontSize: 13, color: colors.primary, fontWeight: '600', marginLeft: 4}}>起床 {formatMinutes(wakeMin)}</Text>
+              </View>
+            </TouchableOpacity>
+          )}
 
-          {/* ── Full-width timeline ── */}
+          {/* ── Hourly timeline bar ── */}
           <View
             ref={rightColumnRef}
             onTouchStart={handleCreationTouchStart}
@@ -1796,7 +1784,105 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                 );
               }
             }}>
-              {segments.map((segment, segIndex) => {
+              {/* Legend */}
+              <View style={{flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingBottom: 6, gap: 10}}>
+                <View style={{flexDirection: 'row', alignItems: 'center', gap: 3}}>
+                  <View style={{width: 10, height: 10, borderRadius: 2, backgroundColor: isDark ? colors.surfaceSecondary : '#e8e9ec'}} />
+                  <Text style={{fontSize: 11, color: colors.textTertiary}}>空き</Text>
+                </View>
+                <View style={{flexDirection: 'row', alignItems: 'center', gap: 3}}>
+                  <View style={{width: 10, height: 10, borderRadius: 2, backgroundColor: colors.primary}} />
+                  <Text style={{fontSize: 11, color: colors.textTertiary}}>確定</Text>
+                </View>
+                <View style={{flexDirection: 'row', alignItems: 'center', gap: 3}}>
+                  <View style={{width: 10, height: 10, borderRadius: 2, borderWidth: 1, borderStyle: 'dashed', borderColor: colors.primary, backgroundColor: `${colors.primary}15`}} />
+                  <Text style={{fontSize: 11, color: colors.textTertiary}}>提案</Text>
+                </View>
+              </View>
+
+              <View ref={hourlyGridRef} onLayout={(e) => { hourlyGridOffsetRef.current = e.nativeEvent.layout.y; }}>
+              {hourlySlots.map((slot, slotIndex) => {
+                const hourMin = slot.hour * 60;
+                const hourEnd = hourMin + 60;
+                const hasItems = slot.items.length > 0;
+                const firstItem = hasItems ? slot.items[0] : null;
+                const item = firstItem?.item;
+                const isFirstHour = firstItem?.isFirst;
+
+                // Event bar width: proportional to duration (1h = ~40%, 2h+ = full width)
+                const barWidthRatio = item ? Math.min(1, (item.endMinutes - item.startMinutes) / 120) : 1;
+                const barWidthPercent = `${Math.max(30, barWidthRatio * 100)}%` as any;
+
+                return (
+                  <View
+                    key={`hour-${slot.hour}`}
+                    style={{flexDirection: 'row', height: HOURLY_ROW_HEIGHT, alignItems: 'center', paddingVertical: 2}}
+                    onLayout={(e) => {
+                      const {y, height} = e.nativeEvent.layout;
+                      segmentLayoutsRef.current[slotIndex] = {y, height, startMin: hourMin, endMin: hourEnd};
+                    }}>
+                    <View style={{width: FLOW_LEFT_WIDTH, alignItems: 'flex-end', paddingRight: 10}}>
+                      <Text style={{fontSize: 13, color: colors.textTertiary, fontVariant: ['tabular-nums'], fontWeight: '500'}}>
+                        {formatMinutes(hourMin)}
+                      </Text>
+                    </View>
+                    <View style={{flex: 1, height: HOURLY_ROW_HEIGHT - 6, marginRight: 14}}>
+                      {!hasItems ? (
+                        /* Empty hour - light gray bar */
+                        <View style={{flex: 1, backgroundColor: isDark ? colors.surfaceSecondary : '#ecedf0', borderRadius: 8}} />
+                      ) : item?.type === 'event' ? (
+                        /* Event - solid colored bar, width based on duration */
+                        <View
+                          {...getEventPanResponder(item).panHandlers}
+                          style={{height: '100%', width: barWidthPercent, backgroundColor: item.color || colors.primary, borderRadius: 8, justifyContent: 'center', paddingHorizontal: 12}}>
+                          {isFirstHour && (
+                            <Text style={{color: colors.onEvent, fontSize: 13, fontWeight: '600'}} numberOfLines={1}>
+                              {item.title}
+                            </Text>
+                          )}
+                        </View>
+                      ) : item?.type === 'task' ? (
+                        /* Task - dashed border, light tinted background */
+                        <TouchableOpacity
+                          activeOpacity={0.6}
+                          onPress={() => handleEditTimelineTask(item.original as Task)}
+                          style={{flex: 1, height: '100%', backgroundColor: isDark ? `${colors.primary}15` : '#e8edf5', borderWidth: 1.5, borderStyle: 'dashed', borderColor: isDark ? colors.primary : '#9bb0d4', borderRadius: 8, justifyContent: 'center', paddingHorizontal: 12}}>
+                          {isFirstHour && (
+                            <Text style={{color: isDark ? colors.primary : '#4a6fa5', fontSize: 13, fontWeight: '600'}} numberOfLines={1}>
+                              {item.title}
+                            </Text>
+                          )}
+                        </TouchableOpacity>
+                      ) : (
+                        <View style={{flex: 1, backgroundColor: isDark ? colors.surfaceSecondary : '#ecedf0', borderRadius: 8}} />
+                      )}
+                    </View>
+                  </View>
+                );
+              })}
+              </View>
+
+              {/* Remaining free time summary */}
+              {(() => {
+                const lastEventEnd = timelineItems.length > 0
+                  ? Math.max(...timelineItems.map(i => i.endMinutes))
+                  : displayStartHour * 60;
+                const sleepM = displayEndHour * 60;
+                const remainingHours = Math.floor((sleepM - lastEventEnd) / 60);
+                if (remainingHours >= 2 && lastEventEnd < sleepM) {
+                  return (
+                    <View style={{paddingVertical: 10, paddingLeft: FLOW_LEFT_WIDTH + 4}}>
+                      <Text style={{fontSize: 13, color: colors.textTertiary}}>
+                        〜 {formatMinutes(sleepM)} まで空き
+                      </Text>
+                    </View>
+                  );
+                }
+                return null;
+              })()}
+
+              {/* Legacy segment rendering (disabled) */}
+              {false && segments.map((segment, segIndex) => {
                   if (segment.type === 'wake' || segment.type === 'sleep') return null;
 
                   if (segment.type === 'gap') {
@@ -2103,23 +2189,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                 const dur = draggingTask ? (draggingTask.duration || 60) : (draggingEvent ? draggingEvent.endMinutes - draggingEvent.startMinutes : 60);
                 const [dh, dm] = dropTimePreview.split(':').map(Number);
                 const dropMin = dh * 60 + dm;
-                let endY = dropIndicatorY;
-                let y = 0;
-                for (let i = 0; i < segments.length; i++) {
-                  const seg = segments[i];
-                  const h = segmentHeights[i];
-                  if (seg.type === 'wake' || seg.type === 'sleep') continue;
-                  if (seg.type === 'gap' || seg.type === 'item') {
-                    const endMin = dropMin + dur;
-                    if (endMin >= seg.startMin && endMin <= seg.endMin) {
-                      const ratio = (endMin - seg.startMin) / Math.max(1, seg.endMin - seg.startMin);
-                      endY = y + ratio * h;
-                      break;
-                    }
-                  }
-                  y += h;
-                }
-                const dropHeight = Math.max(20, endY - dropIndicatorY);
+                const dropHeight = Math.max(HOURLY_ROW_HEIGHT, (dur / 60) * HOURLY_ROW_HEIGHT);
                 return (
                   <View pointerEvents="none" style={StyleSheet.absoluteFill}>
                     <View style={[styles.flowDropLine, {top: dropIndicatorY, backgroundColor: colors.primary}]} />
@@ -2131,84 +2201,95 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
               })()}
           </View>
 
-          {/* ── Sleep segment (full width) ── */}
-          {segments.length > 1 && segments[segments.length - 1].type === 'sleep' && (() => {
-            const segment = segments[segments.length - 1] as { type: 'sleep'; hour: number; minute: number };
-            const segIndex = segments.length - 1;
-            return (
-              <TouchableOpacity
-                key="sleep"
-                style={[styles.flowRow, {height: FLOW_SLEEP_HEIGHT}]}
-                activeOpacity={0.7}
-                delayLongPress={300}
-                onPress={() => setEditingTime(editingTime === 'sleep' ? null : 'sleep')}
-                onLongPress={() => {
-                  Vibration.vibrate(50);
-                  const tapMin = Math.round(sleepMinVal / 15) * 15;
-                  const s = new Date(dayStart);
-                  s.setHours(Math.floor(tapMin / 60), tapMin % 60, 0, 0);
-                  const ed = new Date(s);
-                  ed.setHours(ed.getHours() + 1);
-                  setPendingTimeRange({start: s, end: ed});
-                  setShowAddTypeSelect(true);
-                }}
-                onLayout={(e) => handleSegmentLayout(segIndex, sleepMinVal, displayEndHour * 60, e)}>
-                <View style={styles.flowTimeCol}>
-                  <Text style={[styles.flowTimeText, {color: editingTime === 'sleep' ? colors.primary : colors.textTertiary}]}>
-                    {formatMinutes(segment.hour * 60 + segment.minute)}
-                  </Text>
-                </View>
-                {renderDotCol(false, true, colors.primary)}
-                <View style={styles.flowContent}>
-                  <View style={[styles.lifeCard, {backgroundColor: colors.surfaceSecondary}]}>
-                    <View style={styles.lifeCardInner}>
-                      <Text style={styles.lifeCardEmoji}>🌙</Text>
-                      <Text style={[styles.lifeCardText, {color: colors.text}]}>就寝</Text>
-                    </View>
-                  </View>
-                </View>
-              </TouchableOpacity>
-            );
-          })()}
+          {/* ── Sleep pill ── */}
+          {showSleep && (
+            <TouchableOpacity
+              key="sleep"
+              activeOpacity={0.7}
+              onPress={() => setEditingTime(editingTime === 'sleep' ? null : 'sleep')}
+              style={{paddingHorizontal: 12, paddingVertical: 8}}>
+              <View style={{flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', backgroundColor: colors.surfaceSecondary, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 4}}>
+                <Text style={{fontSize: 13}}>🌙</Text>
+                <Text style={{fontSize: 13, color: colors.primary, fontWeight: '600', marginLeft: 4}}>就寝 {formatMinutes(sleepMinVal)}</Text>
+              </View>
+            </TouchableOpacity>
+          )}
+
+          {/* Hint text */}
+          <View style={{alignItems: 'center', paddingVertical: 12}}>
+            <Text style={{fontSize: 12, color: colors.textTertiary}}>タスクを長押しでドラッグ移動</Text>
+          </View>
 
           {/* Creation preview (long-press drag) */}
           {creatingEvent && (() => {
-            const layouts = segmentLayoutsRef.current;
-            const rcOffset = rightColumnOffsetYRef.current;
-            let topY = 0, bottomY = 0;
-            for (let i = 0; i < layouts.length; i++) {
-              const layout = layouts[i];
-              if (!layout || layout.endMin <= layout.startMin) continue;
-              if (creatingEvent.startMin >= layout.startMin && creatingEvent.startMin <= layout.endMin) {
-                const ratio = (creatingEvent.startMin - layout.startMin) / (layout.endMin - layout.startMin);
-                topY = layout.y + ratio * layout.height + rcOffset;
-              }
-              if (creatingEvent.endMin >= layout.startMin && creatingEvent.endMin <= layout.endMin) {
-                const ratio = (creatingEvent.endMin - layout.startMin) / (layout.endMin - layout.startMin);
-                bottomY = layout.y + ratio * layout.height + rcOffset;
-              }
-            }
-            const boxHeight = 50;
+            const dur = creatingEvent.endMin - creatingEvent.startMin;
+            const fullRows = Math.floor(dur / 60);
+            const remainMin = dur % 60;
+            const barWidth = SCREEN_WIDTH - FLOW_LEFT_WIDTH - 14;
+
+            // Full rows + partial last row
+            const fullHeight = fullRows * HOURLY_ROW_HEIGHT;
+            const partialWidth = remainMin > 0 ? (remainMin / 60) * barWidth : 0;
+
+            // topY relative to rightColumnRef = hourlyGridOffset + slot position
+            const startSlotIdx = Math.floor((creatingEvent.startMin - displayStartHour * 60) / 60);
+            const withinSlot = ((creatingEvent.startMin - displayStartHour * 60) % 60) / 60;
+            const topY = hourlyGridOffsetRef.current + startSlotIdx * HOURLY_ROW_HEIGHT + withinSlot * HOURLY_ROW_HEIGHT;
+            const durH = Math.floor(dur / 60);
+            const durM = dur % 60;
+            const durText = durH > 0 && durM > 0 ? `${durH}時間${durM}分` : durH > 0 ? `${durH}時間` : `${durM}分`;
             return (
               <View pointerEvents="none" style={{
-                position: 'absolute', top: topY, left: FLOW_LEFT_WIDTH + FLOW_DOT_COL_WIDTH - 2, right: 6,
-                height: boxHeight, zIndex: 70,
-                backgroundColor: isDark ? 'rgba(255,255,255,0.12)' : '#fff',
-                borderColor: isDark ? 'rgba(255,255,255,0.5)' : colors.text,
-                borderWidth: 2,
-                borderRadius: 14,
-                borderStyle: 'dashed',
-                justifyContent: 'center',
-                paddingHorizontal: 12,
-                shadowColor: '#000',
-                shadowOffset: {width: 0, height: 2},
-                shadowOpacity: isDark ? 0.4 : 0.1,
-                shadowRadius: 8,
-                elevation: 4,
+                position: 'absolute', top: topY, left: FLOW_LEFT_WIDTH, zIndex: 70,
+                width: barWidth,
               }}>
-                <Text style={{color: isDark ? '#fff' : colors.text, fontSize: 14, fontWeight: '700', fontVariant: ['tabular-nums']}}>
-                  {formatMinutes(creatingEvent.startMin)} − {formatMinutes(creatingEvent.endMin)}
-                </Text>
+                {/* Full-width rows */}
+                {fullRows > 0 && (
+                  <View style={{
+                    height: fullHeight,
+                    backgroundColor: isDark ? 'rgba(100,149,237,0.3)' : `${colors.primary}25`,
+                    borderColor: colors.primary,
+                    borderWidth: 2,
+                    borderStyle: 'dashed',
+                    borderRadius: 8,
+                    borderBottomLeftRadius: remainMin > 0 ? 0 : 8,
+                    borderBottomRightRadius: remainMin > 0 ? 0 : 8,
+                    justifyContent: 'center',
+                    paddingHorizontal: 10,
+                  }}>
+                    <Text style={{color: colors.primary, fontSize: 14, fontWeight: '700', fontVariant: ['tabular-nums']}}>
+                      {formatMinutes(creatingEvent.startMin)} − {formatMinutes(creatingEvent.endMin)}
+                    </Text>
+                    <Text style={{color: colors.primary, fontSize: 12, marginTop: 1}}>
+                      {durText}
+                    </Text>
+                  </View>
+                )}
+                {/* Partial last row (width = finger X position) */}
+                {remainMin > 0 && (
+                  <View style={{
+                    height: HOURLY_ROW_HEIGHT - 4,
+                    width: Math.max(60, partialWidth),
+                    backgroundColor: isDark ? 'rgba(100,149,237,0.3)' : `${colors.primary}25`,
+                    borderColor: colors.primary,
+                    borderWidth: 2,
+                    borderStyle: 'dashed',
+                    borderRadius: 8,
+                    borderTopLeftRadius: fullRows > 0 ? 0 : 8,
+                    borderTopRightRadius: 0,
+                    justifyContent: 'center',
+                    paddingHorizontal: 10,
+                  }}>
+                    {fullRows === 0 && (
+                      <>
+                        <Text style={{color: colors.primary, fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums']}}>
+                          {formatMinutes(creatingEvent.startMin)} − {formatMinutes(creatingEvent.endMin)}
+                        </Text>
+                        <Text style={{color: colors.primary, fontSize: 11}}>{durText}</Text>
+                      </>
+                    )}
+                  </View>
+                )}
               </View>
             );
           })()}
@@ -2880,6 +2961,23 @@ const styles = StyleSheet.create({
   weekStripDate: {
     fontSize: 15,
     fontWeight: '500',
+  },
+  stripBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -6,
+    backgroundColor: '#FF3B30',
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 3,
+  },
+  stripBadgeText: {
+    color: '#ffffff',
+    fontSize: 10,
+    fontWeight: '700',
   },
 
   // Loading / error
