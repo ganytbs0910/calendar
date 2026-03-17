@@ -227,6 +227,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
   const lpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lpTouchYRef = useRef(0);
   const lpTouchXRef = useRef(0);
+  const lpLocationYRef = useRef(0); // rightColumnRef内の相対Y
   const lpActiveRef = useRef(false);
   const lpLastPageYRef = useRef(0);
   const lpStartMinRef = useRef(0);
@@ -1432,29 +1433,31 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
     lpTouchXRef.current = e.nativeEvent.pageX;
     lpSnapRef.current = 15;
 
-    (hourlyGridRef.current || rightColumnRef.current)?.measureInWindow((_x: number, y: number) => {
-      gridTopOnScreenRef.current = y;
-    });
-
     lpTimerRef.current = setTimeout(() => {
       lpTimerRef.current = null;
       if (dragEventItemRef.current || eventDragActiveRef.current) return;
       lpActiveRef.current = true;
       Vibration.vibrate(50);
 
-      // Measure the hourly grid (not rightColumnRef which includes legend)
+      // measureInWindow をタイマー内で呼び、コールバック内ですべて完結させる
       hourlyGridRef.current?.measureInWindow((_x: number, gridScreenY: number) => {
         gridTopOnScreenRef.current = gridScreenY;
-        const touchPageY = lpTouchYRef.current;
-        const rawMin = pageYToMinutes(touchPageY);
-        // 5分単位に丸める（14:32 → 14:30）
+        const relY = lpTouchYRef.current - gridScreenY;
+        const totalRows = displayEndHour - displayStartHour;
+        const totalHeight = totalRows * HOURLY_ROW_HEIGHT;
+        const rawMin = relY <= 0
+          ? displayStartHour * 60
+          : relY >= totalHeight
+          ? displayEndHour * 60
+          : displayStartHour * 60 + (relY / totalHeight) * (displayEndHour - displayStartHour) * 60;
+
         const tapMin = Math.round(rawMin / 5) * 5;
         const clampedMin = Math.max(displayStartHour * 60, Math.min(displayEndHour * 60 - 5, tapMin));
         lpStartMinRef.current = clampedMin;
         setCreatingEvent({startMin: clampedMin, endMin: clampedMin + 5});
       });
     }, 300);
-  }, [displayStartHour, displayEndHour, editingTimelineTaskId, draggingTask, pageYToMinutes]);
+  }, [displayStartHour, displayEndHour, editingTimelineTaskId, draggingTask]);
 
   // Compute endMin from drag displacement
   // 縦 = 何時間分か（行数）、横 = 指のX位置が0〜60分（バーの面積が指まで広がる）
@@ -1465,8 +1468,8 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
     const rows = Math.max(0, Math.floor(dy / HOURLY_ROW_HEIGHT));
 
     // 横: バー領域の左端=0分、右端=60分
-    const barLeft = FLOW_LEFT_WIDTH;
-    const barRight = SCREEN_WIDTH - 14;
+    const barLeft = 42;
+    const barRight = SCREEN_WIDTH - 6;
     const barWidth = barRight - barLeft;
     const xRatio = Math.max(0, Math.min(1, (pageX - barLeft) / barWidth));
     const mins = Math.round(xRatio * 60 / 5) * 5; // 5分刻み、0〜60
@@ -1822,12 +1825,10 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                       const {y, height} = e.nativeEvent.layout;
                       segmentLayoutsRef.current[slotIndex] = {y, height, startMin: hourMin, endMin: hourEnd};
                     }}>
-                    <View style={{width: FLOW_LEFT_WIDTH, alignItems: 'flex-end', paddingRight: 10}}>
-                      <Text style={{fontSize: 13, color: colors.textTertiary, fontVariant: ['tabular-nums'], fontWeight: '500'}}>
-                        {formatMinutes(hourMin)}
-                      </Text>
-                    </View>
-                    <View style={{flex: 1, height: HOURLY_ROW_HEIGHT - 6, marginRight: 14}}>
+                    <Text style={{width: 36, fontSize: 11, color: colors.textTertiary, fontVariant: ['tabular-nums'], fontWeight: '500', textAlign: 'right', marginRight: 6}} numberOfLines={1}>
+                      {`${slot.hour}:00`}
+                    </Text>
+                    <View style={{flex: 1, height: HOURLY_ROW_HEIGHT - 6, marginRight: 6}}>
                       {!hasItems ? (
                         /* Empty hour - light gray bar */
                         <View style={{flex: 1, backgroundColor: isDark ? colors.surfaceSecondary : '#ecedf0', borderRadius: 8}} />
@@ -2226,7 +2227,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
             const startMin = creatingEvent.startMin;
             const endMin = creatingEvent.endMin;
             const dur = endMin - startMin;
-            const barWidth = SCREEN_WIDTH - FLOW_LEFT_WIDTH - 14;
+            const barWidth = SCREEN_WIDTH - 42 - 6;
 
             // 開始行と終了行
             const startHour = Math.floor(startMin / 60);
@@ -2247,7 +2248,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
 
             return (
               <View pointerEvents="none" style={{
-                position: 'absolute', top: topY, left: FLOW_LEFT_WIDTH, zIndex: 70,
+                position: 'absolute', top: topY, left: 42, zIndex: 70,
                 width: barWidth,
               }}>
                 {Array.from({length: totalSlots}, (_, i) => {
