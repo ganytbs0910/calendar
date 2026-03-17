@@ -1446,11 +1446,12 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
       hourlyGridRef.current?.measureInWindow((_x: number, gridScreenY: number) => {
         gridTopOnScreenRef.current = gridScreenY;
         const touchPageY = lpTouchYRef.current;
-        let tapMin = pageYToMinutes(touchPageY);
-        tapMin = Math.round(tapMin / 5) * 5;
-        tapMin = Math.max(displayStartHour * 60, Math.min(displayEndHour * 60 - 5, tapMin));
-        lpStartMinRef.current = tapMin;
-        setCreatingEvent({startMin: tapMin, endMin: tapMin + 5});
+        const rawMin = pageYToMinutes(touchPageY);
+        // 5分単位に丸める（14:32 → 14:30）
+        const tapMin = Math.round(rawMin / 5) * 5;
+        const clampedMin = Math.max(displayStartHour * 60, Math.min(displayEndHour * 60 - 5, tapMin));
+        lpStartMinRef.current = clampedMin;
+        setCreatingEvent({startMin: clampedMin, endMin: clampedMin + 5});
       });
     }, 300);
   }, [displayStartHour, displayEndHour, editingTimelineTaskId, draggingTask, pageYToMinutes]);
@@ -2222,74 +2223,76 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
 
           {/* Creation preview (long-press drag) */}
           {creatingEvent && (() => {
-            const dur = creatingEvent.endMin - creatingEvent.startMin;
-            const fullRows = Math.floor(dur / 60);
-            const remainMin = dur % 60;
+            const startMin = creatingEvent.startMin;
+            const endMin = creatingEvent.endMin;
+            const dur = endMin - startMin;
             const barWidth = SCREEN_WIDTH - FLOW_LEFT_WIDTH - 14;
 
-            // Full rows + partial last row
-            const fullHeight = fullRows * HOURLY_ROW_HEIGHT;
-            const partialWidth = remainMin > 0 ? (remainMin / 60) * barWidth : 0;
+            // 開始行と終了行
+            const startHour = Math.floor(startMin / 60);
+            const endHour = Math.floor(endMin / 60);
+            const startFrac = (startMin % 60) / 60; // 開始行内の開始位置（0=左端、0.5=半分）
+            const endFrac = endMin % 60 === 0 ? 1 : (endMin % 60) / 60; // 終了行内の終了位置
+            const startSlotIdx = startHour - displayStartHour;
 
-            // topY relative to rightColumnRef = hourlyGridOffset + slot position
-            const startSlotIdx = Math.floor((creatingEvent.startMin - displayStartHour * 60) / 60);
-            const withinSlot = ((creatingEvent.startMin - displayStartHour * 60) % 60) / 60;
-            const topY = hourlyGridOffsetRef.current + startSlotIdx * HOURLY_ROW_HEIGHT + withinSlot * HOURLY_ROW_HEIGHT;
+            // topY = 開始行の先頭に揃える
+            const topY = hourlyGridOffsetRef.current + startSlotIdx * HOURLY_ROW_HEIGHT;
+
             const durH = Math.floor(dur / 60);
             const durM = dur % 60;
             const durText = durH > 0 && durM > 0 ? `${durH}時間${durM}分` : durH > 0 ? `${durH}時間` : `${durM}分`;
+
+            // 行数を計算
+            const totalSlots = (endMin % 60 === 0 ? endHour : endHour + 1) - startHour;
+
             return (
               <View pointerEvents="none" style={{
                 position: 'absolute', top: topY, left: FLOW_LEFT_WIDTH, zIndex: 70,
                 width: barWidth,
               }}>
-                {/* Full-width rows */}
-                {fullRows > 0 && (
-                  <View style={{
-                    height: fullHeight,
-                    backgroundColor: isDark ? 'rgba(100,149,237,0.3)' : `${colors.primary}25`,
-                    borderColor: colors.primary,
-                    borderWidth: 2,
-                    borderStyle: 'dashed',
-                    borderRadius: 8,
-                    borderBottomLeftRadius: remainMin > 0 ? 0 : 8,
-                    borderBottomRightRadius: remainMin > 0 ? 0 : 8,
-                    justifyContent: 'center',
-                    paddingHorizontal: 10,
-                  }}>
-                    <Text style={{color: colors.primary, fontSize: 14, fontWeight: '700', fontVariant: ['tabular-nums']}}>
-                      {formatMinutes(creatingEvent.startMin)} − {formatMinutes(creatingEvent.endMin)}
-                    </Text>
-                    <Text style={{color: colors.primary, fontSize: 12, marginTop: 1}}>
-                      {durText}
-                    </Text>
-                  </View>
-                )}
-                {/* Partial last row (width = finger X position) */}
-                {remainMin > 0 && (
-                  <View style={{
-                    height: HOURLY_ROW_HEIGHT - 4,
-                    width: Math.max(60, partialWidth),
-                    backgroundColor: isDark ? 'rgba(100,149,237,0.3)' : `${colors.primary}25`,
-                    borderColor: colors.primary,
-                    borderWidth: 2,
-                    borderStyle: 'dashed',
-                    borderRadius: 8,
-                    borderTopLeftRadius: fullRows > 0 ? 0 : 8,
-                    borderTopRightRadius: 0,
-                    justifyContent: 'center',
-                    paddingHorizontal: 10,
-                  }}>
-                    {fullRows === 0 && (
-                      <>
-                        <Text style={{color: colors.primary, fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums']}}>
-                          {formatMinutes(creatingEvent.startMin)} − {formatMinutes(creatingEvent.endMin)}
-                        </Text>
-                        <Text style={{color: colors.primary, fontSize: 11}}>{durText}</Text>
-                      </>
-                    )}
-                  </View>
-                )}
+                {Array.from({length: totalSlots}, (_, i) => {
+                  const isFirst = i === 0;
+                  const isLast = i === totalSlots - 1;
+                  // 各行のバー開始・終了位置
+                  const rowLeft = isFirst ? startFrac : 0;
+                  const rowRight = isLast ? (endMin % 60 === 0 && !isFirst ? 1 : endFrac) : 1;
+                  if (isLast && endMin % 60 === 0 && totalSlots > 1) return null; // ちょうど正時で終わる場合、最後の空行は不要
+
+                  const leftPx = rowLeft * barWidth;
+                  const widthPx = Math.max(40, (rowRight - rowLeft) * barWidth);
+
+                  return (
+                    <View key={i} style={{height: HOURLY_ROW_HEIGHT - (isLast && totalSlots === 1 ? 4 : 2), flexDirection: 'row'}}>
+                      <View style={{
+                        marginLeft: leftPx,
+                        width: widthPx,
+                        height: '100%',
+                        backgroundColor: isDark ? 'rgba(100,149,237,0.3)' : `${colors.primary}20`,
+                        borderColor: colors.primary,
+                        borderWidth: 2,
+                        borderStyle: 'dashed',
+                        borderTopLeftRadius: isFirst ? 8 : 0,
+                        borderBottomLeftRadius: isLast ? 8 : 0,
+                        borderTopRightRadius: isFirst && rowRight < 1 ? 8 : (isFirst ? 0 : 0),
+                        borderBottomRightRadius: isLast ? 8 : 0,
+                        borderRadius: totalSlots === 1 ? 8 : undefined,
+                        justifyContent: 'center',
+                        paddingHorizontal: 8,
+                      }}>
+                        {isFirst && (
+                          <>
+                            <Text style={{color: colors.primary, fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums']}} numberOfLines={1}>
+                              {formatMinutes(startMin)} − {formatMinutes(endMin)}
+                            </Text>
+                            {dur >= 15 && (
+                              <Text style={{color: colors.primary, fontSize: 11}}>{durText}</Text>
+                            )}
+                          </>
+                        )}
+                      </View>
+                    </View>
+                  );
+                })}
               </View>
             );
           })()}
