@@ -15,6 +15,7 @@ import {
   NativeScrollEvent,
   NativeSyntheticEvent,
   Vibration,
+  Alert,
 } from 'react-native';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
 import {getAllEventColors} from './AddEventModal';
@@ -215,6 +216,8 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
   const [timelineHeight, setTimelineHeight] = useState(0);
   const segmentLayoutsRef = useRef<Array<SegmentLayout | null>>([]);
   const flowTimelineYRef = useRef(0);
+  const scrollViewScreenYRef = useRef(0);
+  const scrollViewWrapperRef = useRef<View>(null);
   const rightColumnRef = useRef<View>(null);
   const hourlyGridRef = useRef<View>(null);
   const hourlyGridOffsetRef = useRef(0); // offset of hourlyGrid within rightColumnRef
@@ -743,11 +746,17 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
 
   // Helper: compute minutes from screen pageY position
   // Uses gridTopOnScreenRef which must point to the top of the hourly grid (not rightColumnRef)
+  // pageY → 分 変換（measureInWindow不使用、同期的に正確）
+  // scrollViewScreenY(固定) + コンテンツ内位置 - scrollOffset = 画面位置
+  // 逆算: コンテンツY = pageY - scrollViewScreenY + scrollOffset
+  // hourlyGridコンテンツY = flowTimelineY + rightColumnOffsetY + hourlyGridOffset
+  // relY = コンテンツY - hourlyGridコンテンツY
   const pageYToMinutes = useCallback((pageY: number) => {
-    const gridScreenTop = gridTopOnScreenRef.current;
+    const contentY = pageY - scrollViewScreenYRef.current + scrollOffsetRef.current;
+    const hourlyGridContentY = flowTimelineYRef.current + rightColumnOffsetYRef.current + hourlyGridOffsetRef.current;
+    const relY = contentY - hourlyGridContentY;
     const totalRows = displayEndHour - displayStartHour;
     const totalHeight = totalRows * HOURLY_ROW_HEIGHT;
-    const relY = pageY - gridScreenTop;
     if (relY <= 0) return displayStartHour * 60;
     if (relY >= totalHeight) return displayEndHour * 60;
     return displayStartHour * 60 + (relY / totalHeight) * (displayEndHour - displayStartHour) * 60;
@@ -1439,47 +1448,48 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
       lpActiveRef.current = true;
       Vibration.vibrate(50);
 
-      // measureInWindow をタイマー内で呼び、コールバック内ですべて完結させる
-      hourlyGridRef.current?.measureInWindow((_x: number, gridScreenY: number) => {
-        gridTopOnScreenRef.current = gridScreenY;
-        const relY = lpTouchYRef.current - gridScreenY;
-        const totalRows = displayEndHour - displayStartHour;
-        const totalHeight = totalRows * HOURLY_ROW_HEIGHT;
-        const rawMin = relY <= 0
-          ? displayStartHour * 60
-          : relY >= totalHeight
-          ? displayEndHour * 60
-          : displayStartHour * 60 + (relY / totalHeight) * (displayEndHour - displayStartHour) * 60;
+      // 縦で「時」を判定、横で「分」を判定
+      const rawMin = pageYToMinutes(lpTouchYRef.current);
+      const tapHour = Math.floor(rawMin / 60); // 縦 → 時
+      const barLeft = 42;
+      const barRight = SCREEN_WIDTH - 6;
+      const barWidth = barRight - barLeft;
+      const xRatio = Math.max(0, Math.min(1, (lpTouchXRef.current - barLeft) / barWidth));
+      const tapMinute = Math.round(xRatio * 60 / 5) * 5; // 横 → 分（5分刻み）
+      const clampedHour = Math.max(displayStartHour, Math.min(displayEndHour - 1, tapHour));
+      const clampedMin = clampedHour * 60 + Math.min(55, tapMinute);
+      lpStartMinRef.current = clampedMin;
+      setCreatingEvent({startMin: clampedMin, endMin: clampedMin + 5});
 
-        const tapMin = Math.round(rawMin / 5) * 5;
-        const clampedMin = Math.max(displayStartHour * 60, Math.min(displayEndHour * 60 - 5, tapMin));
-        lpStartMinRef.current = clampedMin;
-        setCreatingEvent({startMin: clampedMin, endMin: clampedMin + 5});
+      // ドラッグ用に gridTopOnScreenRef も更新
+      hourlyGridRef.current?.measureInWindow((_x: number, y: number) => {
+        gridTopOnScreenRef.current = y;
       });
     }, 300);
   }, [displayStartHour, displayEndHour, editingTimelineTaskId, draggingTask]);
 
-  // Compute endMin from drag displacement
-  // 縦 = 何時間分か（行数）、横 = 指のX位置が0〜60分（バーの面積が指まで広がる）
+  // Compute endMin from drag
+  // 指のY位置で終了「時」、指のX位置で終了「分」を直接決定
+  // バーの右端 = 指のX位置になるようにする
   const computeEndFromDrag = useCallback((pageY: number, pageX: number) => {
-    const dy = pageY - lpTouchYRef.current;
+    const startMin = lpStartMinRef.current;
+    const startHour = Math.floor(startMin / 60);
 
-    // 縦: 下に1行 = +1時間分
-    const rows = Math.max(0, Math.floor(dy / HOURLY_ROW_HEIGHT));
+    // 指のY位置から終了時の「時」を決定
+    const endRawMin = pageYToMinutes(pageY);
+    const endHour = Math.max(startHour, Math.floor(endRawMin / 60));
 
-    // 横: バー領域の左端=0分、右端=60分
+    // 指のX位置から終了時の「分」を決定（バー右端 = 指の位置）
     const barLeft = 42;
     const barRight = SCREEN_WIDTH - 6;
     const barWidth = barRight - barLeft;
     const xRatio = Math.max(0, Math.min(1, (pageX - barLeft) / barWidth));
-    const mins = Math.round(xRatio * 60 / 5) * 5; // 5分刻み、0〜60
+    const endMinute = Math.round(xRatio * 60 / 5) * 5;
 
-    const startMin = lpStartMinRef.current;
     const maxEnd = displayEndHour * 60;
-    // rows行分の時間 + 指のX位置分の分
-    const endMin = startMin + rows * 60 + mins;
+    const endMin = endHour * 60 + Math.min(60, endMinute);
     return Math.min(maxEnd, Math.max(startMin + 5, endMin));
-  }, [displayEndHour]);
+  }, [displayEndHour, pageYToMinutes]);
 
   const handleCreationTouchMove = useCallback((e: any) => {
     const pageY = e.nativeEvent.pageY;
@@ -1533,7 +1543,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
     if (lpActiveRef.current) {
       lpActiveRef.current = false;
       const ce = creatingEventRef.current;
-      if (ce) {
+      if (ce && ce.endMin - ce.startMin > 5) {
         const s = new Date(dayStart);
         s.setHours(Math.floor(ce.startMin / 60), ce.startMin % 60, 0, 0);
         const ed = new Date(dayStart);
@@ -1722,12 +1732,22 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
       )}
 
       {/* ── ZONE B: Flow Timeline ── */}
+      <View
+        ref={scrollViewWrapperRef}
+        style={{flex: 1}}
+        onLayout={() => {
+          scrollViewWrapperRef.current?.measureInWindow((_x: number, y: number) => {
+            scrollViewScreenYRef.current = y;
+          });
+        }}>
       <ScrollView
         ref={scrollViewRef}
         style={styles.timelineScroll}
         contentContainerStyle={{paddingBottom: BOTTOM_SHEET_MIN + 200}}
         showsVerticalScrollIndicator={false}
-        onScroll={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y; }}
+        onScroll={(e) => {
+          scrollOffsetRef.current = e.nativeEvent.contentOffset.y;
+        }}
         scrollEventThrottle={16}
         scrollEnabled={!draggingTask && !draggingEvent && !creatingEvent}
         onLayout={(e) => setTimelineHeight(e.nativeEvent.layout.height)}>
@@ -2236,8 +2256,8 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
             const endFrac = endMin % 60 === 0 ? 1 : (endMin % 60) / 60; // 終了行内の終了位置
             const startSlotIdx = startHour - displayStartHour;
 
-            // topY = 開始行の先頭に揃える
-            const topY = hourlyGridOffsetRef.current + startSlotIdx * HOURLY_ROW_HEIGHT;
+            // topY = gridContainerRef基準: rightColumnOffset + hourlyGridOffset + slot位置
+            const topY = rightColumnOffsetYRef.current + hourlyGridOffsetRef.current + startSlotIdx * HOURLY_ROW_HEIGHT;
 
             const durH = Math.floor(dur / 60);
             const durM = dur % 60;
@@ -2302,6 +2322,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
         {/* Sleep time editor (shown below flow) */}
         {editingTime === 'sleep' && sleepSettings && renderTimeEditor('sleep')}
       </ScrollView>
+      </View>
 
       {/* ── ZONE C: Bottom Sheet ── */}
       <Animated.View style={[
