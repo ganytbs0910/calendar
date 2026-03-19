@@ -236,6 +236,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
   const lpStartMinRef = useRef(0);
   const lpSnapRef = useRef(15); // snap granularity in minutes
   const lpAutoScrollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lpHasExceededThresholdRef = useRef(false); // 10分以上ずらしたことがあるか
 
   // Swipe-to-delete
   const swipedItemIdRef = useRef<string | null>(null);
@@ -806,11 +807,19 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
     dragAnimX.setValue(pageX - 48);
     dragAnimY.setValue(pageY - 44);
 
-    // Calculate drop time using pageY → minutes
+    // 縦で「時」、横で「分」を決定（予定作成と同じ方式）
     const wMin = displayStartHour * 60;
     const sMin = displayEndHour * 60;
-    const totalMinutes = pageYToMinutes(pageY);
-    const roundedMinutes = Math.max(wMin, Math.min(sMin - 1, Math.round(totalMinutes / 15) * 15));
+    const rawMin = pageYToMinutes(pageY);
+    const dropHour = Math.floor(rawMin / 60);
+    const barLeft = 42;
+    const barRight = SCREEN_WIDTH - 6;
+    const barWidth = barRight - barLeft;
+    const xRatio = Math.max(0, Math.min(1, (pageX - barLeft) / barWidth));
+    const dropMinute = Math.round(xRatio * 60 / 5) * 5;
+    const clampedHour = Math.max(displayStartHour, Math.min(displayEndHour - 1, dropHour));
+    const totalMinutes = clampedHour * 60 + Math.min(55, dropMinute);
+    const roundedMinutes = Math.max(wMin, Math.min(sMin - 1, totalMinutes));
     const h = Math.floor(roundedMinutes / 60);
     const m = roundedMinutes % 60;
     const timeStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
@@ -886,11 +895,19 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
     dragAnimX.setValue(pageX - 48);
     dragAnimY.setValue(pageY - 44);
 
-    // Calculate drop time using pageY → minutes
+    // 縦で「時」、横で「分」を決定（予定作成と同じ方式）
     const wMin = displayStartHour * 60;
     const sMin = displayEndHour * 60;
-    const totalMinutes = pageYToMinutes(pageY);
-    const roundedMinutes = Math.max(wMin, Math.min(sMin - 1, Math.round(totalMinutes / 15) * 15));
+    const rawMin = pageYToMinutes(pageY);
+    const dropHour = Math.floor(rawMin / 60);
+    const barLeft = 42;
+    const barRight = SCREEN_WIDTH - 6;
+    const barWidth = barRight - barLeft;
+    const xRatio = Math.max(0, Math.min(1, (pageX - barLeft) / barWidth));
+    const dropMinute = Math.round(xRatio * 60 / 5) * 5;
+    const clampedHour = Math.max(displayStartHour, Math.min(displayEndHour - 1, dropHour));
+    const totalMinutes = clampedHour * 60 + Math.min(55, dropMinute);
+    const roundedMinutes = Math.max(wMin, Math.min(sMin - 1, totalMinutes));
     const h = Math.floor(roundedMinutes / 60);
     const m = roundedMinutes % 60;
     const timeStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
@@ -902,34 +919,36 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
     const item = dragEventItemRef.current;
     const currentDropTime = dropTimeRef.current;
     const wasStarted = dragStartedRef.current;
-    setDraggingEvent(null);
     setDropTimePreview(null);
     dropTimeRef.current = null;
     dragStartedRef.current = false;
     dragEventItemRef.current = null;
     eventDragActiveRef.current = false;
+    // 少し遅延してからdraggingEventをクリア（ScrollViewのぐらつき防止）
+    setTimeout(() => setDraggingEvent(null), 100);
     if (wasStarted && item && currentDropTime && item.type === 'event') {
       const event = item.original as CalendarEventReadable;
       const duration = item.endMinutes - item.startMinutes;
       const [dh, dm] = currentDropTime.split(':').map(Number);
       const newStartMin = dh * 60 + dm;
-      // Only update if time actually changed
       if (newStartMin === item.startMinutes) return;
       const dayDate = new Date(currentDate);
       const newStart = new Date(dayDate);
       newStart.setHours(dh, dm, 0, 0);
       const newEnd = new Date(newStart.getTime() + duration * 60000);
-      try {
-        await RNCalendarEvents.saveEvent(event.title || '(タイトルなし)', {
-          id: event.id,
-          startDate: newStart.toISOString(),
-          endDate: newEnd.toISOString(),
-          allDay: false,
-        });
-        fetchEvents();
-      } catch (_e) {
-        // silently fail
-      }
+      // ローカルステートを即座に更新（ロードなし）
+      setEvents(prev => prev.map(ev =>
+        ev.id === event.id
+          ? {...ev, startDate: newStart.toISOString(), endDate: newEnd.toISOString()}
+          : ev
+      ));
+      // バックグラウンドでカレンダーに保存
+      RNCalendarEvents.saveEvent(event.title || '(タイトルなし)', {
+        id: event.id,
+        startDate: newStart.toISOString(),
+        endDate: newEnd.toISOString(),
+        allDay: false,
+      }).catch(() => {});
     }
   }, [currentDate, fetchEvents]);
 
@@ -1459,6 +1478,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
       const clampedHour = Math.max(displayStartHour, Math.min(displayEndHour - 1, tapHour));
       const clampedMin = clampedHour * 60 + Math.min(55, tapMinute);
       lpStartMinRef.current = clampedMin;
+      lpHasExceededThresholdRef.current = false;
       setCreatingEvent({startMin: clampedMin, endMin: clampedMin + 5});
 
       // ドラッグ用に gridTopOnScreenRef も更新
@@ -1506,7 +1526,17 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
 
     const startMin = lpStartMinRef.current;
     const endMin = computeEndFromDrag(pageY, pageX);
-    setCreatingEvent({startMin, endMin});
+    const dur = endMin - startMin;
+    // 10分以上ずらしたら閾値超え実績を記録
+    if (dur >= 10) {
+      lpHasExceededThresholdRef.current = true;
+    }
+    // 閾値超え実績がある場合のみ、元に戻したらプレビュー非表示
+    if (lpHasExceededThresholdRef.current && dur <= 5) {
+      setCreatingEvent(null);
+    } else {
+      setCreatingEvent({startMin, endMin});
+    }
 
     // Auto-scroll when near bottom or top of screen
     const screenH = Dimensions.get('window').height;
@@ -1833,9 +1863,26 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                 const item = firstItem?.item;
                 const isFirstHour = firstItem?.isFirst;
 
-                // Event bar width: proportional to duration (1h = ~40%, 2h+ = full width)
-                const barWidthRatio = item ? Math.min(1, (item.endMinutes - item.startMinutes) / 120) : 1;
-                const barWidthPercent = `${Math.max(30, barWidthRatio * 100)}%` as any;
+                // 最初の行: 開始分から右端まで、最後の行: 左端から終了分まで
+                const isLastHour = item ? (item.endMinutes > hourMin && item.endMinutes <= hourEnd) : false;
+                const startFrac = (isFirstHour && item) ? (item.startMinutes % 60) / 60 : 0;
+                const endFrac = (isLastHour && item) ? (item.endMinutes % 60 === 0 ? 1 : (item.endMinutes % 60) / 60) : 1;
+                // この行の幅（割合）
+                const thisFrac = endFrac - startFrac;
+                // この行が最大面積かどうかを判定
+                const isWidestRow = (() => {
+                  if (!item) return false;
+                  const firstFrac = 1 - (item.startMinutes % 60) / 60; // 最初の行の幅
+                  const lastFrac = item.endMinutes % 60 === 0 ? 1 : (item.endMinutes % 60) / 60; // 最後の行の幅
+                  const totalHours = Math.ceil((item.endMinutes - item.startMinutes) / 60);
+                  if (totalHours <= 1) return true; // 1行だけなら常にtrue
+                  // 中間行はフルワイド(1.0)。最初と最後だけ部分幅
+                  if (!isFirstHour && !isLastHour) return true; // 中間行はフルワイド = 最大
+                  if (isFirstHour && firstFrac >= lastFrac && firstFrac >= 1) return true;
+                  if (isFirstHour && totalHours > 2) return false; // 中間行がある場合、最初の行は最大じゃない
+                  if (isLastHour && totalHours > 2) return false;
+                  return thisFrac >= 0.5 || (isFirstHour && firstFrac >= lastFrac) || (isLastHour && lastFrac > firstFrac);
+                })();
 
                 return (
                   <View
@@ -1848,36 +1895,52 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                     <Text style={{width: 36, fontSize: 11, color: colors.textTertiary, fontVariant: ['tabular-nums'], fontWeight: '500', textAlign: 'right', marginRight: 6}} numberOfLines={1}>
                       {`${slot.hour}:00`}
                     </Text>
-                    <View style={{flex: 1, height: HOURLY_ROW_HEIGHT - 6, marginRight: 6}}>
-                      {!hasItems ? (
-                        /* Empty hour - light gray bar */
-                        <View style={{flex: 1, backgroundColor: isDark ? colors.surfaceSecondary : '#ecedf0', borderRadius: 8}} />
-                      ) : item?.type === 'event' ? (
-                        /* Event - solid colored bar, width based on duration */
-                        <View
-                          {...getEventPanResponder(item).panHandlers}
-                          style={{height: '100%', width: barWidthPercent, backgroundColor: item.color || colors.primary, borderRadius: 8, justifyContent: 'center', paddingHorizontal: 12}}>
-                          {isFirstHour && (
-                            <Text style={{color: colors.onEvent, fontSize: 13, fontWeight: '600'}} numberOfLines={1}>
-                              {item.title}
-                            </Text>
-                          )}
-                        </View>
-                      ) : item?.type === 'task' ? (
-                        /* Task - dashed border, light tinted background */
-                        <TouchableOpacity
-                          activeOpacity={0.6}
-                          onPress={() => handleEditTimelineTask(item.original as Task)}
-                          style={{flex: 1, height: '100%', backgroundColor: isDark ? `${colors.primary}15` : '#e8edf5', borderWidth: 1.5, borderStyle: 'dashed', borderColor: isDark ? colors.primary : '#9bb0d4', borderRadius: 8, justifyContent: 'center', paddingHorizontal: 12}}>
-                          {isFirstHour && (
-                            <Text style={{color: isDark ? colors.primary : '#4a6fa5', fontSize: 13, fontWeight: '600'}} numberOfLines={1}>
-                              {item.title}
-                            </Text>
-                          )}
-                        </TouchableOpacity>
-                      ) : (
-                        <View style={{flex: 1, backgroundColor: isDark ? colors.surfaceSecondary : '#ecedf0', borderRadius: 8}} />
-                      )}
+                    <View style={{flex: 1, height: HOURLY_ROW_HEIGHT - 6, marginRight: 6, flexDirection: 'row'}}>
+                      {(() => {
+                        const grayBar = <View style={{flex: 1, backgroundColor: isDark ? colors.surfaceSecondary : '#ecedf0', borderRadius: 8}} />;
+                        const isDragged = draggingEvent && item?.type === 'event' && item.id === draggingEvent.id;
+
+                        if (!hasItems) return grayBar;
+
+                        if (item?.type === 'event') {
+                          return (
+                            <View style={{flex: 1, flexDirection: 'row', backgroundColor: isDark ? colors.surfaceSecondary : '#ecedf0', borderRadius: 8, overflow: 'hidden'}}>
+                              {startFrac > 0 && <View style={{width: `${startFrac * 100}%` as any}} />}
+                              <View
+                                {...getEventPanResponder(item).panHandlers}
+                                style={{width: `${(endFrac - startFrac) * 100}%` as any, height: '100%', backgroundColor: item.color || colors.primary, borderRadius: 8, justifyContent: 'center', paddingHorizontal: 10}}>
+                                {isWidestRow && (
+                                  <>
+                                    <Text style={{color: colors.onEvent, fontSize: 13, fontWeight: '600'}} numberOfLines={1}>
+                                      {item.title}
+                                    </Text>
+                                    <Text style={{color: colors.onEvent, fontSize: 10, opacity: 0.8}} numberOfLines={1}>
+                                      {formatMinutes(item.startMinutes)}〜{formatMinutes(item.endMinutes)}
+                                    </Text>
+                                  </>
+                                )}
+                              </View>
+                            </View>
+                          );
+                        }
+
+                        if (item?.type === 'task') {
+                          return (
+                            <TouchableOpacity
+                              activeOpacity={0.6}
+                              onPress={() => handleEditTimelineTask(item.original as Task)}
+                              style={{flex: 1, height: '100%', backgroundColor: isDark ? `${colors.primary}15` : '#e8edf5', borderWidth: 1.5, borderStyle: 'dashed', borderColor: isDark ? colors.primary : '#9bb0d4', borderRadius: 8, justifyContent: 'center', paddingHorizontal: 12}}>
+                              {isFirstHour && (
+                                <Text style={{color: isDark ? colors.primary : '#4a6fa5', fontSize: 13, fontWeight: '600'}} numberOfLines={1}>
+                                  {item.title}
+                                </Text>
+                              )}
+                            </TouchableOpacity>
+                          );
+                        }
+
+                        return grayBar;
+                      })()}
                     </View>
                   </View>
                 );
@@ -2210,14 +2273,59 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
               {(draggingTask || draggingEvent) && dropTimePreview && dropIndicatorY != null && (() => {
                 const dur = draggingTask ? (draggingTask.duration || 60) : (draggingEvent ? draggingEvent.endMinutes - draggingEvent.startMinutes : 60);
                 const [dh, dm] = dropTimePreview.split(':').map(Number);
-                const dropMin = dh * 60 + dm;
-                const dropHeight = Math.max(HOURLY_ROW_HEIGHT, (dur / 60) * HOURLY_ROW_HEIGHT);
+                const dropStartMin = dh * 60 + dm;
+                const dropEndMin = dropStartMin + dur;
+                const dropStartHour = Math.floor(dropStartMin / 60);
+                const dropEndHour = Math.floor(dropEndMin / 60);
+                const startFrac = (dropStartMin % 60) / 60;
+                const endFrac = dropEndMin % 60 === 0 ? 1 : (dropEndMin % 60) / 60;
+                const startSlotIdx = dropStartHour - displayStartHour;
+                const totalSlots = (dropEndMin % 60 === 0 ? dropEndHour : dropEndHour + 1) - dropStartHour;
+                const topY = hourlyGridOffsetRef.current + startSlotIdx * HOURLY_ROW_HEIGHT;
+                const barWidth = SCREEN_WIDTH - 42 - 6;
+
+                // 各行の幅を計算して最大の行を見つける
+                const rowWidths = Array.from({length: totalSlots}, (_, i) => {
+                  const isFirst = i === 0;
+                  const isLast = i === totalSlots - 1;
+                  const rL = isFirst ? startFrac : 0;
+                  const rR = isLast ? (dropEndMin % 60 === 0 && totalSlots > 1 ? 1 : endFrac) : 1;
+                  if (isLast && dropEndMin % 60 === 0 && totalSlots > 1) return 0;
+                  return rR - rL;
+                });
+                const widestIdx = rowWidths.indexOf(Math.max(...rowWidths));
+
                 return (
-                  <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-                    <View style={[styles.flowDropLine, {top: dropIndicatorY, backgroundColor: colors.primary}]} />
-                    <View style={[styles.flowDropPreview, {top: dropIndicatorY, height: dropHeight, backgroundColor: `${colors.primary}15`, borderColor: colors.primary}]}>
-                      <Text style={[styles.flowDropPreviewText, {color: colors.primary}]}>{dropTimePreview} - {formatMinutes(dropMin + dur)}</Text>
-                    </View>
+                  <View pointerEvents="none" style={{position: 'absolute', top: topY, left: 42, zIndex: 30, width: barWidth}}>
+                    {Array.from({length: totalSlots}, (_, i) => {
+                      const isFirst = i === 0;
+                      const isLast = i === totalSlots - 1;
+                      const rowLeft = isFirst ? startFrac : 0;
+                      const rowRight = isLast ? (dropEndMin % 60 === 0 && totalSlots > 1 ? 1 : endFrac) : 1;
+                      if (isLast && dropEndMin % 60 === 0 && totalSlots > 1) return null;
+                      return (
+                        <View key={i} style={{height: HOURLY_ROW_HEIGHT - 2, flexDirection: 'row'}}>
+                          {rowLeft > 0 && <View style={{width: `${rowLeft * 100}%` as any}} />}
+                          <View style={{
+                            width: `${(rowRight - rowLeft) * 100}%` as any,
+                            height: '100%',
+                            backgroundColor: `${colors.primary}15`,
+                            borderColor: colors.primary,
+                            borderWidth: 1.5,
+                            borderStyle: 'dashed',
+                            borderRadius: totalSlots === 1 ? 8 : (isFirst ? 8 : (isLast ? 8 : 0)),
+                            justifyContent: 'center',
+                            paddingHorizontal: 8,
+                          }}>
+                            {i === widestIdx && (
+                              <Text style={{color: colors.primary, fontSize: 12, fontWeight: '600'}} numberOfLines={1}>
+                                {dropTimePreview} − {formatMinutes(dropEndMin)}
+                              </Text>
+                            )}
+                          </View>
+                        </View>
+                      );
+                    })}
                   </View>
                 );
               })()}
@@ -2636,32 +2744,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
         </Animated.View>
       )}
 
-      {/* ── Floating drag element for events ── */}
-      {draggingEvent && (
-        <Animated.View
-          style={[
-            styles.floatingBookmark,
-            {
-              transform: [{translateX: dragAnimX}, {translateY: dragAnimY}],
-              backgroundColor: draggingEvent.color || colors.primary,
-              borderColor: draggingEvent.color || colors.primary,
-            },
-          ]}
-          pointerEvents="none">
-          <Text style={[styles.floatingBookmarkTitle, {color: colors.onEvent}]} numberOfLines={2}>
-            {draggingEvent.title}
-          </Text>
-          {dropTimePreview ? (
-            <Text style={[styles.floatingBookmarkTime, {color: colors.onEvent, opacity: 0.8}]}>
-              {dropTimePreview}
-            </Text>
-          ) : (
-            <Text style={[styles.floatingBookmarkDuration, {color: colors.onEvent, opacity: 0.8}]}>
-              {formatDuration(draggingEvent.endMinutes - draggingEvent.startMinutes)}
-            </Text>
-          )}
-        </Animated.View>
-      )}
+      {/* Floating drag element for events removed - original bar stays visible, drop indicator shows target */}
 
       {/* ── Add Type Selection Overlay ── */}
       {showAddTypeSelect && (

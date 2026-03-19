@@ -1182,7 +1182,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                                 </TouchableOpacity>);
                               })}
                               {totalEvents > 2 && (
-                                <Text style={[styles.cellEventMore, {color: colors.textSecondary}]}>+{totalEvents - 2}</Text>
+                                <Text style={[styles.cellEventMore, {color: colors.textSecondary}]}>全{totalEvents}件</Text>
                               )}
                             </View>
                           )}
