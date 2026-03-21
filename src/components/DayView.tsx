@@ -56,7 +56,7 @@ const FLOW_MAX_ITEM_HEIGHT = 80;
 const FLOW_MIN_ITEM_HEIGHT = 56;
 const FLOW_LEFT_WIDTH = 46;
 const FLOW_DOT_COL_WIDTH = 20;
-const HOURLY_ROW_HEIGHT = 44;
+const HOURLY_ROW_HEIGHT = 36;
 // ── Types ──
 
 interface TimelineItem {
@@ -196,6 +196,8 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
   const [editingTimelineTaskId, setEditingTimelineTaskId] = useState<string | null>(null);
   const [draggingTask, setDraggingTask] = useState<Task | null>(null);
   const [draggingEvent, setDraggingEvent] = useState<TimelineItem | null>(null);
+  const [resizingEvent, setResizingEvent] = useState<{item: TimelineItem; edge: 'start' | 'end'; originalStart: number; originalEnd: number} | null>(null);
+  const [resizePreview, setResizePreview] = useState<{eventId: string; start: number; end: number} | null>(null);
   const [dropTimePreview, setDropTimePreview] = useState<string | null>(null);
   const dragAnimX = useRef(new Animated.Value(0)).current;
   const dragAnimY = useRef(new Animated.Value(0)).current;
@@ -217,7 +219,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
   const segmentLayoutsRef = useRef<Array<SegmentLayout | null>>([]);
   const flowTimelineYRef = useRef(0);
   const scrollViewScreenYRef = useRef(0);
-  const scrollViewWrapperRef = useRef<View>(null);
+  const scrollViewWrapperRef = useRef<any>(null);
   const rightColumnRef = useRef<View>(null);
   const hourlyGridRef = useRef<View>(null);
   const hourlyGridOffsetRef = useRef(0); // offset of hourlyGrid within rightColumnRef
@@ -237,6 +239,9 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
   const lpSnapRef = useRef(15); // snap granularity in minutes
   const lpAutoScrollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lpHasExceededThresholdRef = useRef(false); // 10分以上ずらしたことがあるか
+  const lpLastPageXRef = useRef(0);
+  const lpWasDragRef = useRef(false); // ドラッグ/リサイズが発動したか
+  const swipeAnimX = useRef(new Animated.Value(0)).current;
 
   // Swipe-to-delete
   const swipedItemIdRef = useRef<string | null>(null);
@@ -298,7 +303,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
       }
     } else {
       if (field === 'hour') {
-        newDay.sleepHour = (current.sleepHour + delta + 25) % 25;
+        newDay.sleepHour = (current.sleepHour + delta + 24) % 24;
       } else {
         newDay.sleepMinute = (current.sleepMinute + delta + 60) % 60;
       }
@@ -482,9 +487,13 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
     return items;
   }, [events, eventColors, scheduleTasks]);
 
+  const isFirstLoadRef = useRef(true);
   const fetchEvents = useCallback(async () => {
     if (!hasPermission) return;
-    setIsLoading(true);
+    if (isFirstLoadRef.current) {
+      setIsLoading(true);
+      isFirstLoadRef.current = false;
+    }
     setError(null);
     try {
       const start = dayStart;
@@ -512,6 +521,15 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
   }, [dayStart, hasPermission]);
 
   useEffect(() => { fetchEvents(); }, [fetchEvents]);
+
+  // タイマーのクリーンアップ
+  useEffect(() => {
+    return () => {
+      if (lpAutoScrollRef.current) clearInterval(lpAutoScrollRef.current);
+      if (lpTimerRef.current) clearTimeout(lpTimerRef.current);
+      if (eventLpTimerRef.current) clearTimeout(eventLpTimerRef.current);
+    };
+  }, []);
 
   // ── Strip event counts ──
   const [stripEventCounts, setStripEventCounts] = useState<Record<string, number>>({});
@@ -757,6 +775,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
     const hourlyGridContentY = flowTimelineYRef.current + rightColumnOffsetYRef.current + hourlyGridOffsetRef.current;
     const relY = contentY - hourlyGridContentY;
     const totalRows = displayEndHour - displayStartHour;
+    if (totalRows <= 0) return displayStartHour * 60;
     const totalHeight = totalRows * HOURLY_ROW_HEIGHT;
     if (relY <= 0) return displayStartHour * 60;
     if (relY >= totalHeight) return displayEndHour * 60;
@@ -885,7 +904,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
       const item = dragEventItemRef.current;
       if (!item) return;
       setDraggingEvent(item);
-      (rightColumnRef.current || gridContainerRef.current)?.measureInWindow((_x: number, y: number) => {
+      (hourlyGridRef.current || rightColumnRef.current || gridContainerRef.current)?.measureInWindow((_x: number, y: number) => {
         gridTopOnScreenRef.current = y;
       });
       dragAnimX.setValue(pageX - 48);
@@ -952,6 +971,66 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
     }
   }, [currentDate, fetchEvents]);
 
+  // ── Event resize handlers ──
+  const resizeOriginalRef = useRef<{start: number; end: number; eventId: string; title: string} | null>(null);
+  const resizeCurrentRef = useRef<{start: number; end: number} | null>(null);
+  const resizeEdgeRef = useRef<'start' | 'end' | null>(null);
+
+  // リサイズ: イベントの端を長押しした時に時間調整ポップアップを表示
+  const [resizePopupEvent, setResizePopupEvent] = useState<{item: TimelineItem; edge: 'start' | 'end'} | null>(null);
+
+  const startResize = useCallback((item: TimelineItem, edge: 'start' | 'end', _pageX: number, _pageY: number) => {
+    if (lpTimerRef.current) {
+      clearTimeout(lpTimerRef.current);
+      lpTimerRef.current = null;
+    }
+    lpActiveRef.current = false;
+    lpWasDragRef.current = true;
+    Vibration.vibrate(30);
+    setResizePopupEvent({item, edge});
+  }, []);
+
+  const handleResizeAdjust = useCallback(async (deltaMinutes: number) => {
+    if (!resizePopupEvent) return;
+    const event = resizePopupEvent.item.original as CalendarEventReadable;
+    const edge = resizePopupEvent.edge;
+    const startMin = resizePopupEvent.item.startMinutes;
+    const endMin = resizePopupEvent.item.endMinutes;
+
+    let newStart = startMin;
+    let newEnd = endMin;
+    if (edge === 'end') {
+      newEnd = Math.max(newStart + 5, Math.min(displayEndHour * 60, endMin + deltaMinutes));
+    } else {
+      newStart = Math.max(displayStartHour * 60, Math.min(newEnd - 5, startMin + deltaMinutes));
+    }
+
+    const dayDate = new Date(currentDate);
+    const newStartDate = new Date(dayDate);
+    newStartDate.setHours(Math.floor(newStart / 60), newStart % 60, 0, 0);
+    const newEndDate = new Date(dayDate);
+    newEndDate.setHours(Math.floor(newEnd / 60), newEnd % 60, 0, 0);
+
+    // ローカル即反映
+    setEvents(evts => evts.map(ev =>
+      ev.id === event.id
+        ? {...ev, startDate: newStartDate.toISOString(), endDate: newEndDate.toISOString()}
+        : ev
+    ));
+    // ポップアップの状態も更新
+    setResizePopupEvent({
+      ...resizePopupEvent,
+      item: {...resizePopupEvent.item, startMinutes: newStart, endMinutes: newEnd},
+    });
+    // バックグラウンドで保存
+    RNCalendarEvents.saveEvent(event.title || '(タイトルなし)', {
+      id: event.id,
+      startDate: newStartDate.toISOString(),
+      endDate: newEndDate.toISOString(),
+      allDay: false,
+    }).catch(() => {});
+  }, [resizePopupEvent, currentDate, displayStartHour, displayEndHour]);
+
   const eventPanResponderRefs = useRef<Record<string, ReturnType<typeof PanResponder.create>>>({});
 
   const getEventPanResponder = useCallback((item: TimelineItem) => {
@@ -963,7 +1042,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
         onEventDragGrant(item, e.nativeEvent.pageX, e.nativeEvent.pageY);
         eventLpTimerRef.current = setTimeout(() => {
           eventDragActiveRef.current = true;
-          Vibration.vibrate(10);
+          lpWasDragRef.current = true;
         }, 400);
       },
       onPanResponderMove: (e, gs) => {
@@ -1039,7 +1118,6 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
             taskLpTimerRef.current[taskId] = null;
             taskDragActiveRef.current[taskId] = true;
             swipeDirRef.current[taskId] = 'v';
-            Vibration.vibrate(10);
           }, 400);
         },
         onPanResponderMove: (e, gs) => {
@@ -1347,13 +1425,23 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
   };
 
   const hourlySlots = useMemo((): HourSlot[] => {
+    // リサイズ中は対象イベントの start/end を上書き
+    const adjustedItems = resizePreview
+      ? timelineItems.map(ti => {
+          if (ti.type === 'event' && (ti.original as CalendarEventReadable).id === resizePreview.eventId) {
+            return {...ti, startMinutes: resizePreview.start, endMinutes: resizePreview.end};
+          }
+          return ti;
+        })
+      : timelineItems;
+
     const startH = displayStartHour;
     const endH = displayEndHour;
     const slots: HourSlot[] = [];
     for (let h = startH; h < endH; h++) {
       const hourStart = h * 60;
       const hourEnd = (h + 1) * 60;
-      const overlapping = timelineItems.filter(item => {
+      const overlapping = adjustedItems.filter(item => {
         return item.startMinutes < hourEnd && item.endMinutes > hourStart;
       });
       slots.push({
@@ -1366,7 +1454,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
       });
     }
     return slots;
-  }, [timelineItems, displayStartHour, displayEndHour]);
+  }, [timelineItems, displayStartHour, displayEndHour, resizePreview]);
 
   // ── Current time Y position in flow ──
 
@@ -1455,28 +1543,53 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
   }, []);
 
   const handleCreationTouchStart = useCallback((e: any) => {
-    if (editingTimelineTaskId || draggingTask || draggingEvent) return;
+    if (editingTimelineTaskId || draggingTask || draggingEvent || resizingEvent || resizeOriginalRef.current || resizeEdgeRef.current) return;
     lpActiveRef.current = false;
     lpTouchYRef.current = e.nativeEvent.pageY;
     lpTouchXRef.current = e.nativeEvent.pageX;
+    lpLastPageXRef.current = e.nativeEvent.pageX;
+    lpWasDragRef.current = false;
     lpSnapRef.current = 15;
 
     lpTimerRef.current = setTimeout(() => {
       lpTimerRef.current = null;
-      if (dragEventItemRef.current || eventDragActiveRef.current) return;
-      lpActiveRef.current = true;
-      Vibration.vibrate(50);
+      if (dragEventItemRef.current || eventDragActiveRef.current || resizeOriginalRef.current) return;
 
-      // 縦で「時」を判定、横で「分」を判定
-      const rawMin = pageYToMinutes(lpTouchYRef.current);
-      const tapHour = Math.floor(rawMin / 60); // 縦 → 時
+      // タッチ位置がイベントの端付近ならリサイズモードに入る
+      const touchMin = pageYToMinutes(lpTouchYRef.current);
       const barLeft = 42;
       const barRight = SCREEN_WIDTH - 6;
       const barWidth = barRight - barLeft;
       const xRatio = Math.max(0, Math.min(1, (lpTouchXRef.current - barLeft) / barWidth));
-      const tapMinute = Math.round(xRatio * 60 / 5) * 5; // 横 → 分（5分刻み）
-      const clampedHour = Math.max(displayStartHour, Math.min(displayEndHour - 1, tapHour));
-      const clampedMin = clampedHour * 60 + Math.min(55, tapMinute);
+      const touchMinute = Math.round(xRatio * 60 / 5) * 5;
+      const touchHour = Math.floor(touchMin / 60);
+      const touchExactMin = touchHour * 60 + Math.min(55, touchMinute);
+
+      // イベントの端チェック（開始/終了の±10分以内）
+      for (const ti of timelineItems) {
+        if (ti.type !== 'event') continue;
+        const startDiff = Math.abs(touchExactMin - ti.startMinutes);
+        const endDiff = Math.abs(touchExactMin - ti.endMinutes);
+        if (startDiff <= 10) {
+          Vibration.vibrate(30);
+          startResize(ti, 'start', lpTouchXRef.current, lpTouchYRef.current);
+          return;
+        }
+        if (endDiff <= 10) {
+          Vibration.vibrate(30);
+          startResize(ti, 'end', lpTouchXRef.current, lpTouchYRef.current);
+          return;
+        }
+      }
+
+      // リサイズ対象なし → 通常の予定作成
+      lpActiveRef.current = true;
+      lpWasDragRef.current = true;
+      Vibration.vibrate(50);
+
+      // 縦で「時」を判定、横で「分」を判定
+      const clampedHour = Math.max(displayStartHour, Math.min(displayEndHour - 1, touchHour));
+      const clampedMin = clampedHour * 60 + Math.min(55, touchMinute);
       lpStartMinRef.current = clampedMin;
       lpHasExceededThresholdRef.current = false;
       setCreatingEvent({startMin: clampedMin, endMin: clampedMin + 5});
@@ -1486,7 +1599,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
         gridTopOnScreenRef.current = y;
       });
     }, 300);
-  }, [displayStartHour, displayEndHour, editingTimelineTaskId, draggingTask]);
+  }, [displayStartHour, displayEndHour, editingTimelineTaskId, draggingTask, draggingEvent, resizingEvent, timelineItems, startResize, pageYToMinutes]);
 
   // Compute endMin from drag
   // 指のY位置で終了「時」、指のX位置で終了「分」を直接決定
@@ -1497,7 +1610,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
 
     // 指のY位置から終了時の「時」を決定
     const endRawMin = pageYToMinutes(pageY);
-    const endHour = Math.max(startHour, Math.floor(endRawMin / 60));
+    const endHour = Math.max(startHour, Math.min(displayEndHour, Math.floor(endRawMin / 60)));
 
     // 指のX位置から終了時の「分」を決定（バー右端 = 指の位置）
     const barLeft = 42;
@@ -1514,6 +1627,13 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
   const handleCreationTouchMove = useCallback((e: any) => {
     const pageY = e.nativeEvent.pageY;
     const pageX = e.nativeEvent.pageX;
+
+
+
+    // 常にX位置を追跡（スワイプ検知用）
+    lpLastPageXRef.current = pageX;
+    lpLastPageYRef.current = pageY;
+
     if (!lpActiveRef.current) {
       if (!lpTimerRef.current) return;
       if (Math.abs(pageY - lpTouchYRef.current) > 10 || Math.abs(pageX - lpTouchXRef.current) > 10) {
@@ -1522,7 +1642,6 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
       }
       return;
     }
-    lpLastPageYRef.current = pageY;
 
     const startMin = lpStartMinRef.current;
     const endMin = computeEndFromDrag(pageY, pageX);
@@ -1562,7 +1681,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
         });
       }, 50);
     }
-  }, [computeEndFromDrag, stopAutoScroll]);
+  }, [computeEndFromDrag, stopAutoScroll, displayStartHour, displayEndHour]);
 
   const handleCreationTouchEnd = useCallback(() => {
     stopAutoScroll();
@@ -1578,12 +1697,36 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
         s.setHours(Math.floor(ce.startMin / 60), ce.startMin % 60, 0, 0);
         const ed = new Date(dayStart);
         ed.setHours(Math.floor(ce.endMin / 60), ce.endMin % 60, 0, 0);
-        setPendingTimeRange({start: s, end: ed});
-        setShowAddTypeSelect(true);
+        if (onTimeRangeSelect) {
+          onTimeRangeSelect(s, ed);
+        }
       }
       setCreatingEvent(null);
+      return;
     }
-  }, [dayStart, stopAutoScroll]);
+    // 横スワイプで日を変更（長押し・ドラッグ・リサイズが一度も発動しなかった場合のみ）
+    const swipeDx = lpLastPageXRef.current - lpTouchXRef.current;
+    if (!lpWasDragRef.current && Math.abs(swipeDx) > 60) {
+      const direction = swipeDx < 0 ? 1 : -1;
+      // スライドアウトアニメーション
+      Animated.timing(swipeAnimX, {
+        toValue: -direction * SCREEN_WIDTH,
+        duration: 80,
+        useNativeDriver: true,
+      }).start(() => {
+        const newDate = new Date(dayStart);
+        newDate.setDate(newDate.getDate() + direction);
+        onDayChange?.(newDate);
+        // 反対側からスライドイン
+        swipeAnimX.setValue(direction * SCREEN_WIDTH);
+        Animated.timing(swipeAnimX, {
+          toValue: 0,
+          duration: 80,
+          useNativeDriver: true,
+        }).start();
+      });
+    }
+  }, [dayStart, currentDate, stopAutoScroll, onTimeRangeSelect, onDayChange, swipeAnimX]);
 
   // ── Segment layout handler ──
 
@@ -1665,7 +1808,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
             <Text style={[styles.headerDay, {color: colors.text}]}>{dayStart.getDate()}</Text>
             <View>
               <Text style={[styles.headerMonthYear, {color: colors.textSecondary}]}>
-                {dayStart.getMonth() + 1}月 {dayStart.getFullYear()}
+                {dayStart.getMonth() + 1}月 {dayStart.getFullYear()} (令和{dayStart.getFullYear() - 2018}年)
               </Text>
               <Text style={[styles.headerWeekday, {color: dayStart.getDay() === 0 ? colors.sunday : dayStart.getDay() === 6 ? colors.saturday : colors.textSecondary}]}>
                 {WEEKDAYS_JA[dayStart.getDay()]}曜日
@@ -1762,9 +1905,9 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
       )}
 
       {/* ── ZONE B: Flow Timeline ── */}
-      <View
+      <Animated.View
         ref={scrollViewWrapperRef}
-        style={{flex: 1}}
+        style={{flex: 1, transform: [{translateX: swipeAnimX}]}}
         onLayout={() => {
           scrollViewWrapperRef.current?.measureInWindow((_x: number, y: number) => {
             scrollViewScreenYRef.current = y;
@@ -1887,7 +2030,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                 return (
                   <View
                     key={`hour-${slot.hour}`}
-                    style={{flexDirection: 'row', height: HOURLY_ROW_HEIGHT, alignItems: 'center', paddingVertical: 2}}
+                    style={{flexDirection: 'row', height: HOURLY_ROW_HEIGHT, alignItems: 'center', paddingVertical: 1}}
                     onLayout={(e) => {
                       const {y, height} = e.nativeEvent.layout;
                       segmentLayoutsRef.current[slotIndex] = {y, height, startMin: hourMin, endMin: hourEnd};
@@ -1895,7 +2038,9 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                     <Text style={{width: 36, fontSize: 11, color: colors.textTertiary, fontVariant: ['tabular-nums'], fontWeight: '500', textAlign: 'right', marginRight: 6}} numberOfLines={1}>
                       {`${slot.hour}:00`}
                     </Text>
-                    <View style={{flex: 1, height: HOURLY_ROW_HEIGHT - 6, marginRight: 6, flexDirection: 'row'}}>
+                    <View style={{flex: 1, height: HOURLY_ROW_HEIGHT - 3, marginRight: 6, flexDirection: 'row', position: 'relative'}}>
+                      {/* 30分の目盛り線 */}
+                      <View pointerEvents="none" style={{position: 'absolute', left: 0, right: 0, top: '50%', height: 0.5, backgroundColor: colors.border, opacity: 0.3, zIndex: 0}} />
                       {(() => {
                         const grayBar = <View style={{flex: 1, backgroundColor: isDark ? colors.surfaceSecondary : '#ecedf0', borderRadius: 8}} />;
                         const isDragged = draggingEvent && item?.type === 'event' && item.id === draggingEvent.id;
@@ -2329,6 +2474,8 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                   </View>
                 );
               })()}
+
+              {/* Resize handles are detected in handleCreationTouchStart via coordinate check */}
           </View>
 
           {/* ── Sleep pill ── */}
@@ -2430,7 +2577,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
         {/* Sleep time editor (shown below flow) */}
         {editingTime === 'sleep' && sleepSettings && renderTimeEditor('sleep')}
       </ScrollView>
-      </View>
+      </Animated.View>
 
       {/* ── ZONE C: Bottom Sheet ── */}
       <Animated.View style={[
@@ -2523,6 +2670,18 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                 </View>
               ))
             )}
+          {/* あとでやる合計時間 */}
+          {todoTasks.length > 0 && (() => {
+            const totalMin = todoTasks.filter(t => !t.completed).reduce((sum, t) => sum + (t.duration || 0), 0);
+            if (totalMin === 0) return null;
+            return (
+              <View style={{paddingVertical: 8, paddingHorizontal: 4, borderTopWidth: 0.5, borderTopColor: colors.border, marginTop: 4}}>
+                <Text style={{fontSize: 11, color: colors.textTertiary, textAlign: 'center'}}>
+                  合計 {formatDuration(totalMin)}
+                </Text>
+              </View>
+            );
+          })()}
           {expandedTaskId && (() => {
             const task = todoTasks.find(t => t.id === expandedTaskId);
             if (!task) return null;
@@ -2889,6 +3048,44 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
             </View>
           </View>
         </View>
+      )}
+
+      {/* ── Resize Popup ── */}
+      {resizePopupEvent && (
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => setResizePopupEvent(null)}
+          style={[styles.addOverlay, {backgroundColor: colors.overlay}]}>
+          <TouchableOpacity activeOpacity={1} style={[styles.addCard, {backgroundColor: colors.surface, paddingVertical: 20}]}>
+            <Text style={[styles.addCardTitle, {color: colors.text}]}>
+              {resizePopupEvent.edge === 'end' ? '終了時刻を調整' : '開始時刻を調整'}
+            </Text>
+            <View style={{backgroundColor: colors.inputBackground, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 14, marginTop: 8, marginBottom: 12}}>
+              <Text style={{fontSize: 14, color: colors.text, textAlign: 'center', fontWeight: '600'}}>
+                {resizePopupEvent.item.title}
+              </Text>
+              <Text style={{fontSize: 18, color: colors.primary, textAlign: 'center', fontWeight: '700', marginTop: 4}}>
+                {formatMinutes(resizePopupEvent.item.startMinutes)} 〜 {formatMinutes(resizePopupEvent.item.endMinutes)}
+              </Text>
+            </View>
+            <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'center'}}>
+              {[{label: '-1時間', value: -60}, {label: '-30分', value: -30}, {label: '-15分', value: -15}, {label: '-5分', value: -5},
+                {label: '+5分', value: 5}, {label: '+15分', value: 15}, {label: '+30分', value: 30}, {label: '+1時間', value: 60}].map(btn => (
+                <TouchableOpacity
+                  key={btn.label}
+                  onPress={() => handleResizeAdjust(btn.value)}
+                  style={{paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10, backgroundColor: btn.value > 0 ? colors.primary : colors.inputBackground}}>
+                  <Text style={{fontSize: 14, fontWeight: '600', color: btn.value > 0 ? colors.onPrimary : colors.text}}>{btn.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <TouchableOpacity
+              onPress={() => setResizePopupEvent(null)}
+              style={{marginTop: 14, paddingVertical: 12, borderRadius: 10, backgroundColor: colors.inputBackground, alignItems: 'center'}}>
+              <Text style={{color: colors.textSecondary, fontSize: 14, fontWeight: '600'}}>完了</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
       )}
 
       {/* ── Edit Todo Popup ── */}

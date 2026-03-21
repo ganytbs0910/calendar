@@ -21,6 +21,7 @@ import DayView, {DayViewRef} from './src/components/DayView';
 import AddEventModal from './src/components/AddEventModal';
 import EventDetailModal from './src/components/EventDetailModal';
 import {ThemeProvider, useTheme} from './src/theme/ThemeContext';
+import {PaywallScreen} from './src/components/PaywallScreen';
 import {
   SmallWidgetPreview,
   MediumWidgetPreview,
@@ -31,6 +32,7 @@ import {
   LockScreenInlinePreview,
 } from './src/components/WidgetPreviews';
 import {BannerAd, BannerAdSize, TestIds} from 'react-native-google-mobile-ads';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import {
   SleepSettings,
   getSleepSettings,
@@ -81,42 +83,6 @@ const SearchIcon = ({size = 20, color = '#666'}: {size?: number; color?: string}
 };
 
 // Custom Settings Icon Component (gear)
-const SettingsIcon = ({size = 20, color = '#666'}: {size?: number; color?: string}) => {
-  const strokeWidth = size * 0.12;
-  const innerSize = size * 0.4;
-  const toothSize = size * 0.15;
-
-  return (
-    <View style={{width: size, height: size, justifyContent: 'center', alignItems: 'center'}}>
-      {/* Center circle */}
-      <View
-        style={{
-          width: innerSize,
-          height: innerSize,
-          borderRadius: innerSize / 2,
-          borderWidth: strokeWidth,
-          borderColor: color,
-        }}
-      />
-      {/* Gear teeth */}
-      {[0, 45, 90, 135, 180, 225, 270, 315].map((angle) => (
-        <View
-          key={angle}
-          style={{
-            position: 'absolute',
-            width: toothSize,
-            height: strokeWidth,
-            backgroundColor: color,
-            transform: [
-              {rotate: `${angle}deg`},
-              {translateX: size * 0.32},
-            ],
-          }}
-        />
-      ))}
-    </View>
-  );
-};
 
 type ViewMode = 'month' | 'day';
 
@@ -258,6 +224,7 @@ function AppContent() {
   const {colors, isDark, themeMode, setThemeMode} = useTheme();
   const [showAddModal, setShowAddModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showPaywall, setShowPaywall] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEventReadable | null>(null);
   const [editingEvent, setEditingEvent] = useState<CalendarEventReadable | null>(null);
@@ -568,7 +535,7 @@ function AppContent() {
               onPress={() => setShowSettingsModal(true)}
               accessibilityLabel="設定"
               accessibilityRole="button">
-              <SettingsIcon size={20} color="#007AFF" />
+              <Ionicons name="settings-outline" size={22} color="#007AFF" />
             </TouchableOpacity>
           </View>
           <View style={styles.headerRight}>
@@ -826,6 +793,17 @@ function AppContent() {
                         </TouchableOpacity>
                       </View>
 
+                      {/* Premium */}
+                      <View style={styles.settingsSection}>
+                        <Text style={styles.settingsSectionTitle}>プレミアム</Text>
+                        <TouchableOpacity
+                          style={[styles.settingsItem, {backgroundColor: '#007AFF10'}]}
+                          onPress={() => { setShowSettingsModal(false); setShowPaywall(true); }}>
+                          <Text style={[styles.settingsItemLabel, {color: '#007AFF', fontWeight: '700'}]}>プレミアムにアップグレード</Text>
+                          <Text style={styles.settingsItemLink}>詳細 →</Text>
+                        </TouchableOpacity>
+                      </View>
+
                       {/* Notification Settings */}
                       <View style={styles.settingsSection}>
                         <Text style={styles.settingsSectionTitle}>通知</Text>
@@ -1077,6 +1055,7 @@ function AppContent() {
           />
         </View>
       )}
+      <PaywallScreen visible={showPaywall} onClose={() => setShowPaywall(false)} />
     </SafeAreaProvider>
   );
 }

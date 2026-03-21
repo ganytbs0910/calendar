@@ -13,6 +13,7 @@ import {
   Dimensions,
   NativeSyntheticEvent,
   NativeScrollEvent,
+  KeyboardAvoidingView,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
@@ -292,6 +293,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   const [editingLabelText, setEditingLabelText] = useState('');
   const [showAddColor, setShowAddColor] = useState(false);
   const [reminder, setReminder] = useState<number | null>(null);
+  const [recurrence, setRecurrence] = useState<'none' | 'daily' | 'weekly'>('none');
 
   // Load color settings on mount
   useEffect(() => {
@@ -465,13 +467,20 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         const defaultCalendar = writableCalendars.find(cal => cal.isPrimary) || writableCalendars[0];
         console.log('Using calendar:', defaultCalendar.title, 'allowsModifications:', defaultCalendar.allowsModifications);
 
-        const eventId = await RNCalendarEvents.saveEvent(title.trim() || '(タイトルなし)', {
+        const eventConfig: any = {
           calendarId: defaultCalendar.id,
           startDate: startDate.toISOString(),
           endDate: finalEndDate.toISOString(),
           allDay: false,
           alarms: reminder !== null ? [{date: reminder}] : [],
-        });
+        };
+        if (recurrence !== 'none') {
+          eventConfig.recurrenceRule = {
+            frequency: recurrence === 'daily' ? 'daily' : 'weekly',
+            occurrence: 52, // 1年分
+          };
+        }
+        const eventId = await RNCalendarEvents.saveEvent(title.trim() || '(タイトルなし)', eventConfig);
         console.log('Event saved successfully with id:', eventId);
         // Save custom color for new event
         if (eventId) {
@@ -731,7 +740,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
       animationType="slide"
       presentationStyle="pageSheet"
       onRequestClose={handleClose}>
-      <View style={[styles.container, {backgroundColor: colors.background}]}>
+      <KeyboardAvoidingView style={[styles.container, {backgroundColor: colors.background}]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={[styles.header, {backgroundColor: colors.surface, borderBottomColor: colors.border}]}>
           <TouchableOpacity
             onPress={handleClose}
@@ -909,6 +918,31 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                     styles.reminderButtonText,
                     {color: colors.text},
                     reminder === option.value && styles.reminderButtonTextSelected,
+                  ]}>
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {/* 繰り返し */}
+          <View style={{marginTop: 16}}>
+            <Text style={[styles.sectionLabel, {color: colors.textSecondary}]}>繰り返し</Text>
+            <View style={styles.reminderButtons}>
+              {([{label: 'なし', value: 'none'}, {label: '毎日', value: 'daily'}, {label: '毎週', value: 'weekly'}] as const).map((option) => (
+                <TouchableOpacity
+                  key={option.value}
+                  style={[
+                    styles.reminderButton,
+                    {backgroundColor: colors.inputBackground},
+                    recurrence === option.value && [styles.reminderButtonSelected, {backgroundColor: colors.primary}],
+                  ]}
+                  onPress={() => setRecurrence(option.value)}>
+                  <Text style={[
+                    styles.reminderButtonText,
+                    {color: colors.text},
+                    recurrence === option.value && styles.reminderButtonTextSelected,
                   ]}>
                     {option.label}
                   </Text>
@@ -1155,7 +1189,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
             />
           </View>
         )}
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 };

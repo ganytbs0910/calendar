@@ -1021,7 +1021,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                 const weekDays = calendarDays.slice(weekIndex * 7, (weekIndex + 1) * 7);
 
                 return (
-                  <View key={weekIndex} style={[styles.weekRow, {height: dayHeight}]}>
+                  <View key={weekIndex} style={[styles.weekRow, {height: dayHeight, position: 'relative'}]}>
                     {/* Day cells */}
                     {weekDays.map((item, dayIndex) => {
                       const globalIndex = weekIndex * 7 + dayIndex;
@@ -1053,7 +1053,8 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                         end.setHours(0, 0, 0, 0);
                         return start.getTime() === end.getTime();
                       });
-                      const totalEvents = allDayEvents.length + singleDayEvents.length;
+                      // 連続予定はバーで表示するのでセル内はsingleDayEventsのみカウント
+                      const totalEvents = singleDayEvents.length;
 
                       const inDragRange = item.date && isInDragRange(item.date);
                       const isEventDragTarget = draggingEvent && item.date &&
@@ -1106,58 +1107,8 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                           {/* Events in cell */}
                           {totalEvents > 0 && (
                             <View style={styles.singleDayEventsContainer}>
-                              {/* All-day / multi-day events */}
-                              {allDayEvents.slice(0, 2).map(event => {
-                                // For multi-day timed events (not allDay), show time+title on start/end day
-                                const isTimedMultiDay = !event.allDay && event.startDate && event.endDate;
-                                let isStartDay = false;
-                                let isEndDay = false;
-                                if (isTimedMultiDay && item.date) {
-                                  const evStart = new Date(event.startDate!);
-                                  const evEnd = new Date(event.endDate!);
-                                  isStartDay = item.date.getFullYear() === evStart.getFullYear() &&
-                                    item.date.getMonth() === evStart.getMonth() &&
-                                    item.date.getDate() === evStart.getDate();
-                                  isEndDay = item.date.getFullYear() === evEnd.getFullYear() &&
-                                    item.date.getMonth() === evEnd.getMonth() &&
-                                    item.date.getDate() === evEnd.getDate();
-                                }
-                                // Start/end day of timed multi-day: show with allDay style (light bg) + time + title
-                                if (isTimedMultiDay && (isStartDay || isEndDay)) {
-                                  const textColor = event.calendar?.color || colors.allDayEventText;
-                                  return (
-                                    <TouchableOpacity
-                                      key={event.id}
-                                      style={[
-                                        styles.allDayEventBox,
-                                        {backgroundColor: colors.allDayEvent},
-                                      ]}
-                                      onPress={() => onEventPress?.(event)}>
-                                      <Text style={[styles.allDayEventTitle, {color: textColor}]} numberOfLines={1}>
-                                        {isStartDay ? formatTimeCompact(event.startDate!) + '〜' : '〜' + formatTimeCompact(event.endDate!)}
-                                      </Text>
-                                      <Text style={[styles.allDayEventTitle, {color: textColor}]} numberOfLines={1}>
-                                        {event.title}
-                                      </Text>
-                                    </TouchableOpacity>
-                                  );
-                                }
-                                // Middle days or allDay: show title only
-                                return (
-                                <TouchableOpacity
-                                  key={event.id}
-                                  style={[
-                                    styles.allDayEventBox,
-                                    {backgroundColor: colors.allDayEvent},
-                                  ]}
-                                  onPress={() => onEventPress?.(event)}>
-                                  <Text style={[styles.allDayEventTitle, {color: event.calendar?.color || colors.allDayEventText}]} numberOfLines={1}>
-                                    {event.title}
-                                  </Text>
-                                </TouchableOpacity>
-                              );})}
-                              {/* Single-day timed events */}
-                              {singleDayEvents.slice(0, Math.max(0, 2 - allDayEvents.length)).map(event => {
+                              {/* 連続予定はバーで表示済み。セル内はsingleDayEventsのみ */}
+                              {singleDayEvents.slice(0, 2).map(event => {
                                 const isDraggedEvent = isEventDragSource && draggingEvent?.event.id === event.id;
                                 return (
                                 <TouchableOpacity
@@ -1206,6 +1157,61 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                               </View>
                             </View>
                           )}
+                        </TouchableOpacity>
+                      );
+                    })}
+                    {/* 連続予定バー（週をまたいで表示） */}
+                    {multiDayEventsByWeek[weekIndex]?.map((mdEvent, mdIdx) => {
+                      const evColor = (mdEvent.event.id && eventColors[mdEvent.event.id]) || mdEvent.event.calendar?.color || colors.primary;
+                      const left = mdEvent.startDayIndex * DAY_WIDTH;
+                      const width = (mdEvent.endDayIndex - mdEvent.startDayIndex + 1) * DAY_WIDTH - 2;
+                      const top = DAY_NUMBER_HEIGHT + 2 + mdEvent.rowIndex * (EVENT_BAR_HEIGHT + 2);
+
+                      // 初日・最終日の判定
+                      const evStart = mdEvent.event.startDate ? new Date(mdEvent.event.startDate) : null;
+                      const evEnd = mdEvent.event.endDate ? new Date(mdEvent.event.endDate) : null;
+                      const firstWeekDay = weekDays[mdEvent.startDayIndex]?.date;
+                      const lastWeekDay = weekDays[mdEvent.endDayIndex]?.date;
+                      const isFirstDay = evStart && firstWeekDay &&
+                        evStart.getFullYear() === firstWeekDay.getFullYear() &&
+                        evStart.getMonth() === firstWeekDay.getMonth() &&
+                        evStart.getDate() === firstWeekDay.getDate();
+                      const isLastDay = evEnd && lastWeekDay &&
+                        evEnd.getFullYear() === lastWeekDay.getFullYear() &&
+                        evEnd.getMonth() === lastWeekDay.getMonth() &&
+                        evEnd.getDate() === lastWeekDay.getDate();
+
+                      // 表示テキスト
+                      let label = mdEvent.event.title || '';
+                      if (isFirstDay && evStart && !mdEvent.event.allDay) {
+                        label = `${formatTimeCompact(mdEvent.event.startDate!)}〜 ${label}`;
+                      }
+                      if (isLastDay && evEnd && !mdEvent.event.allDay) {
+                        label = `${label} 〜${formatTimeCompact(mdEvent.event.endDate!)}`;
+                      }
+
+                      return (
+                        <TouchableOpacity
+                          key={`md-${mdEvent.event.id}-${mdIdx}`}
+                          style={{
+                            position: 'absolute',
+                            left: left + 1,
+                            top,
+                            width,
+                            height: EVENT_BAR_HEIGHT - 2,
+                            backgroundColor: evColor + '25',
+                            borderRadius: 4,
+                            borderLeftWidth: 3,
+                            borderLeftColor: evColor,
+                            justifyContent: 'center',
+                            paddingHorizontal: 4,
+                            zIndex: 10,
+                          }}
+                          activeOpacity={0.7}
+                          onPress={() => onEventPress?.(mdEvent.event)}>
+                          <Text style={{fontSize: 9, fontWeight: '600', color: evColor}} numberOfLines={1}>
+                            {label}
+                          </Text>
                         </TouchableOpacity>
                       );
                     })}
