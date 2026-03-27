@@ -19,6 +19,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {useTheme} from '../theme/ThemeContext';
+import {addTemplate} from '../services/templateService';
 
 // Default color options for events with labels
 const DEFAULT_EVENT_COLORS = [
@@ -245,14 +246,21 @@ const MonthDayPicker: React.FC<MonthDayPickerProps> = memo(({value, onChange}) =
 
 // Duration options
 const DURATION_OPTIONS = [
-  {label: '-1時間', minutes: -60},
-  {label: '-30分', minutes: -30},
-  {label: '-5分', minutes: -5},
-  {label: '+5分', minutes: 5},
-  {label: '+30分', minutes: 30},
-  {label: '+1時間', minutes: 60},
-  {label: '+3時間', minutes: 180},
-  {label: '+1日', minutes: 24 * 60},
+  {label: '5分', minutes: 5},
+  {label: '15分', minutes: 15},
+  {label: '30分', minutes: 30},
+  {label: '45分', minutes: 45},
+  {label: '1時間', minutes: 60},
+  {label: '1.5時間', minutes: 90},
+  {label: '2時間', minutes: 120},
+  {label: '3時間', minutes: 180},
+  {label: '4時間', minutes: 240},
+  {label: '5時間', minutes: 300},
+  {label: '6時間', minutes: 360},
+  {label: '8時間', minutes: 480},
+  {label: '10時間', minutes: 600},
+  {label: '1日', minutes: 24 * 60},
+  {label: 'カスタム', minutes: -1},
 ];
 
 
@@ -287,6 +295,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   const [showCopyCalendar, setShowCopyCalendar] = useState(false);
   const [copyCalendarDate, setCopyCalendarDate] = useState(new Date());
   const [selectedCopyDates, setSelectedCopyDates] = useState<Date[]>([]);
+  const [busyCopyDates, setBusyCopyDates] = useState<Set<string>>(new Set());
   const [selectedColor, setSelectedColor] = useState<string>(DEFAULT_EVENT_COLORS[0].color);
   const [colorOptions, setColorOptions] = useState<ColorOption[]>(DEFAULT_EVENT_COLORS);
   const [editingLabelColor, setEditingLabelColor] = useState<string | null>(null);
@@ -361,31 +370,80 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           setSelectedColor(DEFAULT_EVENT_COLORS[0].color);
         }
       } else if (initialDate) {
-        const start = new Date(initialDate);
-        if (!initialEndDate) {
-          start.setMinutes(0);
-          start.setSeconds(0);
-        }
-        setStartDate(start);
-
         if (initialEndDate) {
+          setStartDate(new Date(initialDate));
           setEndDate(new Date(initialEndDate));
         } else {
-          const end = new Date(start);
-          end.setHours(end.getHours() + 1);
-          setEndDate(end);
+          // Fetch events for the day to calculate smart start time
+          const dayStart = new Date(initialDate);
+          dayStart.setHours(0, 0, 0, 0);
+          const dayEnd = new Date(initialDate);
+          dayEnd.setHours(23, 59, 59, 999);
+          RNCalendarEvents.fetchAllEvents(dayStart.toISOString(), dayEnd.toISOString()).then(events => {
+            const nonAllDayEvents = events.filter(e => !e.allDay && e.endDate);
+            const start = new Date(initialDate);
+            if (nonAllDayEvents.length > 0) {
+              const latestEnd = nonAllDayEvents.reduce((latest, e) => {
+                const end = new Date(e.endDate!);
+                return end > latest ? end : latest;
+              }, new Date(0));
+              start.setHours(latestEnd.getHours() + 1);
+              start.setMinutes(0);
+            } else {
+              start.setHours(14);
+              start.setMinutes(0);
+            }
+            start.setSeconds(0);
+            setStartDate(start);
+            const end = new Date(start);
+            end.setHours(end.getHours() + 1);
+            setEndDate(end);
+          }).catch(() => {
+            const start = new Date(initialDate);
+            start.setHours(14, 0, 0, 0);
+            setStartDate(start);
+            const end = new Date(start);
+            end.setHours(end.getHours() + 1);
+            setEndDate(end);
+          });
         }
         setTitle('');
         setReminder(null);
         setSelectedColor(DEFAULT_EVENT_COLORS[0].color);
       } else {
-        const now = new Date();
-        now.setMinutes(0);
-        now.setSeconds(0);
-        setStartDate(now);
-        const end = new Date(now);
-        end.setHours(end.getHours() + 1);
-        setEndDate(end);
+        // No initialDate - use today with smart start time
+        const today = new Date();
+        const dayStart = new Date(today);
+        dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date(today);
+        dayEnd.setHours(23, 59, 59, 999);
+        RNCalendarEvents.fetchAllEvents(dayStart.toISOString(), dayEnd.toISOString()).then(events => {
+          const nonAllDayEvents = events.filter(e => !e.allDay && e.endDate);
+          const start = new Date(today);
+          if (nonAllDayEvents.length > 0) {
+            const latestEnd = nonAllDayEvents.reduce((latest, e) => {
+              const end = new Date(e.endDate!);
+              return end > latest ? end : latest;
+            }, new Date(0));
+            start.setHours(latestEnd.getHours() + 1);
+            start.setMinutes(0);
+          } else {
+            start.setHours(14);
+            start.setMinutes(0);
+          }
+          start.setSeconds(0);
+          setStartDate(start);
+          const end = new Date(start);
+          end.setHours(end.getHours() + 1);
+          setEndDate(end);
+        }).catch(() => {
+          const start = new Date(today);
+          start.setHours(14, 0, 0, 0);
+          setStartDate(start);
+          const end = new Date(start);
+          end.setHours(end.getHours() + 1);
+          setEndDate(end);
+        });
         setTitle('');
         setReminder(null);
         setSelectedColor(DEFAULT_EVENT_COLORS[0].color);
@@ -532,20 +590,54 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
     }
   };
 
-  const handleAddDuration = useCallback((minutes: number) => {
-    const newEnd = new Date(endDate);
+  const handleSetDuration = useCallback((minutes: number) => {
+    const newEnd = new Date(startDate);
     newEnd.setMinutes(newEnd.getMinutes() + minutes);
     setEndDate(newEnd);
-  }, [endDate]);
+  }, [startDate]);
+
+  // Check which dates have conflicting events for the copy time range
+  const fetchBusyDates = useCallback(async (monthDate: Date) => {
+    try {
+      const year = monthDate.getFullYear();
+      const month = monthDate.getMonth();
+      const fetchStart = new Date(year, month - 1, 1);
+      const fetchEnd = new Date(year, month + 2, 0, 23, 59, 59);
+      const events = await RNCalendarEvents.fetchAllEvents(fetchStart.toISOString(), fetchEnd.toISOString());
+
+      const eventStartTime = startDate.getHours() * 60 + startDate.getMinutes();
+      const eventEndTime = endDate.getHours() * 60 + endDate.getMinutes();
+
+      const busy = new Set<string>();
+      for (const ev of events) {
+        if (ev.allDay || !ev.startDate || !ev.endDate) continue;
+        const evStart = new Date(ev.startDate);
+        const evEnd = new Date(ev.endDate);
+        const evStartMin = evStart.getHours() * 60 + evStart.getMinutes();
+        const evEndMin = evEnd.getHours() * 60 + evEnd.getMinutes();
+        // Check time overlap
+        if (evStartMin < eventEndTime && evEndMin > eventStartTime) {
+          busy.add(evStart.toDateString());
+        }
+      }
+      setBusyCopyDates(busy);
+    } catch {
+      setBusyCopyDates(new Set());
+    }
+  }, [startDate, endDate]);
 
   // Copy to other dates functionality
   const handleShowCopyCalendar = useCallback(() => {
-    setCopyCalendarDate(new Date());
-    setSelectedCopyDates([]);
+    const monthDate = new Date(startDate);
+    setCopyCalendarDate(monthDate);
+    setSelectedCopyDates([new Date(startDate)]);
     setShowCopyCalendar(true);
-  }, []);
+    fetchBusyDates(monthDate);
+  }, [startDate, fetchBusyDates]);
 
   const toggleCopyDateSelection = useCallback((targetDate: Date) => {
+    // Don't allow deselecting the origin date
+    if (targetDate.toDateString() === startDate.toDateString()) return;
     setSelectedCopyDates(prev => {
       const dateStr = targetDate.toDateString();
       const exists = prev.some(d => d.toDateString() === dateStr);
@@ -558,7 +650,9 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   }, []);
 
   const handleCopyToSelectedDates = useCallback(async () => {
-    if (selectedCopyDates.length === 0) return;
+    // Exclude the origin date (startDate) from copy targets
+    const copyTargets = selectedCopyDates.filter(d => d.toDateString() !== startDate.toDateString());
+    if (copyTargets.length === 0) return;
 
     const durationMs = endDate.getTime() - startDate.getTime();
 
@@ -571,7 +665,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
       }
       const defaultCalendar = writableCalendars.find(cal => cal.isPrimary) || writableCalendars[0];
 
-      for (const targetDate of selectedCopyDates) {
+      for (const targetDate of copyTargets) {
         const newStart = new Date(targetDate);
         newStart.setHours(startDate.getHours(), startDate.getMinutes(), 0, 0);
         const newEnd = new Date(newStart.getTime() + durationMs);
@@ -591,7 +685,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
 
       setShowCopyCalendar(false);
       setSelectedCopyDates([]);
-      Alert.alert('完了', `${selectedCopyDates.length}件の予定をコピーしました`);
+      Alert.alert('完了', `${copyTargets.length}件の予定をコピーしました`);
       onEventAdded();
     } catch (error) {
       console.error('Error copying event:', error);
@@ -646,12 +740,20 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   }, [colorOptions]);
 
   const goToCopyPrevMonth = useCallback(() => {
-    setCopyCalendarDate(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
-  }, []);
+    setCopyCalendarDate(prev => {
+      const newDate = new Date(prev.getFullYear(), prev.getMonth() - 1, 1);
+      fetchBusyDates(newDate);
+      return newDate;
+    });
+  }, [fetchBusyDates]);
 
   const goToCopyNextMonth = useCallback(() => {
-    setCopyCalendarDate(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
-  }, []);
+    setCopyCalendarDate(prev => {
+      const newDate = new Date(prev.getFullYear(), prev.getMonth() + 1, 1);
+      fetchBusyDates(newDate);
+      return newDate;
+    });
+  }, [fetchBusyDates]);
 
   const copyCalendarDays = useMemo(() => {
     const year = copyCalendarDate.getFullYear();
@@ -704,16 +806,14 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   };
 
   const confirmStartTime = () => {
+    const durationMs = endDate.getTime() - startDate.getTime();
     const newDate = new Date(startDate);
     newDate.setHours(tempDate.getHours());
     newDate.setMinutes(tempDate.getMinutes());
     setStartDate(newDate);
 
-    if (endDate <= newDate) {
-      const newEndDate = new Date(newDate);
-      newEndDate.setHours(newEndDate.getHours() + 1);
-      setEndDate(newEndDate);
-    }
+    const newEndDate = new Date(newDate.getTime() + durationMs);
+    setEndDate(newEndDate);
     setShowStartTimePicker(false);
   };
 
@@ -821,17 +921,10 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                 }}>
                 <Text style={[styles.compactDateText, {color: colors.primary}]}>{formatDate(endDate)}</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.compactTimeButton, {backgroundColor: colors.today}]}
-                onPress={() => {
-                  setShowStartDatePicker(false);
-                  setShowStartTimePicker(false);
-                  setShowEndDatePicker(false);
-                  setTempDate(new Date(endDate));
-                  setShowEndTimePicker(true);
-                }}>
-                <Text style={[styles.compactTimeText, {color: colors.primary}]}>{formatTime(endDate)}</Text>
-              </TouchableOpacity>
+              <View
+                style={[styles.compactTimeButton, {backgroundColor: colors.inputBackground}]}>
+                <Text style={[styles.compactTimeText, {color: colors.textSecondary}]}>{formatTime(endDate)}</Text>
+              </View>
             </View>
           </View>
 
@@ -844,19 +937,21 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
               {DURATION_OPTIONS.map((option) => (
                 <TouchableOpacity
                   key={option.minutes}
-                  style={[styles.durationButton, {backgroundColor: colors.primary}]}
-                  onPress={() => handleAddDuration(option.minutes)}>
+                  style={[styles.durationButton, option.minutes === -1 ? {backgroundColor: colors.textTertiary} : {backgroundColor: colors.primary}]}
+                  onPress={() => {
+                    if (option.minutes === -1) {
+                      const durationMs = endDate.getTime() - startDate.getTime();
+                      const durationEnd = new Date(startDate.getTime() + Math.max(durationMs, 5 * 60 * 1000));
+                      setTempDate(durationEnd);
+                      setShowEndTimePicker(true);
+                    } else {
+                      handleSetDuration(option.minutes);
+                    }
+                  }}>
                   <Text style={styles.durationButtonText}>{option.label}</Text>
                 </TouchableOpacity>
               ))}
             </View>
-            <TouchableOpacity
-              style={styles.resetDurationButton}
-              onPress={() => {
-                setEndDate(new Date(startDate));
-              }}>
-              <Text style={[styles.resetDurationText, {color: colors.textTertiary}]}>リセット（0分）</Text>
-            </TouchableOpacity>
           </View>
 
           <View style={[styles.colorSection, {backgroundColor: colors.surface}]}>
@@ -927,7 +1022,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           </View>
 
           {/* 繰り返し */}
-          <View style={{marginTop: 16}}>
+          <View style={[styles.reminderSection, {backgroundColor: colors.surface}]}>
             <Text style={[styles.sectionLabel, {color: colors.textSecondary}]}>繰り返し</Text>
             <View style={styles.reminderButtons}>
               {([{label: 'なし', value: 'none'}, {label: '毎日', value: 'daily'}, {label: '毎週', value: 'weekly'}] as const).map((option) => (
@@ -951,17 +1046,36 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
             </View>
           </View>
 
-          <TouchableOpacity
-            style={[styles.copyToOtherDaysButton, {backgroundColor: colors.today, borderColor: colors.primary}]}
-            onPress={handleShowCopyCalendar}>
-            <Text style={[styles.copyToOtherDaysButtonText, {color: colors.primary}]}>別の日にもコピー</Text>
-          </TouchableOpacity>
+          {!isEditing && !isCopying && (
+            <TouchableOpacity
+              style={[styles.templateSaveButton, {backgroundColor: colors.surface, borderColor: colors.border}]}
+              onPress={async () => {
+                const durationMs = endDate.getTime() - startDate.getTime();
+                const durationMinutes = Math.round(durationMs / (1000 * 60));
+                await addTemplate({
+                  title: title.trim() || '(タイトルなし)',
+                  durationMinutes: Math.max(durationMinutes, 5),
+                  color: selectedColor,
+                  reminder,
+                });
+                Alert.alert('保存しました', 'テンプレートとして保存しました');
+              }}>
+              <Text style={[styles.templateSaveButtonText, {color: colors.primary}]}>テンプレートとして保存</Text>
+            </TouchableOpacity>
+          )}
 
-          <TouchableOpacity
-            style={[styles.saveButtonBottom, {backgroundColor: colors.primary}]}
-            onPress={handleSave}>
-            <Text style={styles.saveButtonBottomText}>保存</Text>
-          </TouchableOpacity>
+          <View style={styles.bottomButtonsRow}>
+            <TouchableOpacity
+              style={[styles.copyButtonBottom, {borderColor: colors.primary}]}
+              onPress={handleShowCopyCalendar}>
+              <Text style={[styles.copyButtonBottomText, {color: colors.primary}]}>コピー</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.saveButtonBottom, {backgroundColor: colors.primary}]}
+              onPress={handleSave}>
+              <Text style={styles.saveButtonBottomText}>保存</Text>
+            </TouchableOpacity>
+          </View>
 
         </ScrollView>
 
@@ -1022,13 +1136,17 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                 {copyCalendarDays.map((item, index) => {
                   const isToday = item.date.toDateString() === new Date().toDateString();
                   const isSelected = selectedCopyDates.some(d => d.toDateString() === item.date.toDateString());
+                  const isOrigin = item.date.toDateString() === startDate.toDateString();
+                  const isBusy = busyCopyDates.has(item.date.toDateString()) && !isOrigin;
                   return (
                     <TouchableOpacity
                       key={`${item.date.toISOString()}-${index}`}
                       style={[
                         styles.copyCalendarDay,
-                        isToday && [styles.copyCalendarToday, {backgroundColor: colors.today}],
-                        isSelected && [styles.copyCalendarSelected, {backgroundColor: colors.primary}],
+                        isBusy && !isSelected && {backgroundColor: colors.border, opacity: 0.5},
+                        isToday && !isBusy && [styles.copyCalendarToday, {backgroundColor: colors.today}],
+                        isOrigin && [styles.copyCalendarSelected, {backgroundColor: colors.primary, opacity: 0.6}],
+                        isSelected && !isOrigin && [styles.copyCalendarSelected, {backgroundColor: colors.primary}],
                       ]}
                       onPress={() => toggleCopyDateSelection(item.date)}>
                       <Text
@@ -1036,10 +1154,10 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                           styles.copyCalendarDayText,
                           {color: colors.text},
                           !item.isCurrentMonth && [styles.copyCalendarOtherMonth, {color: colors.textTertiary}],
-                          isToday && !isSelected && [styles.copyCalendarTodayText, {color: colors.primary}],
-                          isSelected && styles.copyCalendarSelectedText,
-                          index % 7 === 0 && item.isCurrentMonth && !isSelected && styles.copySundayText,
-                          index % 7 === 6 && item.isCurrentMonth && !isSelected && styles.copySaturdayText,
+                          isToday && !isSelected && !isOrigin && [styles.copyCalendarTodayText, {color: colors.primary}],
+                          (isSelected || isOrigin) && styles.copyCalendarSelectedText,
+                          index % 7 === 0 && item.isCurrentMonth && !isSelected && !isOrigin && styles.copySundayText,
+                          index % 7 === 6 && item.isCurrentMonth && !isSelected && !isOrigin && styles.copySaturdayText,
                         ]}>
                         {item.day}
                       </Text>
@@ -1175,7 +1293,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
               <TouchableOpacity onPress={() => setShowEndTimePicker(false)}>
                 <Text style={[styles.pickerCancelText, {color: colors.textTertiary}]}>キャンセル</Text>
               </TouchableOpacity>
-              <Text style={[styles.pickerTitle, {color: colors.text}]}>終了時間</Text>
+              <Text style={[styles.pickerTitle, {color: colors.text}]}>終了時刻</Text>
               <TouchableOpacity onPress={confirmEndTime}>
                 <Text style={[styles.pickerOkText, {color: colors.primary}]}>OK</Text>
               </TouchableOpacity>
@@ -1468,14 +1586,14 @@ const styles = StyleSheet.create({
   },
   reminderButtons: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+    flexWrap: 'nowrap',
+    gap: 6,
     marginTop: 10,
   },
   reminderButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    borderRadius: 7,
     backgroundColor: '#f0f0f0',
   },
   reminderButtonSelected: {
@@ -1503,47 +1621,52 @@ const styles = StyleSheet.create({
   durationButtons: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 6,
   },
   durationButton: {
     backgroundColor: '#007AFF',
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 7,
   },
   durationButtonText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     color: '#fff',
   },
-  resetDurationButton: {
-    marginTop: 10,
-    alignItems: 'center',
-  },
-  resetDurationText: {
-    fontSize: 12,
-    color: '#999',
-  },
-  copyToOtherDaysButton: {
-    backgroundColor: '#E8F4FD',
+  templateSaveButton: {
     borderRadius: 10,
     padding: 14,
     alignItems: 'center',
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#007AFF',
   },
-  copyToOtherDaysButtonText: {
+  templateSaveButtonText: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#007AFF',
+  },
+  bottomButtonsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 24,
+  },
+  copyButtonBottom: {
+    flex: 1,
+    borderRadius: 10,
+    padding: 16,
+    alignItems: 'center',
+    borderWidth: 1.5,
+  },
+  copyButtonBottomText: {
+    fontSize: 17,
+    fontWeight: '600',
   },
   saveButtonBottom: {
+    flex: 2,
     backgroundColor: '#007AFF',
     borderRadius: 10,
     padding: 16,
     alignItems: 'center',
-    marginBottom: 24,
   },
   saveButtonBottomText: {
     fontSize: 17,

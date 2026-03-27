@@ -25,6 +25,7 @@ interface EventDetailModalProps {
   onEdit: (event: CalendarEventReadable) => void;
   onDeleted: () => void;
   onCopied: () => void;
+  onUndoableDelete?: (eventData: CalendarEventReadable, deleteType: 'single' | 'future' | 'all') => void;
 }
 
 export const EventDetailModal: React.FC<EventDetailModalProps> = ({
@@ -34,6 +35,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
   onEdit,
   onDeleted,
   onCopied,
+  onUndoableDelete,
 }) => {
   const [showCopyCalendar, setShowCopyCalendar] = useState(false);
   const [copyCalendarDate, setCopyCalendarDate] = useState(new Date());
@@ -78,30 +80,68 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
     }
   };
 
+  const isRecurring = !!(event?.recurrence);
+
+  const deleteEvent = useCallback(async (deleteType: 'single' | 'future' | 'all') => {
+    if (!event?.id) return;
+    try {
+      if (onUndoableDelete) {
+        // Delegate to parent for undo support
+        onUndoableDelete(event, deleteType);
+        onClose();
+        return;
+      }
+      // Fallback: direct delete without undo
+      if (deleteType === 'all') {
+        await RNCalendarEvents.removeEvent(event.id!);
+      } else if (deleteType === 'future') {
+        await RNCalendarEvents.removeEvent(event.id!, {futureEvents: true});
+      } else {
+        await RNCalendarEvents.removeEvent(event.id!, {futureEvents: false});
+      }
+      onClose();
+      onDeleted();
+    } catch (_error) {
+      Alert.alert('エラー', '予定の削除に失敗しました');
+    }
+  }, [event, onClose, onDeleted, onUndoableDelete]);
+
   const handleDelete = useCallback(async () => {
     if (!event?.id) return;
 
-    Alert.alert(
-      '予定を削除',
-      `「${event.title}」を削除しますか？`,
-      [
-        {text: 'キャンセル', style: 'cancel'},
-        {
-          text: '削除',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await RNCalendarEvents.removeEvent(event.id!);
-              onClose();
-              onDeleted();
-            } catch (_error) {
-              Alert.alert('エラー', '予定の削除に失敗しました');
-            }
+    if (isRecurring) {
+      Alert.alert(
+        '繰り返しイベントを削除',
+        `「${event.title}」を削除しますか？`,
+        [
+          {text: 'キャンセル', style: 'cancel'},
+          {
+            text: 'この予定のみ',
+            style: 'destructive',
+            onPress: () => deleteEvent('single'),
           },
-        },
-      ],
-    );
-  }, [event, onClose, onDeleted]);
+          {
+            text: 'これ以降の予定',
+            style: 'destructive',
+            onPress: () => deleteEvent('future'),
+          },
+        ],
+      );
+    } else {
+      Alert.alert(
+        '予定を削除',
+        `「${event.title}」を削除しますか？`,
+        [
+          {text: 'キャンセル', style: 'cancel'},
+          {
+            text: '削除',
+            style: 'destructive',
+            onPress: () => deleteEvent('all'),
+          },
+        ],
+      );
+    }
+  }, [event, isRecurring, deleteEvent]);
 
   const handleEdit = useCallback(() => {
     if (event) {

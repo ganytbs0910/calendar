@@ -25,7 +25,7 @@ const DAY_WIDTH = Math.floor((SCREEN_WIDTH - 24) / 7);
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 // Calculate day height to fill screen (subtract header, weekday row, margins, safe area)
 const CALENDAR_AVAILABLE_HEIGHT = SCREEN_HEIGHT - 280;
-const EVENT_BAR_HEIGHT = 24; // Height of multi-day event bar
+const EVENT_BAR_HEIGHT = 36; // Height of multi-day event bar
 const DAY_NUMBER_HEIGHT = 20; // Space for day number
 
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
@@ -1056,6 +1056,15 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                       // 連続予定はバーで表示するのでセル内はsingleDayEventsのみカウント
                       const totalEvents = singleDayEvents.length;
 
+                      // この日にかかる連続予定バーの行数を計算し、普通予定を下にずらす
+                      const multiDayRowCount = multiDayEventsByWeek[weekIndex]?.reduce((max, mdEvent) => {
+                        if (dayIndex >= mdEvent.startDayIndex && dayIndex <= mdEvent.endDayIndex) {
+                          return Math.max(max, mdEvent.rowIndex + 1);
+                        }
+                        return max;
+                      }, 0) || 0;
+                      const multiDayOffset = multiDayRowCount * (EVENT_BAR_HEIGHT + 2);
+
                       const inDragRange = item.date && isInDragRange(item.date);
                       const isEventDragTarget = draggingEvent && item.date &&
                         draggingEvent.currentDate.getFullYear() === item.date.getFullYear() &&
@@ -1106,7 +1115,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                           })()}
                           {/* Events in cell */}
                           {totalEvents > 0 && (
-                            <View style={styles.singleDayEventsContainer}>
+                            <View style={[styles.singleDayEventsContainer, multiDayOffset > 0 && {marginTop: multiDayOffset}]}>
                               {/* 連続予定はバーで表示済み。セル内はsingleDayEventsのみ */}
                               {singleDayEvents.slice(0, 2).map(event => {
                                 const isDraggedEvent = isEventDragSource && draggingEvent?.event.id === event.id;
@@ -1139,7 +1148,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                           )}
                           {/* Drag preview in target cell */}
                           {isEventDragTarget && draggingEvent && (
-                            <View style={styles.singleDayEventsContainer}>
+                            <View style={[styles.singleDayEventsContainer, multiDayOffset > 0 && {marginTop: multiDayOffset}]}>
                               <View
                                 style={[
                                   styles.singleDayEventBox,
@@ -1181,36 +1190,40 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                         evEnd.getMonth() === lastWeekDay.getMonth() &&
                         evEnd.getDate() === lastWeekDay.getDate();
 
-                      // 表示テキスト
-                      let label = mdEvent.event.title || '';
-                      if (isFirstDay && evStart && !mdEvent.event.allDay) {
-                        label = `${formatTimeCompact(mdEvent.event.startDate!)}〜 ${label}`;
-                      }
-                      if (isLastDay && evEnd && !mdEvent.event.allDay) {
-                        label = `${label} 〜${formatTimeCompact(mdEvent.event.endDate!)}`;
-                      }
-
                       return (
                         <TouchableOpacity
                           key={`md-${mdEvent.event.id}-${mdIdx}`}
                           style={{
                             position: 'absolute',
-                            left: left + 1,
+                            left: left + (isFirstDay ? 1 : 0),
                             top,
-                            width,
+                            width: width - (isFirstDay ? 1 : 0) - (isLastDay ? 1 : 0),
                             height: EVENT_BAR_HEIGHT - 2,
-                            backgroundColor: evColor + '25',
-                            borderRadius: 4,
-                            borderLeftWidth: 3,
-                            borderLeftColor: evColor,
+                            backgroundColor: evColor + 'CC',
+                            borderTopLeftRadius: isFirstDay ? 6 : 0,
+                            borderBottomLeftRadius: isFirstDay ? 6 : 0,
+                            borderTopRightRadius: isLastDay ? 6 : 0,
+                            borderBottomRightRadius: isLastDay ? 6 : 0,
+                            alignItems: 'center',
                             justifyContent: 'center',
-                            paddingHorizontal: 4,
+                            paddingHorizontal: 2,
+                            paddingVertical: 2,
                             zIndex: 10,
                           }}
                           activeOpacity={0.7}
                           onPress={() => onEventPress?.(mdEvent.event)}>
-                          <Text style={{fontSize: 9, fontWeight: '600', color: evColor}} numberOfLines={1}>
-                            {label}
+                          {isFirstDay && evStart && !mdEvent.event.allDay && (
+                            <Text style={[styles.singleDayEventTime, {color: colors.onEvent}]}>
+                              {formatTimeCompact(mdEvent.event.startDate!)}
+                            </Text>
+                          )}
+                          {isLastDay && evEnd && !mdEvent.event.allDay && (
+                            <Text style={[styles.singleDayEventTime, {color: colors.onEvent}]}>
+                              {formatTimeCompact(mdEvent.event.endDate!)}
+                            </Text>
+                          )}
+                          <Text style={[styles.singleDayEventTitle, {color: colors.onEvent}]} numberOfLines={1}>
+                            {mdEvent.event.title || ''}
                           </Text>
                         </TouchableOpacity>
                       );
@@ -1533,7 +1546,6 @@ const styles = StyleSheet.create({
   },
   // Single-day event styles
   singleDayEventsContainer: {
-    flex: 1,
     width: '100%',
     paddingHorizontal: 1,
     paddingTop: 2,

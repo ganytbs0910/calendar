@@ -18,8 +18,10 @@ import {SafeAreaProvider, SafeAreaView} from 'react-native-safe-area-context';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
 import Calendar, {CalendarRef} from './src/components/Calendar';
 import DayView, {DayViewRef} from './src/components/DayView';
+import WeekView, {WeekViewRef} from './src/components/WeekView';
 import AddEventModal from './src/components/AddEventModal';
 import EventDetailModal from './src/components/EventDetailModal';
+import {UndoToast, UndoAction} from './src/components/UndoToast';
 import {ThemeProvider, useTheme} from './src/theme/ThemeContext';
 import {PaywallScreen} from './src/components/PaywallScreen';
 import {
@@ -39,6 +41,7 @@ import {
   saveSleepSettings,
   getDefaultSettings,
 } from './src/services/sleepSettingsService';
+import {EventTemplate, getTemplates, deleteTemplate} from './src/services/templateService';
 
 const adUnitId = __DEV__ ? TestIds.ADAPTIVE_BANNER : 'ca-app-pub-4317478239934902/3522055335';
 
@@ -84,7 +87,7 @@ const SearchIcon = ({size = 20, color = '#666'}: {size?: number; color?: string}
 
 // Custom Settings Icon Component (gear)
 
-type ViewMode = 'month' | 'day';
+type ViewMode = 'month' | 'week' | 'day';
 
 // Sleep Setup Modal with weekday/weekend tabs
 const SleepSetupModal = ({
@@ -241,8 +244,12 @@ function AppContent() {
   const [isSearching, setIsSearching] = useState(false);
   const [showSleepSetup, setShowSleepSetup] = useState(false);
   const [sleepSettings, setSleepSettings] = useState<SleepSettings | null>(null);
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [templates, setTemplates] = useState<EventTemplate[]>([]);
+  const [undoAction, setUndoAction] = useState<UndoAction | null>(null);
   const calendarRef = useRef<CalendarRef>(null);
   const dayViewRef = useRef<DayViewRef>(null);
+  const weekViewRef = useRef<WeekViewRef>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load sleep settings on mount, show setup if not configured
@@ -270,6 +277,35 @@ function AppContent() {
     await saveSleepSettings(settings);
     setSleepSettings(settings);
   }, []);
+
+  const loadTemplates = useCallback(async () => {
+    const t = await getTemplates();
+    setTemplates(t);
+  }, []);
+
+  const handleDeleteTemplate = useCallback(async (id: string) => {
+    await deleteTemplate(id);
+    loadTemplates();
+  }, [loadTemplates]);
+
+  const handleUseTemplate = useCallback((template: EventTemplate) => {
+    setShowTemplateModal(false);
+    const start = new Date(selectedDate || new Date());
+    start.setHours(new Date().getHours() + 1, 0, 0, 0);
+    const end = new Date(start.getTime() + template.durationMinutes * 60 * 1000);
+    setInitialStartDate(start);
+    setInitialEndDate(end);
+    // Create a fake event object to pass template data
+    const templateEvent = {
+      title: template.title,
+      startDate: start.toISOString(),
+      endDate: end.toISOString(),
+      alarms: template.reminder !== null ? [{date: template.reminder}] : [],
+    } as any;
+    // Don't set id so it creates a new event (copy mode behavior)
+    setEditingEvent(templateEvent);
+    setShowAddModal(true);
+  }, [selectedDate]);
 
   const formatTimeDisplay = (hour: number, minute: number) => {
     return `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
@@ -383,6 +419,7 @@ function AppContent() {
   const handleEventAdded = useCallback(() => {
     calendarRef.current?.refreshEvents();
     dayViewRef.current?.refreshEvents();
+    weekViewRef.current?.refreshEvents();
   }, []);
 
   // Handle event tap to directly open edit modal
@@ -416,15 +453,78 @@ function AppContent() {
   const handleEventCopied = useCallback(() => {
     calendarRef.current?.refreshEvents();
     dayViewRef.current?.refreshEvents();
+    weekViewRef.current?.refreshEvents();
+  }, []);
+
+  const refreshAllViews = useCallback(() => {
+    calendarRef.current?.refreshEvents();
+    dayViewRef.current?.refreshEvents();
+    weekViewRef.current?.refreshEvents();
   }, []);
 
   const handleEventDeleted = useCallback(() => {
-    calendarRef.current?.refreshEvents();
-    dayViewRef.current?.refreshEvents();
-  }, []);
+    refreshAllViews();
+  }, [refreshAllViews]);
+
+  const handleUndoableDelete = useCallback(async (
+    eventData: CalendarEventReadable,
+    deleteType: 'single' | 'future' | 'all',
+  ) => {
+    if (!eventData.id) return;
+
+    try {
+      // Perform the delete
+      if (deleteType === 'all') {
+        await RNCalendarEvents.removeEvent(eventData.id);
+      } else if (deleteType === 'future') {
+        await RNCalendarEvents.removeEvent(eventData.id, {futureEvents: true});
+      } else {
+        await RNCalendarEvents.removeEvent(eventData.id, {futureEvents: false});
+      }
+      refreshAllViews();
+
+      // Set up undo action
+      setUndoAction({
+        message: `「${eventData.title}」を削除しました`,
+        onUndo: async () => {
+          try {
+            // Re-create the event
+            const calendars = await RNCalendarEvents.findCalendars();
+            const writableCalendars = calendars.filter(cal => cal.allowsModifications);
+            const defaultCalendar = writableCalendars.find(cal => cal.isPrimary) || writableCalendars[0];
+            if (!defaultCalendar) return;
+
+            const eventConfig: any = {
+              calendarId: eventData.calendar?.id || defaultCalendar.id,
+              startDate: eventData.startDate!,
+              endDate: eventData.endDate!,
+              allDay: eventData.allDay || false,
+              location: eventData.location,
+              notes: eventData.notes,
+              url: eventData.url,
+              alarms: eventData.alarms,
+            };
+            // Restore recurrence if it was a recurring event
+            if (eventData.recurrence) {
+              eventConfig.recurrenceRule = {
+                frequency: eventData.recurrence,
+                occurrence: 52,
+              };
+            }
+            await RNCalendarEvents.saveEvent(eventData.title || '', eventConfig);
+            refreshAllViews();
+          } catch {
+            Alert.alert('エラー', '予定の復元に失敗しました');
+          }
+        },
+      });
+    } catch {
+      Alert.alert('エラー', '予定の削除に失敗しました');
+    }
+  }, [refreshAllViews]);
 
   const toggleViewMode = useCallback(() => {
-    setViewMode(prev => prev === 'month' ? 'day' : 'month');
+    setViewMode(prev => prev === 'month' ? 'week' : prev === 'week' ? 'day' : 'month');
   }, []);
 
   const goToToday = useCallback(() => {
@@ -433,6 +533,7 @@ function AppContent() {
     if (viewMode === 'month') {
       calendarRef.current?.goToToday();
     }
+    // week and day view will respond to currentDate change
   }, [viewMode]);
 
   // Search functionality
@@ -542,16 +643,21 @@ function AppContent() {
             <TouchableOpacity
               style={styles.viewToggle}
               onPress={toggleViewMode}
-              accessibilityLabel={viewMode === 'month' ? '日間表示に切り替え' : '月間表示に切り替え'}
+              accessibilityLabel="表示切替"
               accessibilityRole="button">
               <Text style={styles.viewToggleText}>
-                {viewMode === 'month' ? '月間' : '日間'}
+                {viewMode === 'month' ? '月' : viewMode === 'week' ? '週' : '日'}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.addButton}
               onPress={handleAddEvent}
+              onLongPress={() => {
+                loadTemplates();
+                setShowTemplateModal(true);
+              }}
               accessibilityLabel="予定を追加"
+              accessibilityHint="長押しでテンプレートから作成"
               accessibilityRole="button">
               <Text style={styles.addButtonText}>+</Text>
             </TouchableOpacity>
@@ -567,6 +673,15 @@ function AppContent() {
               onDateRangeSelect={handleTimeRangeSelect}
               hasPermission={hasPermission}
             />
+        ) : viewMode === 'week' ? (
+          <WeekView
+            ref={weekViewRef}
+            currentDate={currentDate}
+            onTimeRangeSelect={handleTimeRangeSelect}
+            onEventPress={handleEventPress}
+            onDayChange={handleDayChange}
+            hasPermission={hasPermission}
+          />
         ) : (
           <DayView
             ref={dayViewRef}
@@ -596,7 +711,68 @@ function AppContent() {
           onEdit={handleEditEvent}
           onDeleted={handleEventDeleted}
           onCopied={handleEventCopied}
+          onUndoableDelete={handleUndoableDelete}
         />
+
+        {/* Template Modal */}
+        <Modal
+          visible={showTemplateModal}
+          animationType="fade"
+          transparent
+          onRequestClose={() => setShowTemplateModal(false)}>
+          <View style={styles.templateOverlay}>
+            <View style={styles.templateContainer}>
+              <View style={styles.templateHeader}>
+                <Text style={styles.templateTitle}>テンプレート</Text>
+                <TouchableOpacity onPress={() => setShowTemplateModal(false)}>
+                  <Text style={styles.templateCloseBtn}>閉じる</Text>
+                </TouchableOpacity>
+              </View>
+              {templates.length === 0 ? (
+                <View style={styles.templateEmpty}>
+                  <Text style={styles.templateEmptyText}>テンプレートがありません</Text>
+                  <Text style={styles.templateEmptyHint}>予定作成画面で「テンプレートとして保存」から追加できます</Text>
+                </View>
+              ) : (
+                <FlatList
+                  data={templates}
+                  keyExtractor={(item) => item.id}
+                  style={styles.templateList}
+                  renderItem={({item}) => {
+                    const hours = Math.floor(item.durationMinutes / 60);
+                    const mins = item.durationMinutes % 60;
+                    const durationStr = hours > 0 && mins > 0 ? `${hours}時間${mins}分` : hours > 0 ? `${hours}時間` : `${mins}分`;
+                    return (
+                      <TouchableOpacity
+                        style={styles.templateItem}
+                        onPress={() => handleUseTemplate(item)}
+                        onLongPress={() => {
+                          Alert.alert('テンプレートを削除', `「${item.title}」を削除しますか？`, [
+                            {text: 'キャンセル', style: 'cancel'},
+                            {text: '削除', style: 'destructive', onPress: () => handleDeleteTemplate(item.id)},
+                          ]);
+                        }}>
+                        <View style={[styles.templateItemColor, {backgroundColor: item.color}]} />
+                        <View style={styles.templateItemContent}>
+                          <Text style={styles.templateItemTitle}>{item.title}</Text>
+                          <Text style={styles.templateItemDuration}>{durationStr}</Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  }}
+                />
+              )}
+              <TouchableOpacity
+                style={styles.templateNewBtn}
+                onPress={() => {
+                  setShowTemplateModal(false);
+                  handleAddEvent();
+                }}>
+                <Text style={styles.templateNewBtnText}>+ 新規作成</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
 
         {/* Search Modal */}
         <Modal
@@ -758,17 +934,28 @@ function AppContent() {
                       <View style={styles.settingsSection}>
                         <Text style={styles.settingsSectionTitle}>生活リズム</Text>
                         <TouchableOpacity
-                          style={styles.settingsItem}
+                          style={styles.sleepSettingsItem}
                           onPress={() => {
                             setShowSettingsModal(false);
                             setTimeout(() => openSleepSettings(), 300);
                           }}>
-                          <Text style={styles.settingsItemLabel}>起床・就寝時間</Text>
-                          <Text style={styles.settingsItemLink}>
-                            {sleepSettings
-                              ? `平日 ${formatTimeDisplay(sleepSettings.weekday.wakeUpHour, sleepSettings.weekday.wakeUpMinute)}〜${formatTimeDisplay(sleepSettings.weekday.sleepHour, sleepSettings.weekday.sleepMinute)} / 休日 ${formatTimeDisplay(sleepSettings.weekend.wakeUpHour, sleepSettings.weekend.wakeUpMinute)}〜${formatTimeDisplay(sleepSettings.weekend.sleepHour, sleepSettings.weekend.sleepMinute)}`
-                              : '未設定'} →
-                          </Text>
+                          <View style={styles.sleepSettingsRow}>
+                            <Text style={styles.settingsItemLabel}>起床・就寝時間</Text>
+                            <Text style={styles.settingsItemLink}>変更 →</Text>
+                          </View>
+                          {sleepSettings && (
+                            <View style={styles.sleepSettingsValues}>
+                              <Text style={styles.sleepSettingsText}>
+                                平日 {formatTimeDisplay(sleepSettings.weekday.wakeUpHour, sleepSettings.weekday.wakeUpMinute)}〜{formatTimeDisplay(sleepSettings.weekday.sleepHour, sleepSettings.weekday.sleepMinute)}
+                              </Text>
+                              <Text style={styles.sleepSettingsText}>
+                                休日 {formatTimeDisplay(sleepSettings.weekend.wakeUpHour, sleepSettings.weekend.wakeUpMinute)}〜{formatTimeDisplay(sleepSettings.weekend.sleepHour, sleepSettings.weekend.sleepMinute)}
+                              </Text>
+                            </View>
+                          )}
+                          {!sleepSettings && (
+                            <Text style={styles.sleepSettingsText}>未設定</Text>
+                          )}
                         </TouchableOpacity>
                       </View>
 
@@ -786,6 +973,7 @@ function AppContent() {
                           onPress={() => {
                             calendarRef.current?.refreshEvents();
                             dayViewRef.current?.refreshEvents();
+                            weekViewRef.current?.refreshEvents();
                             Alert.alert('完了', 'カレンダーを更新しました');
                           }}>
                           <Text style={styles.settingsItemLabel}>カレンダーを更新</Text>
@@ -839,22 +1027,6 @@ function AppContent() {
                         </View>
                       </View>
 
-                      {/* Tips */}
-                      <View style={styles.settingsSection}>
-                        <Text style={styles.settingsSectionTitle}>使い方のヒント</Text>
-                        <View style={styles.settingsTipItem}>
-                          <Text style={styles.settingsTipText}>• 日付をダブルタップで新規予定作成</Text>
-                        </View>
-                        <View style={styles.settingsTipItem}>
-                          <Text style={styles.settingsTipText}>• 日付を長押し+ドラッグで複数日選択</Text>
-                        </View>
-                        <View style={styles.settingsTipItem}>
-                          <Text style={styles.settingsTipText}>• 左右スワイプで月を移動</Text>
-                        </View>
-                        <View style={styles.settingsTipItem}>
-                          <Text style={styles.settingsTipText}>• 色ボタンを長押しで色を削除</Text>
-                        </View>
-                      </View>
                     </>
                   )}
                 />
@@ -1047,6 +1219,7 @@ function AppContent() {
           formatTimeDisplay={formatTimeDisplay}
         />
       </SafeAreaView>
+      <UndoToast action={undoAction} onDismiss={() => setUndoAction(null)} />
       {!__DEV__ && (
         <View style={styles.bannerContainer}>
           <BannerAd
@@ -1404,7 +1577,111 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#666',
   },
-bannerContainer: {
+  sleepSettingsItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+  },
+  sleepSettingsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  sleepSettingsValues: {
+    marginTop: 6,
+    gap: 2,
+  },
+  sleepSettingsText: {
+    fontSize: 14,
+    color: '#007AFF',
+  },
+  templateOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 30,
+  },
+  templateContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    width: '100%',
+    maxHeight: '70%',
+    overflow: 'hidden',
+  },
+  templateHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  templateTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#333',
+  },
+  templateCloseBtn: {
+    fontSize: 16,
+    color: '#007AFF',
+  },
+  templateList: {
+    maxHeight: 300,
+  },
+  templateItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  templateItemColor: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 12,
+  },
+  templateItemContent: {
+    flex: 1,
+  },
+  templateItemTitle: {
+    fontSize: 16,
+    color: '#333',
+    marginBottom: 2,
+  },
+  templateItemDuration: {
+    fontSize: 13,
+    color: '#999',
+  },
+  templateEmpty: {
+    padding: 32,
+    alignItems: 'center',
+  },
+  templateEmptyText: {
+    fontSize: 15,
+    color: '#999',
+    marginBottom: 8,
+  },
+  templateEmptyHint: {
+    fontSize: 13,
+    color: '#ccc',
+    textAlign: 'center',
+  },
+  templateNewBtn: {
+    padding: 16,
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+  },
+  templateNewBtnText: {
+    fontSize: 16,
+    color: '#007AFF',
+    fontWeight: '600',
+  },
+  bannerContainer: {
     alignItems: 'center',
     backgroundColor: '#f5f5f5',
   },

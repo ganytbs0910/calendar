@@ -54,7 +54,9 @@
       "Bash(log stream:*)",
       "Bash(sudo xcodebuild:*)",
       "Bash(xcode-select:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(npm run:*)",
+      "Bash(npx vite:*)"
     ]
   }
 }
