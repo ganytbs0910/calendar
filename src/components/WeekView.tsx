@@ -13,12 +13,12 @@ import {
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
 import {getAllEventColors} from './AddEventModal';
 import {useTheme} from '../theme/ThemeContext';
+import {SleepSettings, getSettingsForDate} from '../services/sleepSettingsService';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const TIME_LABEL_WIDTH = 48;
 const DAY_WIDTH = (SCREEN_WIDTH - TIME_LABEL_WIDTH) / 7;
-const HOUR_HEIGHT = 56;
-const TOTAL_HOURS = 24;
+const HOUR_HEIGHT = 44;
 const WEEKDAYS_JA = ['日', '月', '火', '水', '木', '金', '土'];
 
 export interface WeekViewRef {
@@ -31,6 +31,7 @@ interface WeekViewProps {
   onTimeRangeSelect?: (startDate: Date, endDate: Date) => void;
   onDayChange?: (date: Date) => void;
   hasPermission?: boolean;
+  sleepSettings?: SleepSettings | null;
 }
 
 export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
@@ -39,6 +40,7 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
   onTimeRangeSelect,
   onDayChange,
   hasPermission,
+  sleepSettings,
 }, ref) => {
   const {colors, isDark} = useTheme();
   const scrollViewRef = useRef<ScrollView>(null);
@@ -69,12 +71,14 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
   const lpTouchYRef = useRef(0);
   const lpTouchXRef = useRef(0);
   const lpWasDragRef = useRef(false);
+  const lpTouchTimeRef = useRef(0);
+  const scrollingRef = useRef(false);
+  const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const gridTopOnScreenRef = useRef(0);
   const timelineRef = useRef<View>(null);
 
-  // Grid colors
-  const gridColor = isDark ? '#333' : '#d0d0d0';
-  const gridColorLight = isDark ? '#2a2a2a' : '#e8e8e8';
+  // Grid colors — subtle so events stand out
+  const gridColor = isDark ? '#2c2c2e' : '#e0e0e0';
 
   const weekStart = useMemo(() => {
     const d = new Date(currentDate);
@@ -92,6 +96,20 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
       return d;
     });
   }, [weekStart]);
+
+  // Display hour range based on sleep settings
+  const {displayStartHour, displayEndHour} = useMemo(() => {
+    if (!sleepSettings) return {displayStartHour: 0, displayEndHour: 24};
+    // Use the earlier wake time and later sleep time across weekday/weekend
+    const wakeHour = Math.min(sleepSettings.weekday.wakeUpHour, sleepSettings.weekend.wakeUpHour);
+    const sleepHour = Math.max(sleepSettings.weekday.sleepHour, sleepSettings.weekend.sleepHour);
+    return {
+      displayStartHour: Math.max(0, wakeHour),
+      displayEndHour: Math.min(25, sleepHour + 1), // +1 for buffer
+    };
+  }, [sleepSettings]);
+
+  const totalDisplayHours = displayEndHour - displayStartHour;
 
   const fetchEvents = useCallback(async () => {
     if (!hasPermission) return;
@@ -128,13 +146,13 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
   useEffect(() => {
     if (!hasScrolledRef.current) {
       const now = new Date();
-      const scrollY = Math.max(0, (now.getHours() - 2) * HOUR_HEIGHT);
+      const scrollY = Math.max(0, (now.getHours() - displayStartHour - 1) * HOUR_HEIGHT);
       setTimeout(() => {
         scrollViewRef.current?.scrollTo({y: scrollY, animated: false});
       }, 100);
       hasScrolledRef.current = true;
     }
-  }, []);
+  }, [displayStartHour]);
 
   useImperativeHandle(ref, () => ({
     refreshEvents: fetchEvents,
@@ -143,9 +161,9 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
   // ── Helper: pageY → minutes ──
   const pageYToMinutes = useCallback((pageY: number) => {
     const relativeY = pageY - gridTopOnScreenRef.current + scrollOffsetRef.current;
-    const minutes = (relativeY / HOUR_HEIGHT) * 60;
+    const minutes = (relativeY / HOUR_HEIGHT) * 60 + displayStartHour * 60;
     return Math.round(minutes / 5) * 5; // snap to 5 min
-  }, []);
+  }, [displayStartHour]);
 
   // ── Helper: pageX → dayIndex ──
   const pageXToDayIndex = useCallback((pageX: number) => {
@@ -159,6 +177,7 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
     const {pageX, pageY} = e.nativeEvent;
     lpTouchYRef.current = pageY;
     lpTouchXRef.current = pageX;
+    lpTouchTimeRef.current = Date.now();
     lpActiveRef.current = false;
     lpWasDragRef.current = false;
 
@@ -220,7 +239,9 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
     }
   }, [pageYToMinutes]);
 
-  const handleTouchEnd = useCallback(() => {
+  const handleTouchEnd = useCallback((e: any) => {
+    const {pageX, pageY} = e.nativeEvent;
+
     if (lpTimerRef.current) {
       clearTimeout(lpTimerRef.current);
       lpTimerRef.current = null;
@@ -241,8 +262,24 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
       return;
     }
 
-    // Swipe detection for week change
-    // (handled by PanResponder instead)
+    // Single tap on empty slot → create 1-hour event
+    // Must be: quick tap (< 250ms), no movement, not scrolling
+    const tapDuration = Date.now() - lpTouchTimeRef.current;
+    if (!lpWasDragRef.current && !scrollingRef.current && tapDuration < 250 && pageX > TIME_LABEL_WIDTH) {
+      const dx = Math.abs(pageX - lpTouchXRef.current);
+      const dy = Math.abs(pageY - lpTouchYRef.current);
+      if (dx < 5 && dy < 5 && onTimeRangeSelect) {
+        const dayIndex = pageXToDayIndex(pageX);
+        const minutes = pageYToMinutes(pageY);
+        const snappedMin = Math.round(minutes / 30) * 30; // snap to 30min
+        const day = weekDays[dayIndex];
+        const s = new Date(day);
+        s.setHours(Math.floor(snappedMin / 60), snappedMin % 60, 0, 0);
+        const ed = new Date(s.getTime() + 60 * 60 * 1000); // 1 hour
+        onTimeRangeSelect(s, ed);
+        return;
+      }
+    }
   }, [weekDays, onTimeRangeSelect]);
 
   // ── Swipe-to-delete for events ──
@@ -400,8 +437,8 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
 
   const currentTimeOffset = useMemo(() => {
     const now = new Date();
-    return (now.getHours() + now.getMinutes() / 60) * HOUR_HEIGHT;
-  }, []);
+    return (now.getHours() + now.getMinutes() / 60 - displayStartHour) * HOUR_HEIGHT;
+  }, [displayStartHour]);
 
   const todayColumnIndex = useMemo(() => {
     for (let i = 0; i < 7; i++) {
@@ -422,7 +459,7 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
   return (
     <View style={[styles.container, {backgroundColor: colors.background}]} {...panResponder.panHandlers}>
       {/* Week header */}
-      <View style={[styles.header, {backgroundColor: colors.surface, borderBottomColor: gridColor}]}>
+      <View style={[styles.header, {backgroundColor: colors.surface, borderBottomColor: colors.border}]}>
         <View style={styles.timeCorner}>
           <Text style={[styles.monthLabel, {color: colors.textSecondary}]}>
             {monthDisplay}
@@ -432,10 +469,7 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
           const isTodayDate = isToday(day);
           const dayOfWeek = day.getDay();
           return (
-            <View key={i} style={[
-              styles.headerDayWrapper,
-              i > 0 && {borderLeftWidth: 1, borderLeftColor: gridColor},
-            ]}>
+            <View key={i} style={styles.headerDayWrapper}>
               <TouchableOpacity
                 style={styles.headerDay}
                 onPress={() => onDayChange?.(weekDays[i])}
@@ -471,14 +505,14 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
 
       {/* All-day events row */}
       {hasAllDayEvents && (
-        <View style={[styles.allDayRow, {backgroundColor: colors.surface, borderBottomColor: gridColor}]}>
+        <View style={[styles.allDayRow, {backgroundColor: colors.surface, borderBottomColor: colors.border}]}>
           <View style={styles.allDayLabel}>
             <Text style={[styles.allDayLabelText, {color: colors.textTertiary}]}>終日</Text>
           </View>
           {weekDays.map((_, i) => {
             const dayAllDay = allDayEventsByDay.get(i) || [];
             return (
-              <View key={i} style={[styles.allDayCell, i > 0 && {borderLeftWidth: 1, borderLeftColor: gridColor}]}>
+              <View key={i} style={styles.allDayCell}>
                 {dayAllDay.slice(0, 2).map(event => (
                   <TouchableOpacity
                     key={event.id}
@@ -500,12 +534,17 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
         ref={scrollViewRef}
         style={styles.scrollView}
         scrollEnabled={!lpActiveRef.current}
-        onScroll={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y; }}
+        onScroll={(e) => {
+          scrollOffsetRef.current = e.nativeEvent.contentOffset.y;
+          scrollingRef.current = true;
+          if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
+          scrollTimerRef.current = setTimeout(() => { scrollingRef.current = false; }, 150);
+        }}
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}>
         <View
           ref={timelineRef}
-          style={styles.timelineContainer}
+          style={[styles.timelineContainer, {height: totalDisplayHours * HOUR_HEIGHT + 1}]}
           onLayout={() => {
             timelineRef.current?.measureInWindow((_x: number, y: number) => {
               gridTopOnScreenRef.current = y;
@@ -535,42 +574,36 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
           )}
 
           {/* Horizontal grid lines */}
-          {Array.from({length: TOTAL_HOURS}, (_, h) => (
-            <React.Fragment key={h}>
-              <View style={[styles.gridLineH, {top: h * HOUR_HEIGHT, backgroundColor: gridColor}]} />
-              <View style={[styles.gridLineH, {
-                top: h * HOUR_HEIGHT + HOUR_HEIGHT / 2,
-                backgroundColor: gridColorLight,
-                left: TIME_LABEL_WIDTH,
-              }]} />
-            </React.Fragment>
+          {Array.from({length: totalDisplayHours + 1}, (_, i) => (
+            <View key={i} style={[styles.gridLineH, {
+              top: i * HOUR_HEIGHT,
+              backgroundColor: gridColor,
+              left: TIME_LABEL_WIDTH,
+            }]} />
           ))}
-          <View style={[styles.gridLineH, {top: TOTAL_HOURS * HOUR_HEIGHT, backgroundColor: gridColor}]} />
 
           {/* Vertical column lines */}
           {Array.from({length: 8}, (_, i) => (
             <View
               key={`col-${i}`}
-              style={[
-                styles.gridLineV,
-                {
-                  left: TIME_LABEL_WIDTH + i * DAY_WIDTH,
-                  backgroundColor: gridColor,
-                },
-              ]}
+              style={[styles.gridLineV, {
+                left: TIME_LABEL_WIDTH + i * DAY_WIDTH,
+                backgroundColor: gridColor,
+              }]}
             />
           ))}
 
           {/* Time labels */}
-          {Array.from({length: TOTAL_HOURS}, (_, h) => (
-            h > 0 ? (
-              <View key={`label-${h}`} style={[styles.timeLabel, {top: h * HOUR_HEIGHT - 7}]}>
+          {Array.from({length: totalDisplayHours}, (_, i) => {
+            const h = displayStartHour + i;
+            return i > 0 ? (
+              <View key={`label-${h}`} style={[styles.timeLabel, {top: i * HOUR_HEIGHT - 7}]}>
                 <Text style={[styles.timeLabelText, {color: colors.textTertiary}]}>
                   {h.toString().padStart(2, '0')}:00
                 </Text>
               </View>
-            ) : null
-          ))}
+            ) : null;
+          })}
 
           {/* Events */}
           {Array.from({length: 7}, (_, dayIndex) => {
@@ -583,7 +616,7 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
               const endMinutes = end.getHours() * 60 + end.getMinutes();
               const duration = Math.max(endMinutes - startMinutes, 15);
 
-              const top = (startMinutes / 60) * HOUR_HEIGHT;
+              const top = ((startMinutes - displayStartHour * 60) / 60) * HOUR_HEIGHT;
               const height = Math.max((duration / 60) * HOUR_HEIGHT, 20);
               const baseLeft = TIME_LABEL_WIDTH + dayIndex * DAY_WIDTH + 2;
               const width = DAY_WIDTH - 4;
@@ -648,7 +681,7 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
             <View style={[
               styles.creationPreview,
               {
-                top: (creatingEvent.startMin / 60) * HOUR_HEIGHT,
+                top: ((creatingEvent.startMin - displayStartHour * 60) / 60) * HOUR_HEIGHT,
                 height: Math.max(((creatingEvent.endMin - creatingEvent.startMin) / 60) * HOUR_HEIGHT, 10),
                 left: TIME_LABEL_WIDTH + creatingEvent.dayIndex * DAY_WIDTH + 2,
                 width: DAY_WIDTH - 4,
@@ -771,20 +804,18 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   timelineContainer: {
-    height: TOTAL_HOURS * HOUR_HEIGHT + 1,
     position: 'relative',
   },
   gridLineH: {
     position: 'absolute',
-    left: 0,
     right: 0,
-    height: 1,
+    height: StyleSheet.hairlineWidth,
   },
   gridLineV: {
     position: 'absolute',
     top: 0,
     bottom: 0,
-    width: 1,
+    width: StyleSheet.hairlineWidth,
   },
   todayColumnHighlight: {
     position: 'absolute',

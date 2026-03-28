@@ -241,6 +241,9 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
   const lpHasExceededThresholdRef = useRef(false); // 10分以上ずらしたことがあるか
   const lpLastPageXRef = useRef(0);
   const lpWasDragRef = useRef(false); // ドラッグ/リサイズが発動したか
+  const lpTouchTimeRef = useRef(0);
+  const scrollingRef = useRef(false);
+  const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const swipeAnimX = useRef(new Animated.Value(0)).current;
 
   // Swipe-to-delete
@@ -554,10 +557,19 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
         });
         const counts: Record<string, number> = {};
         for (const ev of filtered) {
-          if (!ev.startDate) continue;
-          const d = new Date(ev.startDate);
-          const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-          counts[key] = (counts[key] || 0) + 1;
+          if (!ev.startDate || !ev.endDate) continue;
+          const evStart = new Date(ev.startDate);
+          const evEnd = new Date(ev.endDate);
+          // Count for each day the event spans
+          const cur = new Date(evStart);
+          cur.setHours(0, 0, 0, 0);
+          const endDay = new Date(evEnd);
+          endDay.setHours(0, 0, 0, 0);
+          while (cur <= endDay) {
+            const key = `${cur.getFullYear()}-${cur.getMonth()}-${cur.getDate()}`;
+            counts[key] = (counts[key] || 0) + 1;
+            cur.setDate(cur.getDate() + 1);
+          }
         }
         setStripEventCounts(counts);
       } catch (_e) {}
@@ -1256,6 +1268,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
       const es = new Date(event.startDate);
       const ee = new Date(event.endDate);
       if (es > dayEnd || ee < dayStart) return;
+
       const startMin = es < dayStart ? 0 : es.getHours() * 60 + es.getMinutes();
       let endMin: number;
       if (ee > dayEnd) {
@@ -1570,6 +1583,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
     lpTouchXRef.current = e.nativeEvent.pageX;
     lpLastPageXRef.current = e.nativeEvent.pageX;
     lpWasDragRef.current = false;
+    lpTouchTimeRef.current = Date.now();
     lpSnapRef.current = 15;
 
     lpTimerRef.current = setTimeout(() => {
@@ -1734,8 +1748,22 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
       setCreatingEvent(null);
       return;
     }
-    // 横スワイプで日を変更（長押し・ドラッグ・リサイズが一度も発動しなかった場合のみ）
+    // シングルタップで空きスロットに1時間の予定を作成
+    // 条件: 短いタップ(< 250ms)、移動なし、スクロール中でない
     const swipeDx = lpLastPageXRef.current - lpTouchXRef.current;
+    const swipeDy = lpLastPageYRef.current - lpTouchYRef.current;
+    const tapDuration = Date.now() - lpTouchTimeRef.current;
+    if (!lpWasDragRef.current && !scrollingRef.current && tapDuration < 250 && Math.abs(swipeDx) < 5 && Math.abs(swipeDy) < 5 && onTimeRangeSelect) {
+      const touchMin = pageYToMinutes(lpTouchYRef.current);
+      const snappedMin = Math.round(touchMin / 30) * 30;
+      const clampedMin = Math.max(displayStartHour * 60, Math.min((displayEndHour - 1) * 60, snappedMin));
+      const s = new Date(dayStart);
+      s.setHours(Math.floor(clampedMin / 60), clampedMin % 60, 0, 0);
+      const ed = new Date(s.getTime() + 60 * 60 * 1000);
+      onTimeRangeSelect(s, ed);
+      return;
+    }
+    // 横スワイプで日を変更（長押し・ドラッグ・リサイズが一度も発動しなかった場合のみ）
     if (!lpWasDragRef.current && Math.abs(swipeDx) > 60) {
       const direction = swipeDx < 0 ? 1 : -1;
       // スライドアウトアニメーション
@@ -1950,6 +1978,9 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
         showsVerticalScrollIndicator={false}
         onScroll={(e) => {
           scrollOffsetRef.current = e.nativeEvent.contentOffset.y;
+          scrollingRef.current = true;
+          if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
+          scrollTimerRef.current = setTimeout(() => { scrollingRef.current = false; }, 150);
         }}
         scrollEventThrottle={16}
         scrollEnabled={!draggingTask && !draggingEvent && !creatingEvent && !resizingEvent}
@@ -1958,15 +1989,16 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
         {/* All-day events */}
         {events.filter(e => e.allDay).length > 0 && (
           <View style={[styles.allDaySection, {borderBottomColor: colors.borderLight}]}>
+            <Text style={[styles.allDaySectionLabel, {color: colors.textTertiary}]}>終日</Text>
             {events.filter(e => e.allDay).map(event => {
               const evColor = (event.id && eventColors[event.id]) || event.calendar?.color || colors.primary;
               return (
                 <TouchableOpacity
                   key={event.id}
-                  style={[styles.allDayChip, {backgroundColor: evColor + '20', borderColor: evColor}]}
+                  style={[styles.allDayChip, {backgroundColor: evColor, borderLeftColor: evColor}]}
                   onPress={() => onEventPress?.(event)}
                   activeOpacity={0.7}>
-                  <Text style={[styles.allDayChipText, {color: evColor}]} numberOfLines={1}>{event.title}</Text>
+                  <Text style={[styles.allDayChipText, {color: '#fff'}]} numberOfLines={1}>{event.title}</Text>
                 </TouchableOpacity>
               );
             })}
@@ -3299,22 +3331,27 @@ const styles = StyleSheet.create({
 
   // All-day
   allDaySection: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     paddingVertical: 8,
-    gap: 6,
+    gap: 4,
     borderBottomWidth: 1,
   },
+  allDaySectionLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    marginBottom: 2,
+    paddingLeft: 2,
+  },
   allDayChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderRadius: 8,
-    borderWidth: 1,
+    borderWidth: 0,
+    borderLeftWidth: 4,
   },
   allDayChipText: {
-    fontSize: 13,
-    fontWeight: '500',
+    fontSize: 14,
+    fontWeight: '600',
   },
 
   // ── Flow Timeline ──

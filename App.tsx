@@ -247,6 +247,7 @@ function AppContent() {
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [templates, setTemplates] = useState<EventTemplate[]>([]);
   const [undoAction, setUndoAction] = useState<UndoAction | null>(null);
+  const [initialColor, setInitialColor] = useState<string | undefined>(undefined);
   const calendarRef = useRef<CalendarRef>(null);
   const dayViewRef = useRef<DayViewRef>(null);
   const weekViewRef = useRef<WeekViewRef>(null);
@@ -304,6 +305,7 @@ function AppContent() {
     } as any;
     // Don't set id so it creates a new event (copy mode behavior)
     setEditingEvent(templateEvent);
+    setInitialColor(template.color);
     setShowAddModal(true);
   }, [selectedDate]);
 
@@ -414,6 +416,7 @@ function AppContent() {
     setInitialStartDate(undefined);
     setInitialEndDate(undefined);
     setEditingEvent(null);
+    setInitialColor(undefined);
   }, []);
 
   const handleEventAdded = useCallback(() => {
@@ -681,6 +684,7 @@ function AppContent() {
             onEventPress={handleEventPress}
             onDayChange={handleDayChange}
             hasPermission={hasPermission}
+            sleepSettings={sleepSettings}
           />
         ) : (
           <DayView
@@ -702,6 +706,7 @@ function AppContent() {
           initialDate={initialStartDate}
           initialEndDate={initialEndDate}
           editingEvent={editingEvent}
+          initialColor={initialColor}
         />
 
         <EventDetailModal

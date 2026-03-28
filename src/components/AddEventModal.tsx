@@ -271,6 +271,7 @@ interface AddEventModalProps {
   initialDate?: Date;
   initialEndDate?: Date;
   editingEvent?: CalendarEventReadable | null;
+  initialColor?: string;
 }
 
 export const AddEventModal: React.FC<AddEventModalProps> = ({
@@ -280,6 +281,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   initialDate,
   initialEndDate,
   editingEvent,
+  initialColor,
 }) => {
   const isEditing = !!(editingEvent?.id);
   const isCopying = !!(editingEvent && !editingEvent.id);
@@ -303,6 +305,40 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   const [showAddColor, setShowAddColor] = useState(false);
   const [reminder, setReminder] = useState<number | null>(null);
   const [recurrence, setRecurrence] = useState<'none' | 'daily' | 'weekly'>('none');
+  const [titleSuggestions, setTitleSuggestions] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [recentTitles, setRecentTitles] = useState<string[]>([]);
+
+  // Load recent event titles for suggestions
+  useEffect(() => {
+    if (visible && !isEditing) {
+      const fetchTitles = async () => {
+        try {
+          const now = new Date();
+          const past = new Date();
+          past.setMonth(past.getMonth() - 2);
+          const events = await RNCalendarEvents.fetchAllEvents(past.toISOString(), now.toISOString());
+          // Count frequency
+          const freq = new Map<string, number>();
+          events.forEach(e => {
+            if (e.title && e.title.trim()) {
+              const t = e.title.trim();
+              freq.set(t, (freq.get(t) || 0) + 1);
+            }
+          });
+          // Sort by frequency, take top 20 unique
+          const sorted = [...freq.entries()]
+            .sort((a, b) => b[1] - a[1])
+            .map(([t]) => t)
+            .slice(0, 20);
+          setRecentTitles(sorted);
+        } catch {
+          // ignore
+        }
+      };
+      fetchTitles();
+    }
+  }, [visible, isEditing]);
 
   // Load color settings on mount
   useEffect(() => {
@@ -409,7 +445,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         }
         setTitle('');
         setReminder(null);
-        setSelectedColor(DEFAULT_EVENT_COLORS[0].color);
+        setSelectedColor(initialColor || DEFAULT_EVENT_COLORS[0].color);
       } else {
         // No initialDate - use today with smart start time
         const today = new Date();
@@ -446,10 +482,10 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         });
         setTitle('');
         setReminder(null);
-        setSelectedColor(DEFAULT_EVENT_COLORS[0].color);
+        setSelectedColor(initialColor || DEFAULT_EVENT_COLORS[0].color);
       }
     }
-  }, [visible, initialDate, initialEndDate, editingEvent]);
+  }, [visible, initialDate, initialEndDate, editingEvent, initialColor]);
 
   const handleClose = useCallback(() => {
     onClose();
@@ -866,7 +902,31 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                 style={[styles.titleInput, {color: colors.text}]}
                 placeholder="タイトル"
                 value={title}
-                onChangeText={setTitle}
+                onChangeText={(text) => {
+                  setTitle(text);
+                  if (text.length > 0 && recentTitles.length > 0) {
+                    const filtered = recentTitles.filter(t =>
+                      t.toLowerCase().includes(text.toLowerCase()) && t !== text
+                    );
+                    setTitleSuggestions(filtered.slice(0, 5));
+                    setShowSuggestions(filtered.length > 0);
+                  } else if (text.length === 0) {
+                    setTitleSuggestions(recentTitles.slice(0, 5));
+                    setShowSuggestions(true);
+                  } else {
+                    setShowSuggestions(false);
+                  }
+                }}
+                onFocus={() => {
+                  if (title.length === 0 && recentTitles.length > 0) {
+                    setTitleSuggestions(recentTitles.slice(0, 5));
+                    setShowSuggestions(true);
+                  }
+                }}
+                onBlur={() => {
+                  // Delay to allow tap on suggestion
+                  setTimeout(() => setShowSuggestions(false), 200);
+                }}
                 placeholderTextColor={colors.textTertiary}
                 accessibilityLabel="予定のタイトル"
                 accessibilityHint="予定のタイトルを入力してください"
@@ -874,12 +934,29 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
               {title.length > 0 && (
                 <TouchableOpacity
                   style={styles.titleClearButton}
-                  onPress={() => setTitle('')}
+                  onPress={() => { setTitle(''); setShowSuggestions(false); }}
                   accessibilityLabel="タイトルをクリア">
                   <Text style={[styles.titleClearButtonText, {color: colors.textTertiary}]}>×</Text>
                 </TouchableOpacity>
               )}
             </View>
+            {showSuggestions && titleSuggestions.length > 0 && (
+              <View style={[styles.suggestionsContainer, {backgroundColor: colors.inputBackground}]}>
+                {titleSuggestions.map((suggestion, i) => (
+                  <TouchableOpacity
+                    key={`${suggestion}-${i}`}
+                    style={[styles.suggestionItem, i > 0 && {borderTopWidth: 1, borderTopColor: colors.borderLight}]}
+                    onPress={() => {
+                      setTitle(suggestion);
+                      setShowSuggestions(false);
+                    }}>
+                    <Text style={[styles.suggestionText, {color: colors.text}]} numberOfLines={1}>
+                      {suggestion}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
           </View>
 
           <View style={[styles.dateTimeSection, {backgroundColor: colors.surface}]}>
@@ -1369,6 +1446,20 @@ const styles = StyleSheet.create({
     fontSize: 20,
     color: '#999',
     fontWeight: '300',
+  },
+  suggestionsContainer: {
+    borderRadius: 8,
+    marginTop: 4,
+    marginHorizontal: 4,
+    marginBottom: 4,
+    overflow: 'hidden',
+  },
+  suggestionItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  suggestionText: {
+    fontSize: 15,
   },
   dateTimeSection: {
     backgroundColor: '#fff',

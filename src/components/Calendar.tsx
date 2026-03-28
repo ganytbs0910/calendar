@@ -702,7 +702,9 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
         const dayEvents = getEventsForDate(dayItem.date);
         dayEvents.forEach(event => {
           if (!event.startDate || !event.endDate || !event.id) return;
-          if (seen.has(event.id)) return;
+          // Use id + startDate as key to handle recurring event instances
+          const eventKey = `${event.id}_${event.startDate}`;
+          if (seen.has(eventKey)) return;
 
           const eventStart = new Date(event.startDate);
           const eventEnd = new Date(event.endDate);
@@ -754,7 +756,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
           }
 
           if (endIdx >= startIdx) {
-            seen.add(event.id);
+            seen.add(eventKey);
 
             // Find available row slot
             let rowIndex = 0;
