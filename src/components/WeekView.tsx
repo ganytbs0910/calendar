@@ -32,6 +32,7 @@ interface WeekViewProps {
   onDayChange?: (date: Date) => void;
   hasPermission?: boolean;
   sleepSettings?: SleepSettings | null;
+  onSwitchToDay?: () => void;
 }
 
 export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
@@ -41,6 +42,7 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
   onDayChange,
   hasPermission,
   sleepSettings,
+  onSwitchToDay,
 }, ref) => {
   const {colors, isDark} = useTheme();
   const scrollViewRef = useRef<ScrollView>(null);
@@ -384,15 +386,15 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
     events.forEach(event => {
       if (!event.startDate || !event.endDate || event.allDay) return;
       const eventStart = new Date(event.startDate);
+      const eventEnd = new Date(event.endDate);
+      // Add event to each day it spans
       for (let i = 0; i < 7; i++) {
-        const day = weekDays[i];
-        if (
-          eventStart.getFullYear() === day.getFullYear() &&
-          eventStart.getMonth() === day.getMonth() &&
-          eventStart.getDate() === day.getDate()
-        ) {
+        const dayStart = new Date(weekDays[i]);
+        dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date(dayStart);
+        dayEnd.setDate(dayEnd.getDate() + 1);
+        if (eventStart < dayEnd && eventEnd > dayStart) {
           map.get(i)!.push(event);
-          break;
         }
       }
     });
@@ -460,29 +462,43 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
     <View style={[styles.container, {backgroundColor: colors.background}]} {...panResponder.panHandlers}>
       {/* Week header */}
       <View style={[styles.header, {backgroundColor: colors.surface, borderBottomColor: colors.border}]}>
-        <View style={styles.timeCorner}>
-          <Text style={[styles.monthLabel, {color: colors.textSecondary}]}>
+        <TouchableOpacity
+          style={[styles.timeCorner, onSwitchToDay && {backgroundColor: isDark ? '#2c2c2e' : '#e8f4fd', borderRadius: 8, marginLeft: 4}]}
+          onPress={onSwitchToDay}
+          disabled={!onSwitchToDay}>
+          <Text style={[styles.monthLabel, {color: onSwitchToDay ? colors.primary : colors.textSecondary}]}>
             {monthDisplay}
           </Text>
-        </View>
+          {onSwitchToDay && (
+            <Text style={[styles.switchLabel, {color: colors.primary}]}>⇄ 日</Text>
+          )}
+        </TouchableOpacity>
         {weekDays.map((day, i) => {
           const isTodayDate = isToday(day);
           const dayOfWeek = day.getDay();
+          const eventCount = (eventsByDay.get(i) || []).length + (allDayEventsByDay.get(i) || []).length;
           return (
             <View key={i} style={styles.headerDayWrapper}>
               <TouchableOpacity
                 style={styles.headerDay}
                 onPress={() => onDayChange?.(weekDays[i])}
                 activeOpacity={0.6}>
-                <Text style={[
-                  styles.headerWeekday,
-                  {color: colors.textTertiary},
-                  dayOfWeek === 0 && {color: colors.sunday},
-                  dayOfWeek === 6 && {color: colors.saturday},
-                  isTodayDate && {color: colors.primary},
-                ]}>
-                  {WEEKDAYS_JA[dayOfWeek]}
-                </Text>
+                <View style={styles.headerWeekdayRow}>
+                  <Text style={[
+                    styles.headerWeekday,
+                    {color: colors.textTertiary},
+                    dayOfWeek === 0 && {color: colors.sunday},
+                    dayOfWeek === 6 && {color: colors.saturday},
+                    isTodayDate && {color: colors.primary},
+                  ]}>
+                    {WEEKDAYS_JA[dayOfWeek]}
+                  </Text>
+                  {eventCount > 0 && (
+                    <View style={[styles.headerBadge, {backgroundColor: colors.error}]}>
+                      <Text style={styles.headerBadgeText}>{eventCount}</Text>
+                    </View>
+                  )}
+                </View>
                 <View style={[
                   styles.headerDateCircle,
                   isTodayDate && {backgroundColor: colors.primary},
@@ -612,12 +628,30 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
               if (!event.startDate || !event.endDate || !event.id) return null;
               const start = new Date(event.startDate);
               const end = new Date(event.endDate);
-              const startMinutes = start.getHours() * 60 + start.getMinutes();
-              const endMinutes = end.getHours() * 60 + end.getMinutes();
+              const dayDate = weekDays[dayIndex];
+              const dayStartTime = new Date(dayDate);
+              dayStartTime.setHours(0, 0, 0, 0);
+              const dayEndTime = new Date(dayDate);
+              dayEndTime.setHours(23, 59, 59, 999);
+
+              // Clamp event to this day's boundaries
+              const clampedStart = start < dayStartTime ? dayStartTime : start;
+              const clampedEnd = end > dayEndTime ? dayEndTime : end;
+              const startMinutes = clampedStart.getHours() * 60 + clampedStart.getMinutes();
+              let endMinutes = clampedEnd.getHours() * 60 + clampedEnd.getMinutes();
+              // If end is midnight next day (clamped to 23:59), treat as end of day
+              if (endMinutes === 0 && end > dayEndTime) endMinutes = 24 * 60;
+              if (clampedEnd >= dayEndTime) endMinutes = Math.max(endMinutes, 23 * 60 + 59);
               const duration = Math.max(endMinutes - startMinutes, 15);
 
-              const top = ((startMinutes - displayStartHour * 60) / 60) * HOUR_HEIGHT;
-              const height = Math.max((duration / 60) * HOUR_HEIGHT, 20);
+              let top = ((startMinutes - displayStartHour * 60) / 60) * HOUR_HEIGHT;
+              let height = Math.max((duration / 60) * HOUR_HEIGHT, 20);
+              // Clamp to visible area — if event starts before display range, cut the top
+              if (top < 0) {
+                height = height + top; // reduce height by the hidden portion
+                top = 0;
+              }
+              if (height <= 0 || top > totalDisplayHours * HOUR_HEIGHT) return null;
               const baseLeft = TIME_LABEL_WIDTH + dayIndex * DAY_WIDTH + 2;
               const width = DAY_WIDTH - 4;
 
@@ -746,6 +780,11 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '600',
   },
+  switchLabel: {
+    fontSize: 9,
+    fontWeight: '700',
+    marginTop: 1,
+  },
   headerDayWrapper: {
     width: DAY_WIDTH,
   },
@@ -754,10 +793,28 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 2,
   },
+  headerWeekdayRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    marginBottom: 3,
+  },
   headerWeekday: {
     fontSize: 11,
     fontWeight: '600',
-    marginBottom: 3,
+  },
+  headerBadge: {
+    minWidth: 14,
+    height: 14,
+    borderRadius: 7,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 3,
+  },
+  headerBadgeText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#fff',
   },
   headerDateCircle: {
     width: 28,

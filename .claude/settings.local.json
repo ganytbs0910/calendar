@@ -56,7 +56,10 @@
       "Bash(xcode-select:*)",
       "Bash(wc:*)",
       "Bash(npm run:*)",
-      "Bash(npx vite:*)"
+      "Bash(npx vite:*)",
+      "Bash(rm -rf /Users/gan/Library/Developer/Xcode/DerivedData/CalendarApp-fzthcrbghfgphacwttzaroajmosu)",
+      "Bash(pod deintegrate:*)",
+      "Bash(brew list:*)"
     ]
   }
 }

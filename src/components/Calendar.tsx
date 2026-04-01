@@ -1148,8 +1148,8 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                               )}
                             </View>
                           )}
-                          {/* Drag preview in target cell */}
-                          {isEventDragTarget && draggingEvent && (
+                          {/* Drag preview in target cell (only if room) */}
+                          {isEventDragTarget && draggingEvent && totalEvents < 2 && (
                             <View style={[styles.singleDayEventsContainer, multiDayOffset > 0 && {marginTop: multiDayOffset}]}>
                               <View
                                 style={[
@@ -1465,6 +1465,7 @@ const styles = StyleSheet.create({
     paddingTop: 2,
     borderRightWidth: 0.5,
     borderBottomWidth: 0.5,
+    overflow: 'hidden',
     borderColor: '#e0e0e0',
   },
   dayText: {

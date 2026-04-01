@@ -527,7 +527,11 @@ function AppContent() {
   }, [refreshAllViews]);
 
   const toggleViewMode = useCallback(() => {
-    setViewMode(prev => prev === 'month' ? 'week' : prev === 'week' ? 'day' : 'month');
+    setViewMode(prev => prev === 'month' ? 'day' : 'month');
+  }, []);
+
+  const switchBetweenDayWeek = useCallback(() => {
+    setViewMode(prev => prev === 'day' ? 'week' : 'day');
   }, []);
 
   const goToToday = useCallback(() => {
@@ -649,7 +653,7 @@ function AppContent() {
               accessibilityLabel="表示切替"
               accessibilityRole="button">
               <Text style={styles.viewToggleText}>
-                {viewMode === 'month' ? '月' : viewMode === 'week' ? '週' : '日'}
+                {viewMode === 'month' ? '月' : '日'}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -685,6 +689,7 @@ function AppContent() {
             onDayChange={handleDayChange}
             hasPermission={hasPermission}
             sleepSettings={sleepSettings}
+            onSwitchToDay={() => setViewMode('day')}
           />
         ) : (
           <DayView
@@ -696,6 +701,7 @@ function AppContent() {
             hasPermission={hasPermission}
             sleepSettings={sleepSettings}
             onSleepSettingsChange={handleSleepSettingsChange}
+            onSwitchToWeek={() => setViewMode('week')}
           />
         )}
 
@@ -703,6 +709,7 @@ function AppContent() {
           visible={showAddModal}
           onClose={handleCloseModal}
           onEventAdded={handleEventAdded}
+          onDeleted={handleEventDeleted}
           initialDate={initialStartDate}
           initialEndDate={initialEndDate}
           editingEvent={editingEvent}
@@ -1024,7 +1031,7 @@ function AppContent() {
                         <Text style={styles.settingsSectionTitle}>アプリについて</Text>
                         <View style={styles.settingsItem}>
                           <Text style={styles.settingsItemLabel}>バージョン</Text>
-                          <Text style={styles.settingsItemValue}>1.6.0</Text>
+                          <Text style={styles.settingsItemValue}>1.8.0</Text>
                         </View>
                         <View style={styles.settingsItem}>
                           <Text style={styles.settingsItemLabel}>ビルド</Text>

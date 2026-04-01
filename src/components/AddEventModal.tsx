@@ -272,6 +272,7 @@ interface AddEventModalProps {
   initialEndDate?: Date;
   editingEvent?: CalendarEventReadable | null;
   initialColor?: string;
+  onDeleted?: () => void;
 }
 
 export const AddEventModal: React.FC<AddEventModalProps> = ({
@@ -282,6 +283,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   initialEndDate,
   editingEvent,
   initialColor,
+  onDeleted,
 }) => {
   const isEditing = !!(editingEvent?.id);
   const isCopying = !!(editingEvent && !editingEvent.id);
@@ -1154,6 +1156,35 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
             </TouchableOpacity>
           </View>
 
+          {isEditing && editingEvent?.id && (
+            <TouchableOpacity
+              style={[styles.deleteButtonBottom, {backgroundColor: colors.surface}]}
+              onPress={() => {
+                Alert.alert(
+                  '予定を削除',
+                  `「${title || editingEvent.title}」を削除しますか？`,
+                  [
+                    {text: 'キャンセル', style: 'cancel'},
+                    {
+                      text: '削除',
+                      style: 'destructive',
+                      onPress: async () => {
+                        try {
+                          await RNCalendarEvents.removeEvent(editingEvent.id!);
+                          handleClose();
+                          onDeleted?.();
+                        } catch {
+                          Alert.alert('エラー', '削除に失敗しました');
+                        }
+                      },
+                    },
+                  ],
+                );
+              }}>
+              <Text style={[styles.deleteButtonBottomText, {color: colors.delete}]}>この予定を削除</Text>
+            </TouchableOpacity>
+          )}
+
         </ScrollView>
 
         {/* Copy Calendar Modal */}
@@ -1763,6 +1794,15 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '600',
     color: '#fff',
+  },
+  deleteButtonBottom: {
+    borderRadius: 10,
+    padding: 16,
+    alignItems: 'center',
+    marginBottom: 32,
+  },
+  deleteButtonBottomText: {
+    fontSize: 17,
   },
   copyModalOverlay: {
     flex: 1,

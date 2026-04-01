@@ -92,6 +92,7 @@ interface DayViewProps {
   hasPermission: boolean;
   sleepSettings?: SleepSettings | null;
   onSleepSettingsChange?: (settings: SleepSettings) => void;
+  onSwitchToWeek?: () => void;
 }
 
 export interface DayViewRef {
@@ -159,6 +160,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
   hasPermission,
   sleepSettings: sleepSettingsProp,
   onSleepSettingsChange,
+  onSwitchToWeek,
 }, ref) => {
   const [events, setEvents] = useState<CalendarEventReadable[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -1862,6 +1864,11 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
       <View style={[styles.headerZone, {backgroundColor: colors.surface}]}>
         {/* Row 1: Date + nav */}
         <View style={styles.headerRow1}>
+          {onSwitchToWeek && (
+            <TouchableOpacity onPress={onSwitchToWeek} style={[styles.switchViewBtn, {backgroundColor: isDark ? '#2c2c2e' : '#e8f4fd'}]}>
+              <Text style={[styles.switchViewBtnText, {color: colors.primary}]}>⇄ 週</Text>
+            </TouchableOpacity>
+          )}
           <View style={styles.headerDateBlock}>
             <Text style={[styles.headerDay, {color: colors.text}]}>{dayStart.getDate()}</Text>
             <View>
@@ -2101,10 +2108,14 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                       {`${slot.hour}:00`}
                     </Text>
                     <View style={{flex: 1, height: HOURLY_ROW_HEIGHT - 3, marginRight: 6, flexDirection: 'row', position: 'relative'}}>
-                      {/* 30分の目盛り線 */}
-                      <View pointerEvents="none" style={{position: 'absolute', left: 0, right: 0, top: '50%', height: 0.5, backgroundColor: colors.border, opacity: 0.3, zIndex: 0}} />
                       {(() => {
-                        const grayBar = <View style={{flex: 1, backgroundColor: isDark ? colors.surfaceSecondary : '#ecedf0', borderRadius: 8}} />;
+                        const grayBar = (
+                          <View style={{flex: 1, backgroundColor: isDark ? colors.surfaceSecondary : '#ecedf0', borderRadius: 8, overflow: 'hidden'}}>
+                            <View pointerEvents="none" style={{position: 'absolute', left: '25%', top: 0, bottom: 0, width: StyleSheet.hairlineWidth, backgroundColor: isDark ? '#444' : '#d4d4d8'}} />
+                            <View pointerEvents="none" style={{position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, backgroundColor: isDark ? '#555' : '#c8c8cd'}} />
+                            <View pointerEvents="none" style={{position: 'absolute', left: '75%', top: 0, bottom: 0, width: StyleSheet.hairlineWidth, backgroundColor: isDark ? '#444' : '#d4d4d8'}} />
+                          </View>
+                        );
                         const isDragged = draggingEvent && item?.type === 'event' && item.id === draggingEvent.id;
 
                         if (!hasItems) return grayBar;
@@ -3252,6 +3263,16 @@ const styles = StyleSheet.create({
     height: 36,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  switchViewBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 14,
+    marginLeft: 6,
+  },
+  switchViewBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
   },
   navBtnText: {
     fontSize: 20,
