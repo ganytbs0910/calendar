@@ -9,6 +9,7 @@ import {
   Dimensions,
 } from 'react-native';
 import {useTheme} from '../theme/ThemeContext';
+import {useTranslation} from 'react-i18next';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
@@ -21,15 +22,16 @@ type PlanType = 'monthly' | 'yearly' | 'lifetime';
 
 export const PaywallScreen: React.FC<PaywallScreenProps> = ({visible, onClose}) => {
   const {colors, isDark} = useTheme();
+  const {t} = useTranslation();
   const [selectedPlan, setSelectedPlan] = useState<PlanType>('yearly');
   const [isPurchasing, setIsPurchasing] = useState(false);
 
   if (!visible) return null;
 
   const plans: {type: PlanType; title: string; price: string; sub: string; badge?: string}[] = [
-    {type: 'monthly', title: '月額プラン', price: '¥400', sub: '/月'},
-    {type: 'yearly', title: '年間プラン', price: '¥2,400', sub: '/年', badge: '¥2,400お得'},
-    {type: 'lifetime', title: '買い切り', price: '¥8,000', sub: '一度きり', badge: 'リリース記念'},
+    {type: 'monthly', title: t('monthlyPlan'), price: '¥400', sub: t('perMonth')},
+    {type: 'yearly', title: t('yearlyPlan'), price: '¥2,400', sub: t('perYear'), badge: t('yearlySaving')},
+    {type: 'lifetime', title: t('lifetimePlan'), price: '¥8,000', sub: t('oneTime'), badge: t('launchSpecial')},
   ];
 
   const handlePurchase = async () => {
@@ -37,14 +39,14 @@ export const PaywallScreen: React.FC<PaywallScreenProps> = ({visible, onClose}) 
     // TODO: react-native-purchases (RevenueCat) or react-native-iap integration
     setTimeout(() => {
       setIsPurchasing(false);
-      Alert.alert('ありがとうございます', 'プレミアムプランが有効になりました！', [
+      Alert.alert(t('thankYou'), t('premiumActivated'), [
         {text: 'OK', onPress: onClose},
       ]);
     }, 1500);
   };
 
   const handleRestore = async () => {
-    Alert.alert('復元', '以前の購入を復元しています...', [
+    Alert.alert(t('restore'), t('restoringPurchase'), [
       {text: 'OK'},
     ]);
   };
@@ -58,13 +60,13 @@ export const PaywallScreen: React.FC<PaywallScreenProps> = ({visible, onClose}) 
       </View>
 
       <View style={styles.content}>
-        <Text style={[styles.title, {color: colors.text}]}>プレミアムにアップグレード</Text>
+        <Text style={[styles.title, {color: colors.text}]}>{t('upgradeToPremium')}</Text>
         <Text style={[styles.subtitle, {color: colors.textSecondary}]}>
-          すべての機能を制限なくお使いいただけます
+          {t('unlimitedFeatures')}
         </Text>
 
         <View style={styles.features}>
-          {['予定の無制限作成', 'カスタムカラー', '繰り返し予定', 'ウィジェット対応', '広告なし'].map((f, i) => (
+          {[t('featureUnlimitedEvents'), t('featureCustomColors'), t('featureRecurringEvents'), t('featureWidgets'), t('featureNoAds')].map((f, i) => (
             <View key={i} style={styles.featureRow}>
               <Text style={{fontSize: 16, color: colors.primary}}>✓</Text>
               <Text style={[styles.featureText, {color: colors.text}]}>{f}</Text>
@@ -108,16 +110,16 @@ export const PaywallScreen: React.FC<PaywallScreenProps> = ({visible, onClose}) 
           onPress={handlePurchase}
           disabled={isPurchasing}>
           <Text style={styles.purchaseBtnText}>
-            {isPurchasing ? '処理中...' : 'プレミアムを開始'}
+            {isPurchasing ? t('processing') : t('startPremium')}
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity onPress={handleRestore} style={styles.restoreBtn}>
-          <Text style={[styles.restoreText, {color: colors.textTertiary}]}>購入を復元</Text>
+          <Text style={[styles.restoreText, {color: colors.textTertiary}]}>{t('restorePurchase')}</Text>
         </TouchableOpacity>
 
         <Text style={[styles.legal, {color: colors.textTertiary}]}>
-          サブスクリプションは自動更新されます。いつでもキャンセル可能です。
+          {t('subscriptionNote')}
         </Text>
       </View>
     </SafeAreaView>

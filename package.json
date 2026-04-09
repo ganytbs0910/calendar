@@ -1,6 +1,6 @@
 {
   "name": "CalendarApp",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "private": true,
   "scripts": {
     "android": "react-native run-android",
@@ -13,7 +13,9 @@
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-native-community/datetimepicker": "^8.6.0",
     "@react-native/new-app-screen": "0.83.1",
+    "i18next": "^26.0.4",
     "react": "19.2.0",
+    "react-i18next": "^17.0.2",
     "react-native": "0.83.1",
     "react-native-calendar-events": "^2.2.0",
     "react-native-google-mobile-ads": "^16.0.3",

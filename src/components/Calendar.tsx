@@ -18,6 +18,7 @@ import {getAllEventColors} from './AddEventModal';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {fetchWeather, WeatherDay} from '../services/weatherService';
 import {useTheme} from '../theme/ThemeContext';
+import {useTranslation} from 'react-i18next';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 // Container has paddingHorizontal: 12 (both sides = 24) total
@@ -49,6 +50,7 @@ export interface CalendarRef {
 
 export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, onDateDoubleSelect, onEventPress, onDateRangeSelect, hasPermission: hasPermissionProp}, ref) => {
   const {colors} = useTheme();
+  const {t} = useTranslation();
   const [today, setToday] = useState(() => new Date());
 
   // Update 'today' when the date changes (e.g. app stays open past midnight)
@@ -289,8 +291,8 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
           fetchEventsRef.current(true);
         }).catch((_err: unknown) => {
           Alert.alert(
-            '更新エラー',
-            '予定の移動に失敗しました。もう一度お試しください。',
+            t('updateError'),
+            t('moveFailed'),
             [{text: 'OK'}],
           );
           const cacheKey = getMonthKeyRef.current(currentDateRef.current.getFullYear(), currentDateRef.current.getMonth());
@@ -372,6 +374,9 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
 
   const currentYear = currentDate.getFullYear();
   const currentMonth = currentDate.getMonth();
+
+  const translatedWeekdays = t('weekdaysSingle', {returnObjects: true}) as string[];
+  const translatedMonths = t('monthNames', {returnObjects: true}) as string[];
 
   // Request calendar permission (only if not provided via prop)
   useEffect(() => {
@@ -528,7 +533,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       await prefetchMonths(currentYear, currentMonth, 3);
       initialLoadComplete.current = true;
     } catch (_err) {
-      setError('予定の読み込みに失敗しました');
+      setError(t('loadFailed'));
     } finally {
       setIsLoading(false);
       isFetching.current = false;
@@ -901,9 +906,9 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
 
   // Format date for bottom sheet header
   const formatSheetDate = useCallback((date: Date) => {
-    const weekday = WEEKDAYS[date.getDay()];
-    return `${date.getMonth() + 1}月${date.getDate()}日（${weekday}）`;
-  }, []);
+    const weekday = translatedWeekdays[date.getDay()];
+    return t('dateDayOfWeek', {month: date.getMonth() + 1, day: date.getDate(), weekday: weekday});
+  }, [t, translatedWeekdays]);
 
   const formatTime = (dateString: string) => {
     const date = new Date(dateString);
@@ -959,10 +964,10 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
 
           <TouchableOpacity
             onPress={goToToday}
-            accessibilityLabel="今日に移動"
+            accessibilityLabel={t('goToToday')}
             accessibilityRole="button">
             <Text style={[styles.headerTitle, {color: colors.text}]}>
-              {currentYear}年 {MONTHS[currentMonth]}
+              {t('yearMonthFormat', {year: currentYear, month: translatedMonths[currentMonth]})}
             </Text>
           </TouchableOpacity>
 
@@ -986,13 +991,13 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
         {error && (
           <TouchableOpacity style={[styles.errorContainer, {backgroundColor: colors.errorBackground, borderColor: colors.error}]} onPress={() => fetchEvents(true)}>
             <Text style={[styles.errorText, {color: colors.error}]}>{error}</Text>
-            <Text style={[styles.retryText, {color: colors.textSecondary}]}>タップして再読み込み</Text>
+            <Text style={[styles.retryText, {color: colors.textSecondary}]}>{t('tapToReload')}</Text>
           </TouchableOpacity>
         )}
 
         {/* Weekday headers */}
         <View style={[styles.weekdayRow, {borderColor: colors.border}]}>
-          {WEEKDAYS.map((day, index) => (
+          {translatedWeekdays.map((day, index) => (
             <View key={day} style={[styles.weekdayCell, {borderColor: colors.border}]}>
               <Text
                 style={[
@@ -1144,7 +1149,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                                 </TouchableOpacity>);
                               })}
                               {totalEvents > 2 && (
-                                <Text style={[styles.cellEventMore, {color: colors.textSecondary}]}>全{totalEvents}件</Text>
+                                <Text style={[styles.cellEventMore, {color: colors.textSecondary}]}>{t('totalEvents', {count: totalEvents})}</Text>
                               )}
                             </View>
                           )}
@@ -1297,11 +1302,11 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                   }
                 });
               }}>
-              <Text style={styles.bottomSheetAddButtonText}>+ 予定を追加</Text>
+              <Text style={styles.bottomSheetAddButtonText}>{t('addEventBtn')}</Text>
             </TouchableOpacity>
             <ScrollView style={styles.bottomSheetContent}>
               {dayEventsForSheet.length === 0 ? (
-                <Text style={[styles.bottomSheetNoEvents, {color: colors.textTertiary}]}>予定はありません</Text>
+                <Text style={[styles.bottomSheetNoEvents, {color: colors.textTertiary}]}>{t('noEvents')}</Text>
               ) : (
                 dayEventsForSheet.map((event) => (
                   <View key={event.id} style={[styles.bottomSheetEventItem, {backgroundColor: colors.surfaceSecondary}]}>
@@ -1332,7 +1337,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                         </Text>
                         <Text style={[styles.bottomSheetEventTime, {color: colors.textSecondary}]}>
                           {event.allDay
-                            ? '終日'
+                            ? t('allDay')
                             : event.startDate && event.endDate
                               ? `${formatTime(event.startDate)} - ${formatTime(event.endDate)}`
                               : ''}

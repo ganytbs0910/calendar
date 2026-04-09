@@ -11,6 +11,7 @@ import {
 import RNCalendarEvents from 'react-native-calendar-events';
 import {setEventColor, getColorSettings} from './AddEventModal';
 import {useTheme} from '../theme/ThemeContext';
+import {useTranslation} from 'react-i18next';
 
 interface InlineEventCreatorProps {
   startDate: Date;
@@ -32,6 +33,7 @@ export const InlineEventCreator: React.FC<InlineEventCreatorProps> = ({
   onMoreOptions,
 }) => {
   const {colors} = useTheme();
+  const {t} = useTranslation();
   const [title, setTitle] = useState('');
   const [selectedColor, setSelectedColor] = useState(DEFAULT_COLORS[0]);
   const [colorOptions, setColorOptions] = useState(DEFAULT_COLORS);
@@ -57,12 +59,12 @@ export const InlineEventCreator: React.FC<InlineEventCreatorProps> = ({
       const calendars = await RNCalendarEvents.findCalendars();
       const writable = calendars.filter(c => c.allowsModifications);
       if (writable.length === 0) {
-        Alert.alert('エラー', '書き込み可能なカレンダーがありません');
+        Alert.alert(t('error'), t('noWritableCalendar'));
         return;
       }
       const cal = writable.find(c => c.isPrimary) || writable[0];
 
-      const eventId = await RNCalendarEvents.saveEvent(title.trim() || '(タイトルなし)', {
+      const eventId = await RNCalendarEvents.saveEvent(title.trim() || t('noTitle'), {
         calendarId: cal.id,
         startDate: startDate.toISOString(),
         endDate: endDate.toISOString(),
@@ -74,7 +76,7 @@ export const InlineEventCreator: React.FC<InlineEventCreatorProps> = ({
       }
       onCreated();
     } catch {
-      Alert.alert('エラー', '予定の保存に失敗しました');
+      Alert.alert(t('error'), t('saveFailed'));
     }
   }, [title, selectedColor, startDate, endDate, onCreated]);
 
@@ -89,7 +91,7 @@ export const InlineEventCreator: React.FC<InlineEventCreatorProps> = ({
       <TextInput
         ref={inputRef}
         style={[styles.titleInput, {color: colors.text, borderColor: colors.border, backgroundColor: colors.inputBackground}]}
-        placeholder="タイトル"
+        placeholder={t('titlePlaceholder')}
         placeholderTextColor={colors.textTertiary}
         value={title}
         onChangeText={setTitle}
@@ -115,7 +117,7 @@ export const InlineEventCreator: React.FC<InlineEventCreatorProps> = ({
       {/* Action buttons */}
       <View style={styles.buttonRow}>
         <TouchableOpacity style={styles.cancelBtn} onPress={onCancel}>
-          <Text style={[styles.cancelBtnText, {color: colors.textTertiary}]}>キャンセル</Text>
+          <Text style={[styles.cancelBtnText, {color: colors.textTertiary}]}>{t('cancel')}</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.moreBtn}
@@ -123,12 +125,12 @@ export const InlineEventCreator: React.FC<InlineEventCreatorProps> = ({
             Keyboard.dismiss();
             onMoreOptions(title, selectedColor);
           }}>
-          <Text style={[styles.moreBtnText, {color: colors.primary}]}>詳細</Text>
+          <Text style={[styles.moreBtnText, {color: colors.primary}]}>{t('detailsBtn')}</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.saveBtn, {backgroundColor: colors.primary}]}
           onPress={handleSave}>
-          <Text style={styles.saveBtnText}>保存</Text>
+          <Text style={styles.saveBtnText}>{t('save')}</Text>
         </TouchableOpacity>
       </View>
     </View>

@@ -9,6 +9,8 @@ import {
   ActivityIndicator,
   TextInput,
   Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   Animated,
   PanResponder,
   LayoutChangeEvent,
@@ -20,6 +22,7 @@ import {
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
 import {getAllEventColors} from './AddEventModal';
 import {useTheme} from '../theme/ThemeContext';
+import {useTranslation} from 'react-i18next';
 import {Task, getDateKey, getTasksForDateRange, addTaskForDate, toggleTask, deleteTask, updateTask} from '../services/taskService';
 import {SleepSettings, getSleepSettings, getSettingsForDate, saveSleepSettings} from '../services/sleepSettingsService';
 
@@ -33,17 +36,17 @@ const STRIP_INITIAL_OFFSET = STRIP_BUFFER_DAYS * STRIP_DAY_WIDTH;
 const BOTTOM_SHEET_MIN = 60;
 const BOTTOM_SHEET_MAX = SCREEN_HEIGHT * 0.5;
 const DURATION_OPTIONS = [
-  {label: '5分', value: 5},
-  {label: '10分', value: 10},
-  {label: '15分', value: 15},
-  {label: '20分', value: 20},
-  {label: '30分', value: 30},
-  {label: '45分', value: 45},
-  {label: '1時間', value: 60},
-  {label: '1.5時間', value: 90},
-  {label: '2時間', value: 120},
-  {label: '3時間', value: 180},
-  {label: '6時間', value: 360},
+  {label: 'duration5min', value: 5},
+  {label: 'duration10min', value: 10},
+  {label: 'duration15min', value: 15},
+  {label: 'duration20min', value: 20},
+  {label: 'duration30min', value: 30},
+  {label: 'duration45min', value: 45},
+  {label: 'duration1h', value: 60},
+  {label: 'duration1_5h', value: 90},
+  {label: 'duration2h', value: 120},
+  {label: 'duration3h', value: 180},
+  {label: 'duration6h', value: 360},
 ];
 
 // Flow timeline constants
@@ -108,12 +111,17 @@ const formatMinutes = (m: number) => {
   return `${h.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`;
 };
 
-const formatDuration = (minutes: number) => {
+const formatDuration = (minutes: number, tFn?: (key: string, opts?: any) => string) => {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
-  if (h > 0 && m > 0) return `${h}時間${m}分`;
-  if (h > 0) return `${h}時間`;
-  return `${m}分`;
+  if (tFn) {
+    if (h > 0 && m > 0) return tFn('hoursMinutesFmt', {h, m});
+    if (h > 0) return tFn('hoursFmt', {h});
+    return tFn('minutesFmt', {m});
+  }
+  if (h > 0 && m > 0) return `${h}h${m}m`;
+  if (h > 0) return `${h}h`;
+  return `${m}m`;
 };
 
 const formatEventTime = (dateStr?: string) => {
@@ -162,6 +170,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
   onSleepSettingsChange,
   onSwitchToWeek,
 }, ref) => {
+  const {t} = useTranslation();
   const [events, setEvents] = useState<CalendarEventReadable[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -451,7 +460,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
         items.push({
           id: event.id || `ev-allday-${Math.random()}`,
           title: event.title || '',
-          timeLabel: '終日',
+          timeLabel: t('allDay'),
           color: eventColors[event.id] || event.calendar?.color || '#007AFF',
           sortMinutes: -1,
           isEvent: true,
@@ -519,7 +528,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
       setEvents(filtered);
       setEventColors(allColors);
     } catch (_err) {
-      setError('予定の読み込みに失敗しました');
+      setError(t('loadFailed'));
     } finally {
       setIsLoading(false);
     }
@@ -976,7 +985,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
           : ev
       ));
       // バックグラウンドでカレンダーに保存
-      RNCalendarEvents.saveEvent(event.title || '(タイトルなし)', {
+      RNCalendarEvents.saveEvent(event.title || t('noTitle'), {
         id: event.id,
         startDate: newStart.toISOString(),
         endDate: newEnd.toISOString(),
@@ -1009,7 +1018,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
     lpWasDragRef.current = true;
     resizeDragRef.current = {
       eventId: (item.original as CalendarEventReadable).id!,
-      title: item.title || '(タイトルなし)',
+      title: item.title || t('noTitle'),
       edge,
       origStart: item.startMinutes,
       origEnd: item.endMinutes,
@@ -1824,12 +1833,12 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
         <TouchableOpacity
           style={[styles.editorTab, editingTab === 'weekday' && {backgroundColor: colors.primary}]}
           onPress={() => setEditingTab('weekday')}>
-          <Text style={[styles.editorTabText, {color: editingTab === 'weekday' ? '#fff' : colors.textSecondary}]}>平日</Text>
+          <Text style={[styles.editorTabText, {color: editingTab === 'weekday' ? '#fff' : colors.textSecondary}]}>{t('weekday')}</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.editorTab, editingTab === 'weekend' && {backgroundColor: colors.primary}]}
           onPress={() => setEditingTab('weekend')}>
-          <Text style={[styles.editorTabText, {color: editingTab === 'weekend' ? '#fff' : colors.textSecondary}]}>休日</Text>
+          <Text style={[styles.editorTabText, {color: editingTab === 'weekend' ? '#fff' : colors.textSecondary}]}>{t('weekend')}</Text>
         </TouchableOpacity>
       </View>
       <View style={styles.editorTimeRow}>
@@ -1847,10 +1856,10 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
       </View>
       <View style={styles.editorMinuteRow}>
         <TouchableOpacity onPress={() => handleTimeAdjust(type, 'minute', -30)}>
-          <Text style={[styles.editorMinuteText, {color: colors.primary}]}>-30分</Text>
+          <Text style={[styles.editorMinuteText, {color: colors.primary}]}>{t('minus30min')}</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={() => handleTimeAdjust(type, 'minute', 30)}>
-          <Text style={[styles.editorMinuteText, {color: colors.primary}]}>+30分</Text>
+          <Text style={[styles.editorMinuteText, {color: colors.primary}]}>{t('plus30min')}</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -1866,17 +1875,17 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
         <View style={styles.headerRow1}>
           {onSwitchToWeek && (
             <TouchableOpacity onPress={onSwitchToWeek} style={[styles.switchViewBtn, {backgroundColor: isDark ? '#2c2c2e' : '#e8f4fd'}]}>
-              <Text style={[styles.switchViewBtnText, {color: colors.primary}]}>⇄ 週</Text>
+              <Text style={[styles.switchViewBtnText, {color: colors.primary}]}>{t('switchToWeek')}</Text>
             </TouchableOpacity>
           )}
           <View style={styles.headerDateBlock}>
             <Text style={[styles.headerDay, {color: colors.text}]}>{dayStart.getDate()}</Text>
             <View>
               <Text style={[styles.headerMonthYear, {color: colors.textSecondary}]}>
-                {dayStart.getMonth() + 1}月 {dayStart.getFullYear()} (令和{dayStart.getFullYear() - 2018}年)
+                {t('yearMonthFormat', {year: dayStart.getFullYear(), month: (t('monthNames', {returnObjects: true}) as string[])[dayStart.getMonth()]})} {t('eraYear', {year: dayStart.getFullYear() - 2018})}
               </Text>
               <Text style={[styles.headerWeekday, {color: dayStart.getDay() === 0 ? colors.sunday : dayStart.getDay() === 6 ? colors.saturday : colors.textSecondary}]}>
-                {WEEKDAYS_JA[dayStart.getDay()]}曜日
+                {(t('weekdayFull', {returnObjects: true}) as string[])[dayStart.getDay()]}
               </Text>
             </View>
           </View>
@@ -1885,7 +1894,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
               <Text style={[styles.navBtnText, {color: colors.primary}]}>{'<'}</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={goToToday} style={[styles.todayBtn, {backgroundColor: isTodayDate ? colors.primary : (isDark ? '#2c2c2e' : '#e8f4fd')}]}>
-              <Text style={[styles.todayBtnText, {color: isTodayDate ? colors.onPrimary : colors.primary}]}>今日</Text>
+              <Text style={[styles.todayBtnText, {color: isTodayDate ? colors.onPrimary : colors.primary}]}>{t('today')}</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={goToNextDay} style={styles.navBtn}>
               <Text style={[styles.navBtnText, {color: colors.primary}]}>{'>'}</Text>
@@ -1921,7 +1930,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                   styles.weekStripLabel,
                   {color: dow === 0 ? colors.sunday : dow === 6 ? colors.saturday : colors.textTertiary},
                 ]}>
-                  {WEEKDAYS_JA[dow]}
+                  {(t('weekdaysSingle', {returnObjects: true}) as string[])[dow]}
                 </Text>
                 <View style={{position: 'relative'}}>
                   <View style={[
@@ -1996,7 +2005,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
         {/* All-day events */}
         {events.filter(e => e.allDay).length > 0 && (
           <View style={[styles.allDaySection, {borderBottomColor: colors.borderLight}]}>
-            <Text style={[styles.allDaySectionLabel, {color: colors.textTertiary}]}>終日</Text>
+            <Text style={[styles.allDaySectionLabel, {color: colors.textTertiary}]}>{t('allDay')}</Text>
             {events.filter(e => e.allDay).map(event => {
               const evColor = (event.id && eventColors[event.id]) || event.calendar?.color || colors.primary;
               return (
@@ -2030,7 +2039,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
               style={{paddingHorizontal: 12, paddingVertical: 8}}>
               <View style={{flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', backgroundColor: colors.surfaceSecondary, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 4}}>
                 <Text style={{fontSize: 13}}>☀️</Text>
-                <Text style={{fontSize: 13, color: colors.primary, fontWeight: '600', marginLeft: 4}}>起床 {formatMinutes(wakeMin)}</Text>
+                <Text style={{fontSize: 13, color: colors.primary, fontWeight: '600', marginLeft: 4}}>{t('wakeUp')} {formatMinutes(wakeMin)}</Text>
               </View>
             </TouchableOpacity>
           )}
@@ -2054,15 +2063,15 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
               <View style={{flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingBottom: 6, gap: 10}}>
                 <View style={{flexDirection: 'row', alignItems: 'center', gap: 3}}>
                   <View style={{width: 10, height: 10, borderRadius: 2, backgroundColor: isDark ? colors.surfaceSecondary : '#e8e9ec'}} />
-                  <Text style={{fontSize: 11, color: colors.textTertiary}}>空き</Text>
+                  <Text style={{fontSize: 11, color: colors.textTertiary}}>{t('freeTime')}</Text>
                 </View>
                 <View style={{flexDirection: 'row', alignItems: 'center', gap: 3}}>
                   <View style={{width: 10, height: 10, borderRadius: 2, backgroundColor: colors.primary}} />
-                  <Text style={{fontSize: 11, color: colors.textTertiary}}>確定</Text>
+                  <Text style={{fontSize: 11, color: colors.textTertiary}}>{t('confirmed')}</Text>
                 </View>
                 <View style={{flexDirection: 'row', alignItems: 'center', gap: 3}}>
                   <View style={{width: 10, height: 10, borderRadius: 2, borderWidth: 1, borderStyle: 'dashed', borderColor: colors.primary, backgroundColor: `${colors.primary}15`}} />
-                  <Text style={{fontSize: 11, color: colors.textTertiary}}>提案</Text>
+                  <Text style={{fontSize: 11, color: colors.textTertiary}}>{t('suggested')}</Text>
                 </View>
               </View>
 
@@ -2176,7 +2185,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                   return (
                     <View style={{paddingVertical: 10, paddingLeft: FLOW_LEFT_WIDTH + 4}}>
                       <Text style={{fontSize: 13, color: colors.textTertiary}}>
-                        〜 {formatMinutes(sleepM)} まで空き
+                        {t('freeUntil', {time: formatMinutes(sleepM)})}
                       </Text>
                     </View>
                   );
@@ -2230,19 +2239,19 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                             <View style={{marginLeft: FLOW_LEFT_WIDTH + FLOW_DOT_COL_WIDTH, marginRight: 4, marginVertical: 12}}>
                               <View style={{backgroundColor: colors.surfaceSecondary, borderRadius: 16, padding: 16}}>
                                 <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 8}}>
-                                  <Text style={{fontSize: 14, color: colors.textSecondary}}>🕐 空き時間</Text>
+                                  <Text style={{fontSize: 14, color: colors.textSecondary}}>{t('freeTimeLabel')}</Text>
                                 </View>
                                 <View style={{flexDirection: 'row', alignItems: 'baseline', marginBottom: 12}}>
                                   {gapH > 0 && (
                                     <>
                                       <Text style={{fontSize: 24, fontWeight: 'bold', color: colors.text}}>{gapH}</Text>
-                                      <Text style={{fontSize: 14, color: colors.textSecondary, marginRight: 4}}>時間</Text>
+                                      <Text style={{fontSize: 14, color: colors.textSecondary, marginRight: 4}}>{t('hours')}</Text>
                                     </>
                                   )}
                                   {gapM > 0 && (
                                     <>
                                       <Text style={{fontSize: 24, fontWeight: 'bold', color: colors.text}}>{gapM}</Text>
-                                      <Text style={{fontSize: 14, color: colors.textSecondary}}>分</Text>
+                                      <Text style={{fontSize: 14, color: colors.textSecondary}}>{t('minutes')}</Text>
                                     </>
                                   )}
                                 </View>
@@ -2314,7 +2323,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                                   const dur = item.endMinutes - item.startMinutes;
                                   const h = Math.floor(dur / 60);
                                   const m = dur % 60;
-                                  return h > 0 && m > 0 ? `${h}時間${m}分` : h > 0 ? `${h}時間` : `${m}分`;
+                                  return h > 0 && m > 0 ? t('hoursMinutesFmt', {h, m}) : h > 0 ? t('hoursFmt', {h}) : t('minutesFmt', {m});
                                 })()}
                               </Text>
                               {item.location ? (
@@ -2343,7 +2352,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                               minHeight: cardHeight - 8,
                             }]}>
                               {item.isTodo && (
-                                <Text style={{fontSize: 9, color: colors.textTertiary, marginBottom: 2}}>あとでやる</Text>
+                                <Text style={{fontSize: 9, color: colors.textTertiary, marginBottom: 2}}>{t('laterTasks')}</Text>
                               )}
                               <View style={styles.flowTaskRow}>
                                 <TouchableOpacity onPress={() => handleToggleTask(task.id)} hitSlop={{top: 6, bottom: 6, left: 6, right: 6}}>
@@ -2428,17 +2437,17 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                           const task = editingTask.original as Task;
                           return (
                             <View style={[styles.flowEditPanel, {backgroundColor: colors.surface, borderColor: colors.border, marginLeft: 0}]}>
-                              <Text style={[styles.taskEditLabel, {color: colors.textSecondary}]}>所要時間</Text>
+                              <Text style={[styles.taskEditLabel, {color: colors.textSecondary}]}>{t('taskDuration')}</Text>
                               <View style={styles.durationOptions}>
                                 {DURATION_OPTIONS.map(opt => (
                                   <TouchableOpacity key={opt.value} style={[styles.durationChip, {borderColor: colors.border}, editTaskDuration === opt.value && !editDurationCustom && {backgroundColor: colors.primary, borderColor: colors.primary}]}
                                     onPress={() => { setEditDurationCustom(false); setEditTaskDuration(editTaskDuration === opt.value ? null : opt.value); }}>
-                                    <Text style={[styles.durationChipText, {color: colors.textSecondary}, editTaskDuration === opt.value && !editDurationCustom && {color: colors.onPrimary}]}>{opt.label}</Text>
+                                    <Text style={[styles.durationChipText, {color: colors.textSecondary}, editTaskDuration === opt.value && !editDurationCustom && {color: colors.onPrimary}]}>{t(opt.label)}</Text>
                                   </TouchableOpacity>
                                 ))}
                                 <TouchableOpacity style={[styles.durationChip, {borderColor: colors.border}, editDurationCustom && {backgroundColor: colors.primary, borderColor: colors.primary}]}
                                   onPress={() => { if (editDurationCustom) { setEditDurationCustom(false); setEditTaskDuration(null); } else { setEditDurationCustom(true); setEditTaskDuration(null); setEditCustomMinutes(''); } }}>
-                                  <Text style={[styles.durationChipText, {color: colors.textSecondary}, editDurationCustom && {color: colors.onPrimary}]}>カスタム</Text>
+                                  <Text style={[styles.durationChipText, {color: colors.textSecondary}, editDurationCustom && {color: colors.onPrimary}]}>{t('custom')}</Text>
                                 </TouchableOpacity>
                               </View>
                               {editDurationCustom && (
@@ -2446,10 +2455,10 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                                   <TextInput style={[styles.customDurationInput, {color: colors.text, borderColor: colors.border, backgroundColor: colors.inputBackground}]}
                                     value={editCustomMinutes} onChangeText={t => { const cleaned = t.replace(/[^0-9]/g, ''); setEditCustomMinutes(cleaned); const num = parseInt(cleaned, 10); setEditTaskDuration(num > 0 ? num : null); }}
                                     keyboardType="number-pad" placeholder="0" placeholderTextColor={colors.textTertiary} />
-                                  <Text style={[styles.customDurationUnit, {color: colors.textSecondary}]}>分</Text>
+                                  <Text style={[styles.customDurationUnit, {color: colors.textSecondary}]}>{t('minutes')}</Text>
                                 </View>
                               )}
-                              <Text style={[styles.taskEditLabel, {color: colors.textSecondary, marginTop: 8}]}>時間</Text>
+                              <Text style={[styles.taskEditLabel, {color: colors.textSecondary, marginTop: 8}]}>{t('taskTime')}</Text>
                               <View style={styles.taskEditTimeRow}>
                                 <View style={styles.addTimeInputs}>
                                   <TextInput style={[styles.addTimeField, {color: colors.text, borderColor: colors.border, backgroundColor: colors.inputBackground}]}
@@ -2459,11 +2468,11 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                                     value={editTaskTimeMinute} onChangeText={t => setEditTaskTimeMinute(t.replace(/[^0-9]/g, '').slice(0, 2))} keyboardType="number-pad" maxLength={2} />
                                 </View>
                                 <TouchableOpacity style={[styles.placeBtn, {backgroundColor: colors.primary}]} onPress={() => handleSaveTimelineTask(task.id)}>
-                                  <Text style={[styles.placeBtnText, {color: colors.onPrimary}]}>保存</Text>
+                                  <Text style={[styles.placeBtnText, {color: colors.onPrimary}]}>{t('save')}</Text>
                                 </TouchableOpacity>
                               </View>
                               <TouchableOpacity style={[styles.removeTimeBtn, {borderColor: colors.error}]} onPress={() => handleRemoveFromTimeline(task.id)}>
-                                <Text style={[styles.removeTimeBtnText, {color: colors.error}]}>時間を外す</Text>
+                                <Text style={[styles.removeTimeBtnText, {color: colors.error}]}>{t('removeTime')}</Text>
                               </TouchableOpacity>
                             </View>
                           );
@@ -2560,14 +2569,14 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
               style={{paddingHorizontal: 12, paddingVertical: 8}}>
               <View style={{flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', backgroundColor: colors.surfaceSecondary, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 4}}>
                 <Text style={{fontSize: 13}}>🌙</Text>
-                <Text style={{fontSize: 13, color: colors.primary, fontWeight: '600', marginLeft: 4}}>就寝 {formatMinutes(sleepMinVal)}</Text>
+                <Text style={{fontSize: 13, color: colors.primary, fontWeight: '600', marginLeft: 4}}>{t('sleep')} {formatMinutes(sleepMinVal)}</Text>
               </View>
             </TouchableOpacity>
           )}
 
           {/* Hint text */}
           <View style={{alignItems: 'center', paddingVertical: 12}}>
-            <Text style={{fontSize: 12, color: colors.textTertiary}}>タスクを長押しでドラッグ移動</Text>
+            <Text style={{fontSize: 12, color: colors.textTertiary}}>{t('dragToMove')}</Text>
           </View>
 
           {/* Creation preview (long-press drag) */}
@@ -2589,7 +2598,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
 
             const durH = Math.floor(dur / 60);
             const durM = dur % 60;
-            const durText = durH > 0 && durM > 0 ? `${durH}時間${durM}分` : durH > 0 ? `${durH}時間` : `${durM}分`;
+            const durText = durH > 0 && durM > 0 ? t('hoursMinutesFmt', {h: durH, m: durM}) : durH > 0 ? t('hoursFmt', {h: durH}) : t('minutesFmt', {m: durM});
 
             // 行数を計算
             const totalSlots = (endMin % 60 === 0 ? endHour : endHour + 1) - startHour;
@@ -2665,7 +2674,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
           <View style={[styles.handleBar, {backgroundColor: colors.textTertiary}]} />
           <View style={styles.sheetHeaderSplit}>
             <View style={styles.sheetHeaderCol}>
-              <Text style={[styles.sheetTitle, {color: colors.text}]}>あとでやる</Text>
+              <Text style={[styles.sheetTitle, {color: colors.text}]}>{t('laterTasks')}</Text>
               {todoTasks.length > 0 && (
                 <View style={[styles.sheetBadge, {backgroundColor: colors.primary}]}>
                   <Text style={[styles.sheetBadgeText, {color: colors.onPrimary}]}>{todoTasks.length}</Text>
@@ -2674,7 +2683,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
             </View>
             <View style={{width: 1, backgroundColor: colors.textTertiary, height: '100%', opacity: 0.3}} />
             <View style={styles.sheetHeaderCol}>
-              <Text style={[styles.sheetTitle, {color: colors.text}]}>予定</Text>
+              <Text style={[styles.sheetTitle, {color: colors.text}]}>{t('schedule')}</Text>
               {sheetScheduleItems.length > 0 && (
                 <View style={[styles.sheetBadge, {backgroundColor: colors.primary}]}>
                   <Text style={[styles.sheetBadgeText, {color: colors.onPrimary}]}>{sheetScheduleItems.length}</Text>
@@ -2686,14 +2695,14 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
         <View style={styles.sheetColumnsContainer}>
           <ScrollView style={styles.sheetColumnLeft} showsVerticalScrollIndicator={false} scrollEnabled={!draggingTask && !draggingEvent}>
             {todoTasks.length === 0 ? (
-              <Text style={[styles.sheetEmpty, {color: colors.textTertiary}]}>タスクなし</Text>
+              <Text style={[styles.sheetEmpty, {color: colors.textTertiary}]}>{t('noTasks')}</Text>
             ) : (
               todoTasks.map(task => (
                 <View key={task.id} style={styles.swipeRow}>
                   <TouchableOpacity
                     style={styles.swipeDeleteBtn}
                     onPress={() => { resetSwipe(task.id); handleDeleteTask(task.id); }}>
-                    <Text style={styles.swipeDeleteText}>削除</Text>
+                    <Text style={styles.swipeDeleteText}>{t('delete')}</Text>
                   </TouchableOpacity>
                   <Animated.View
                     {...(taskPanResponders[task.id]?.panHandlers || {})}
@@ -2724,12 +2733,12 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                       <View style={{flexDirection: 'row', gap: 6, flexWrap: 'wrap'}}>
                         {task.duration ? (
                           <Text style={[styles.sheetEventTime, {color: colors.textSecondary}]}>
-                            {formatDuration(task.duration)}
+                            {formatDuration(task.duration, t)}
                           </Text>
                         ) : null}
                         {task.deadline ? (
                           <Text style={[styles.sheetEventTime, {color: colors.textSecondary}]}>
-                            {task.deadline}まで
+                            {t('deadlineUntil', {deadline: task.deadline})}
                           </Text>
                         ) : null}
                       </View>
@@ -2750,7 +2759,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
             return (
               <View style={{paddingVertical: 8, paddingHorizontal: 4, borderTopWidth: 0.5, borderTopColor: colors.border, marginTop: 4}}>
                 <Text style={{fontSize: 11, color: colors.textTertiary, textAlign: 'center'}}>
-                  合計 {formatDuration(totalMin)}
+                  {t('total')} {formatDuration(totalMin, t)}
                 </Text>
               </View>
             );
@@ -2777,10 +2786,10 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                   <TouchableOpacity
                     onPress={() => handleDeleteTask(task.id)}
                     hitSlop={{top: 6, bottom: 6, left: 6, right: 6}}>
-                    <Text style={[styles.deleteBtn, {color: colors.error}]}>削除</Text>
+                    <Text style={[styles.deleteBtn, {color: colors.error}]}>{t('delete')}</Text>
                   </TouchableOpacity>
                 </View>
-                <Text style={[styles.taskEditLabel, {color: colors.textSecondary}]}>所要時間</Text>
+                <Text style={[styles.taskEditLabel, {color: colors.textSecondary}]}>{t('taskDuration')}</Text>
                 <View style={styles.durationOptions}>
                   {DURATION_OPTIONS.map(opt => (
                     <TouchableOpacity
@@ -2795,7 +2804,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                         styles.durationChipText,
                         {color: colors.textSecondary},
                         editTaskDuration === opt.value && !editDurationCustom && {color: colors.onPrimary},
-                      ]}>{opt.label}</Text>
+                      ]}>{t(opt.label)}</Text>
                     </TouchableOpacity>
                   ))}
                   <TouchableOpacity
@@ -2818,7 +2827,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                       styles.durationChipText,
                       {color: colors.textSecondary},
                       editDurationCustom && {color: colors.onPrimary},
-                    ]}>カスタム</Text>
+                    ]}>{t('custom')}</Text>
                   </TouchableOpacity>
                 </View>
                 {editDurationCustom && (
@@ -2836,10 +2845,10 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                       placeholder="0"
                       placeholderTextColor={colors.textTertiary}
                     />
-                    <Text style={[styles.customDurationUnit, {color: colors.textSecondary}]}>分</Text>
+                    <Text style={[styles.customDurationUnit, {color: colors.textSecondary}]}>{t('minutes')}</Text>
                   </View>
                 )}
-                <Text style={[styles.taskEditLabel, {color: colors.textSecondary, marginTop: 10}]}>時間帯</Text>
+                <Text style={[styles.taskEditLabel, {color: colors.textSecondary, marginTop: 10}]}>{t('taskTimezone')}</Text>
                 <View style={styles.taskEditTimeRow}>
                   <View style={styles.addTimeInputs}>
                     <TextInput
@@ -2865,14 +2874,14 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                   <TouchableOpacity
                     style={[styles.placeBtn, {backgroundColor: colors.primary}]}
                     onPress={() => handlePlaceTask(task.id)}>
-                    <Text style={[styles.placeBtnText, {color: colors.onPrimary}]}>配置</Text>
+                    <Text style={[styles.placeBtnText, {color: colors.onPrimary}]}>{t('place')}</Text>
                   </TouchableOpacity>
                 </View>
                 {editTaskDuration !== task.duration && (
                   <TouchableOpacity
                     style={[styles.saveDurationBtn, {borderColor: colors.primary}]}
                     onPress={() => handleSaveDurationOnly(task.id)}>
-                    <Text style={[styles.saveDurationBtnText, {color: colors.primary}]}>所要時間だけ保存</Text>
+                    <Text style={[styles.saveDurationBtnText, {color: colors.primary}]}>{t('saveDurationOnly')}</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -2882,14 +2891,14 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
           <View style={[styles.sheetColumnDivider, {backgroundColor: colors.textTertiary, opacity: 0.3}]} />
           <ScrollView style={styles.sheetColumnRight} showsVerticalScrollIndicator={false}>
             {sheetScheduleItems.length === 0 ? (
-              <Text style={[styles.sheetEmpty, {color: colors.textTertiary}]}>予定なし</Text>
+              <Text style={[styles.sheetEmpty, {color: colors.textTertiary}]}>{t('noSchedule')}</Text>
             ) : (
               sheetScheduleItems.map(item => (
                 <View key={item.id} style={styles.swipeRow}>
                   <TouchableOpacity
                     style={styles.swipeDeleteBtn}
                     onPress={() => { resetSwipe(item.id); handleDeleteScheduleItem(item); }}>
-                    <Text style={styles.swipeDeleteText}>削除</Text>
+                    <Text style={styles.swipeDeleteText}>{t('delete')}</Text>
                   </TouchableOpacity>
                   <Animated.View
                     {...(schedulePanResponders[item.id]?.panHandlers || {})}
@@ -2970,7 +2979,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
             </Text>
           ) : draggingTask.duration ? (
             <Text style={[styles.floatingBookmarkDuration, {color: colors.textTertiary}]}>
-              {formatDuration(draggingTask.duration)}
+              {formatDuration(draggingTask.duration, t)}
             </Text>
           ) : null}
         </Animated.View>
@@ -2985,11 +2994,11 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
           onPress={() => { setShowAddTypeSelect(false); setPendingTimeRange(null); }}
           style={[styles.addOverlay, {backgroundColor: colors.overlay}]}>
           <TouchableOpacity activeOpacity={1} style={[styles.addCard, {backgroundColor: colors.surface, paddingVertical: 28}]}>
-            <Text style={[styles.addCardTitle, {color: colors.text}]}>予定を追加</Text>
+            <Text style={[styles.addCardTitle, {color: colors.text}]}>{t('addEvent')}</Text>
             {pendingTimeRange && (
               <View style={{marginTop: 8, marginBottom: 4, backgroundColor: colors.inputBackground, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 14}}>
                 <Text style={{fontSize: 14, color: colors.textSecondary, textAlign: 'center'}}>
-                  {`${pendingTimeRange.start.getMonth() + 1}月${pendingTimeRange.start.getDate()}日（${WEEKDAYS_JA[pendingTimeRange.start.getDay()]}）`}
+                  {t('dateDayOfWeek', {month: pendingTimeRange.start.getMonth() + 1, day: pendingTimeRange.start.getDate(), weekday: (t('weekdaysSingle', {returnObjects: true}) as string[])[pendingTimeRange.start.getDay()]})}
                 </Text>
                 <Text style={{fontSize: 22, fontWeight: '700', color: colors.text, textAlign: 'center', marginTop: 2}}>
                   {`${pendingTimeRange.start.getHours().toString().padStart(2, '0')}:${pendingTimeRange.start.getMinutes().toString().padStart(2, '0')} 〜 ${pendingTimeRange.end.getHours().toString().padStart(2, '0')}:${pendingTimeRange.end.getMinutes().toString().padStart(2, '0')}`}
@@ -3004,7 +3013,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                   setAddingTask(true);
                 }}
                 style={{flex: 1, paddingVertical: 16, borderRadius: 14, backgroundColor: colors.primary, alignItems: 'center'}}>
-                <Text style={{color: colors.onPrimary, fontSize: 15, fontWeight: '700'}}>あとでやる</Text>
+                <Text style={{color: colors.onPrimary, fontSize: 15, fontWeight: '700'}}>{t('laterTasks')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => {
@@ -3015,7 +3024,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                   setPendingTimeRange(null);
                 }}
                 style={{flex: 1, paddingVertical: 16, borderRadius: 14, backgroundColor: colors.primary, alignItems: 'center'}}>
-                <Text style={{color: colors.onPrimary, fontSize: 15, fontWeight: '700'}}>予定</Text>
+                <Text style={{color: colors.onPrimary, fontSize: 15, fontWeight: '700'}}>{t('schedule')}</Text>
               </TouchableOpacity>
             </View>
           </TouchableOpacity>
@@ -3024,12 +3033,14 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
 
       {/* ── Add Task Overlay ── */}
       {addingTask && (
-        <View style={[styles.addOverlay, {backgroundColor: colors.overlay}]}>
+        <KeyboardAvoidingView
+          style={[styles.addOverlay, {backgroundColor: colors.overlay}]}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <View style={[styles.addCard, {backgroundColor: colors.surface}]}>
-            <Text style={[styles.addCardTitle, {color: colors.text}]}>タスクを追加</Text>
+            <Text style={[styles.addCardTitle, {color: colors.text}]}>{t('addTask')}</Text>
             <TextInput
               style={[styles.addInput, {backgroundColor: colors.inputBackground, color: colors.text}, taskInputError && {borderColor: colors.error, borderWidth: 1}]}
-              placeholder="タスクを入力..."
+              placeholder={t('taskPlaceholder')}
               placeholderTextColor={taskInputError ? colors.error : colors.textTertiary}
               value={taskInputText}
               onChangeText={(t) => { setTaskInputText(t); setTaskInputError(false); }}
@@ -3038,7 +3049,7 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
               onSubmitEditing={handleAddTask}
             />
             <View style={styles.durationRow}>
-              <Text style={[styles.durationLabel, {color: colors.textSecondary}]}>所要時間</Text>
+              <Text style={[styles.durationLabel, {color: colors.textSecondary}]}>{t('taskDuration')}</Text>
               <View style={styles.durationOptions}>
                 {DURATION_OPTIONS.map(opt => (
                   <TouchableOpacity
@@ -3058,14 +3069,14 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                       styles.durationChipText,
                       {color: colors.textSecondary},
                       taskDuration === opt.value && !taskDurationCustom && {color: colors.onPrimary},
-                    ]}>{opt.label}</Text>
+                    ]}>{t(opt.label)}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
             </View>
             {/* 期限 */}
             <View style={{marginTop: 12}}>
-              <Text style={[styles.durationLabel, {color: colors.textSecondary}]}>何時までに</Text>
+              <Text style={[styles.durationLabel, {color: colors.textSecondary}]}>{t('taskDeadline')}</Text>
               <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 4}}>
                 <TextInput
                   style={[styles.addInput, {backgroundColor: colors.inputBackground, color: colors.text, width: 48, textAlign: 'center', flex: 0}]}
@@ -3092,15 +3103,15 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                   keyboardType="number-pad"
                   maxLength={2}
                 />
-                <Text style={{fontSize: 13, color: colors.textTertiary, marginLeft: 4}}>（任意）</Text>
+                <Text style={{fontSize: 13, color: colors.textTertiary, marginLeft: 4}}>{t('optional')}</Text>
               </View>
             </View>
             {/* メモ */}
             <View style={{marginTop: 12}}>
-              <Text style={[styles.durationLabel, {color: colors.textSecondary}]}>メモ</Text>
+              <Text style={[styles.durationLabel, {color: colors.textSecondary}]}>{t('taskMemo')}</Text>
               <TextInput
                 style={[styles.addInput, {backgroundColor: colors.inputBackground, color: colors.text, height: 64, textAlignVertical: 'top', paddingTop: 8}]}
-                placeholder="メモを入力..."
+                placeholder={t('memoPlaceholder')}
                 placeholderTextColor={colors.textTertiary}
                 value={taskMemo}
                 onChangeText={setTaskMemo}
@@ -3111,37 +3122,41 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
               <TouchableOpacity
                 onPress={() => { setAddingTask(false); setTaskInputText(''); setTaskTimeEnabled(false); setTaskDuration(null); setTaskDurationCustom(false); setTaskCustomMinutes(''); setTaskMemo(''); setTaskDeadlineHour(''); setTaskDeadlineMinute(''); setTaskInputError(false); Keyboard.dismiss(); }}
                 style={[styles.addActionBtn, {backgroundColor: colors.inputBackground}]}>
-                <Text style={[styles.addActionText, {color: colors.textSecondary}]}>キャンセル</Text>
+                <Text style={[styles.addActionText, {color: colors.textSecondary}]}>{t('cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={handleAddTask}
                 style={[styles.addActionBtn, {backgroundColor: colors.primary}]}>
-                <Text style={[styles.addActionText, {color: colors.onPrimary}]}>追加</Text>
+                <Text style={[styles.addActionText, {color: colors.onPrimary}]}>{t('add')}</Text>
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       )}
 
 
       {/* ── Edit Todo Popup ── */}
       {editingTodoTaskId && (
-        <TouchableOpacity
-          activeOpacity={1}
-          onPress={handleCancelEditTodo}
-          style={[styles.addOverlay, {backgroundColor: colors.overlay}]}>
+        <KeyboardAvoidingView
+          style={[styles.addOverlay, {backgroundColor: colors.overlay}]}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <TouchableOpacity
+            activeOpacity={1}
+            onPress={handleCancelEditTodo}
+            style={StyleSheet.absoluteFillObject}
+          />
           <TouchableOpacity activeOpacity={1} style={[styles.addCard, {backgroundColor: colors.surface}]}>
-            <Text style={[styles.addCardTitle, {color: colors.text}]}>タスクを編集</Text>
+            <Text style={[styles.addCardTitle, {color: colors.text}]}>{t('editTask')}</Text>
             <TextInput
               style={[styles.addInput, {backgroundColor: colors.inputBackground, color: colors.text}]}
               value={editTodoTitle}
               onChangeText={setEditTodoTitle}
-              placeholder="タイトル"
+              placeholder={t('titlePlaceholder')}
               placeholderTextColor={colors.textTertiary}
               autoFocus
             />
             <View style={styles.durationRow}>
-              <Text style={[styles.durationLabel, {color: colors.textSecondary}]}>所要時間</Text>
+              <Text style={[styles.durationLabel, {color: colors.textSecondary}]}>{t('taskDuration')}</Text>
               <View style={styles.durationOptions}>
                 {DURATION_OPTIONS.map(opt => (
                   <TouchableOpacity
@@ -3156,13 +3171,13 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                       styles.durationChipText,
                       {color: colors.textSecondary},
                       editTodoDuration === opt.value && {color: colors.onPrimary},
-                    ]}>{opt.label}</Text>
+                    ]}>{t(opt.label)}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
             </View>
             <View style={{marginTop: 12}}>
-              <Text style={[styles.durationLabel, {color: colors.textSecondary}]}>何時までに</Text>
+              <Text style={[styles.durationLabel, {color: colors.textSecondary}]}>{t('taskDeadline')}</Text>
               <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 4}}>
                 <TextInput
                   style={[styles.addInput, {backgroundColor: colors.inputBackground, color: colors.text, width: 48, textAlign: 'center', flex: 0}]}
@@ -3183,14 +3198,14 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
                   keyboardType="number-pad"
                   maxLength={2}
                 />
-                <Text style={{fontSize: 13, color: colors.textTertiary, marginLeft: 4}}>（任意）</Text>
+                <Text style={{fontSize: 13, color: colors.textTertiary, marginLeft: 4}}>{t('optional')}</Text>
               </View>
             </View>
             <View style={{marginTop: 12}}>
-              <Text style={[styles.durationLabel, {color: colors.textSecondary}]}>メモ</Text>
+              <Text style={[styles.durationLabel, {color: colors.textSecondary}]}>{t('taskMemo')}</Text>
               <TextInput
                 style={[styles.addInput, {backgroundColor: colors.inputBackground, color: colors.text, height: 64, textAlignVertical: 'top', paddingTop: 8}]}
-                placeholder="メモを入力..."
+                placeholder={t('memoPlaceholder')}
                 placeholderTextColor={colors.textTertiary}
                 value={editTodoMemo}
                 onChangeText={setEditTodoMemo}
@@ -3201,16 +3216,16 @@ export const DayView = forwardRef<DayViewRef, DayViewProps>(({
               <TouchableOpacity
                 onPress={handleCancelEditTodo}
                 style={[styles.addActionBtn, {backgroundColor: colors.inputBackground}]}>
-                <Text style={[styles.addActionText, {color: colors.textSecondary}]}>キャンセル</Text>
+                <Text style={[styles.addActionText, {color: colors.textSecondary}]}>{t('cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={handleSaveEditTodo}
                 style={[styles.addActionBtn, {backgroundColor: colors.primary}]}>
-                <Text style={[styles.addActionText, {color: colors.onPrimary}]}>保存</Text>
+                <Text style={[styles.addActionText, {color: colors.onPrimary}]}>{t('save')}</Text>
               </TouchableOpacity>
             </View>
           </TouchableOpacity>
-        </TouchableOpacity>
+        </KeyboardAvoidingView>
       )}
     </View>
   );

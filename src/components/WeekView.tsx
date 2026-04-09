@@ -13,13 +13,13 @@ import {
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
 import {getAllEventColors} from './AddEventModal';
 import {useTheme} from '../theme/ThemeContext';
+import {useTranslation} from 'react-i18next';
 import {SleepSettings, getSettingsForDate} from '../services/sleepSettingsService';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const TIME_LABEL_WIDTH = 48;
 const DAY_WIDTH = (SCREEN_WIDTH - TIME_LABEL_WIDTH) / 7;
 const HOUR_HEIGHT = 44;
-const WEEKDAYS_JA = ['日', '月', '火', '水', '木', '金', '土'];
 
 export interface WeekViewRef {
   refreshEvents: () => void;
@@ -45,6 +45,8 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
   onSwitchToDay,
 }, ref) => {
   const {colors, isDark} = useTheme();
+  const {t} = useTranslation();
+  const WEEKDAYS_JA = t('weekdaysSingle', {returnObjects: true}) as string[];
   const scrollViewRef = useRef<ScrollView>(null);
   const [events, setEvents] = useState<CalendarEventReadable[]>([]);
   const [eventColors, setEventColors] = useState<Record<string, string>>({});
@@ -190,8 +192,6 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
       lpTimerRef.current = null;
       lpActiveRef.current = true;
       lpWasDragRef.current = true;
-      Vibration.vibrate(50);
-
       const dayIndex = pageXToDayIndex(pageX);
       const minutes = pageYToMinutes(pageY);
       const snappedMin = Math.max(0, Math.min(23 * 60 + 55, minutes));
@@ -318,11 +318,11 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
     if (ref?.active && offset < -60) {
       // Show delete confirmation
       Alert.alert(
-        '予定を削除',
-        `「${event.title}」を削除しますか？`,
+        t('deleteEvent'),
+        t('deleteEventConfirm', {title: event.title}),
         [
           {
-            text: 'キャンセル',
+            text: t('cancel'),
             style: 'cancel',
             onPress: () => {
               swipeOffsets.current.set(eventId, 0);
@@ -331,14 +331,14 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
             },
           },
           {
-            text: '削除',
+            text: t('delete'),
             style: 'destructive',
             onPress: async () => {
               try {
                 await RNCalendarEvents.removeEvent(eventId);
                 fetchEvents();
               } catch {
-                Alert.alert('エラー', '削除に失敗しました');
+                Alert.alert(t('error'), t('deleteFailed'));
               }
               swipeOffsets.current.set(eventId, 0);
               setSwipingEventId(null);
@@ -454,8 +454,8 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
     const endDate = new Date(weekStart);
     endDate.setDate(endDate.getDate() + 6);
     const endMonth = endDate.getMonth() + 1;
-    if (startMonth === endMonth) return `${startMonth}月`;
-    return `${startMonth}-${endMonth}月`;
+    if (startMonth === endMonth) return t('monthFormat', {month: startMonth});
+    return t('monthFormat', {month: `${startMonth}-${endMonth}`});
   }, [weekStart]);
 
   return (
@@ -470,7 +470,7 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
             {monthDisplay}
           </Text>
           {onSwitchToDay && (
-            <Text style={[styles.switchLabel, {color: colors.primary}]}>⇄ 日</Text>
+            <Text style={[styles.switchLabel, {color: colors.primary}]}>{t('switchToDay')}</Text>
           )}
         </TouchableOpacity>
         {weekDays.map((day, i) => {
@@ -523,7 +523,7 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
       {hasAllDayEvents && (
         <View style={[styles.allDayRow, {backgroundColor: colors.surface, borderBottomColor: colors.border}]}>
           <View style={styles.allDayLabel}>
-            <Text style={[styles.allDayLabelText, {color: colors.textTertiary}]}>終日</Text>
+            <Text style={[styles.allDayLabelText, {color: colors.textTertiary}]}>{t('allDay')}</Text>
           </View>
           {weekDays.map((_, i) => {
             const dayAllDay = allDayEventsByDay.get(i) || [];
@@ -669,7 +669,7 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
                   {/* Delete background */}
                   {swipeX < -10 && (
                     <View style={[styles.deleteBackground, {backgroundColor: colors.delete}]}>
-                      <Text style={styles.deleteBackgroundText}>削除</Text>
+                      <Text style={styles.deleteBackgroundText}>{t('delete')}</Text>
                     </View>
                   )}
                   <View

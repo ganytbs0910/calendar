@@ -59,7 +59,8 @@
       "Bash(npx vite:*)",
       "Bash(rm -rf /Users/gan/Library/Developer/Xcode/DerivedData/CalendarApp-fzthcrbghfgphacwttzaroajmosu)",
       "Bash(pod deintegrate:*)",
-      "Bash(brew list:*)"
+      "Bash(brew list:*)",
+      "Bash(awk '{print $NF}')"
     ]
   }
 }

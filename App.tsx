@@ -42,6 +42,9 @@ import {
   getDefaultSettings,
 } from './src/services/sleepSettingsService';
 import {EventTemplate, getTemplates, deleteTemplate} from './src/services/templateService';
+import {useTranslation} from 'react-i18next';
+import './src/i18n/i18n';
+import {loadSavedLanguage, setAppLanguage, getSavedLanguageCode, LANGUAGES} from './src/i18n/i18n';
 
 const adUnitId = __DEV__ ? TestIds.ADAPTIVE_BANNER : 'ca-app-pub-4317478239934902/3522055335';
 
@@ -103,6 +106,7 @@ const SleepSetupModal = ({
   onCancel?: () => void;
   formatTimeDisplay: (h: number, m: number) => string;
 }) => {
+  const {t} = useTranslation();
   const [tab, setTab] = useState<'weekday' | 'weekend'>('weekday');
   const [settings, setSettings] = useState<SleepSettings>(getDefaultSettings());
 
@@ -142,27 +146,27 @@ const SleepSetupModal = ({
       <View style={styles.sleepSetupOverlay}>
         <View style={styles.sleepSetupContainer}>
           <Text style={styles.sleepSetupTitle}>
-            {currentSettings ? '生活リズムの設定' : '生活リズムを教えてください'}
+            {currentSettings ? t('sleepSetupTitle') : t('sleepSetupTitleFirst')}
           </Text>
-          <Text style={styles.sleepSetupSubtitle}>余白時間の計算に使います</Text>
+          <Text style={styles.sleepSetupSubtitle}>{t('sleepSetupSubtitle')}</Text>
 
           {/* Tab selector */}
           <View style={styles.setupTabRow}>
             <TouchableOpacity
               style={[styles.setupTab, tab === 'weekday' && styles.setupTabActive]}
               onPress={() => setTab('weekday')}>
-              <Text style={[styles.setupTabText, tab === 'weekday' && styles.setupTabTextActive]}>平日</Text>
+              <Text style={[styles.setupTabText, tab === 'weekday' && styles.setupTabTextActive]}>{t('weekday')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.setupTab, tab === 'weekend' && styles.setupTabActive]}
               onPress={() => setTab('weekend')}>
-              <Text style={[styles.setupTabText, tab === 'weekend' && styles.setupTabTextActive]}>休日</Text>
+              <Text style={[styles.setupTabText, tab === 'weekend' && styles.setupTabTextActive]}>{t('weekend')}</Text>
             </TouchableOpacity>
           </View>
 
           {/* Wake up time */}
           <View style={styles.sleepSetupSection}>
-            <Text style={styles.sleepSetupLabel}>起床時間</Text>
+            <Text style={styles.sleepSetupLabel}>{t('wakeUpTime')}</Text>
             <View style={styles.timePickerRow}>
               <TouchableOpacity style={styles.timeAdjustBtn} onPress={() => adjust('wake', 'hour', -1)}>
                 <Text style={styles.timeAdjustText}>-</Text>
@@ -176,17 +180,17 @@ const SleepSetupModal = ({
             </View>
             <View style={styles.minuteRow}>
               <TouchableOpacity onPress={() => adjust('wake', 'minute', -30)}>
-                <Text style={styles.minuteAdjustText}>-30分</Text>
+                <Text style={styles.minuteAdjustText}>{t('minus30min')}</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={() => adjust('wake', 'minute', 30)}>
-                <Text style={styles.minuteAdjustText}>+30分</Text>
+                <Text style={styles.minuteAdjustText}>{t('plus30min')}</Text>
               </TouchableOpacity>
             </View>
           </View>
 
           {/* Sleep time */}
           <View style={styles.sleepSetupSection}>
-            <Text style={styles.sleepSetupLabel}>就寝時間</Text>
+            <Text style={styles.sleepSetupLabel}>{t('bedTime')}</Text>
             <View style={styles.timePickerRow}>
               <TouchableOpacity style={styles.timeAdjustBtn} onPress={() => adjust('sleep', 'hour', -1)}>
                 <Text style={styles.timeAdjustText}>-</Text>
@@ -200,21 +204,21 @@ const SleepSetupModal = ({
             </View>
             <View style={styles.minuteRow}>
               <TouchableOpacity onPress={() => adjust('sleep', 'minute', -30)}>
-                <Text style={styles.minuteAdjustText}>-30分</Text>
+                <Text style={styles.minuteAdjustText}>{t('minus30min')}</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={() => adjust('sleep', 'minute', 30)}>
-                <Text style={styles.minuteAdjustText}>+30分</Text>
+                <Text style={styles.minuteAdjustText}>{t('plus30min')}</Text>
               </TouchableOpacity>
             </View>
           </View>
 
           <TouchableOpacity style={styles.sleepSetupSaveBtn} onPress={() => onSave(settings)}>
-            <Text style={styles.sleepSetupSaveBtnText}>保存</Text>
+            <Text style={styles.sleepSetupSaveBtnText}>{t('save')}</Text>
           </TouchableOpacity>
 
           {onCancel && (
             <TouchableOpacity style={styles.sleepSetupCancelBtn} onPress={onCancel}>
-              <Text style={styles.sleepSetupCancelBtnText}>キャンセル</Text>
+              <Text style={styles.sleepSetupCancelBtnText}>{t('cancel')}</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -224,8 +228,11 @@ const SleepSetupModal = ({
 };
 
 function AppContent() {
+  const {t} = useTranslation();
   const {colors, isDark, themeMode, setThemeMode} = useTheme();
   const [showAddModal, setShowAddModal] = useState(false);
+  const [selectedLanguage, setSelectedLanguage] = useState('auto');
+  const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showPaywall, setShowPaywall] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -252,6 +259,12 @@ function AppContent() {
   const dayViewRef = useRef<DayViewRef>(null);
   const weekViewRef = useRef<WeekViewRef>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Load saved language on mount
+  useEffect(() => {
+    loadSavedLanguage();
+    getSavedLanguageCode().then(code => setSelectedLanguage(code));
+  }, []);
 
   // Load sleep settings on mount, show setup if not configured
   useEffect(() => {
@@ -339,30 +352,30 @@ function AppContent() {
           setHasPermission(true);
         } else if (status === 'denied') {
           Alert.alert(
-            'カレンダーへのアクセス',
-            'カレンダーの予定を表示するには、設定でアクセスを許可してください。',
+            t('calendarAccess'),
+            t('calendarAccessMessage'),
             [
               {
-                text: '閉じる',
+                text: t('close'),
                 style: 'cancel',
               },
               {
-                text: '設定を開く',
+                text: t('openSettings'),
                 onPress: () => Linking.openSettings(),
               },
             ],
           );
         } else if (status === 'restricted') {
           Alert.alert(
-            'アクセス制限',
-            'このデバイスではカレンダーへのアクセスが制限されています。',
+            t('calendarAccessRestricted'),
+            t('calendarAccessRestrictedMessage'),
             [{text: 'OK'}],
           );
         }
       } catch (_error) {
         Alert.alert(
-          'エラー',
-          'カレンダーの権限確認中にエラーが発生しました。',
+          t('error'),
+          t('calendarPermissionError'),
           [{text: 'OK'}],
         );
       }
@@ -488,7 +501,7 @@ function AppContent() {
 
       // Set up undo action
       setUndoAction({
-        message: `「${eventData.title}」を削除しました`,
+        message: t('eventDeleted', {title: eventData.title}),
         onUndo: async () => {
           try {
             // Re-create the event
@@ -517,12 +530,12 @@ function AppContent() {
             await RNCalendarEvents.saveEvent(eventData.title || '', eventConfig);
             refreshAllViews();
           } catch {
-            Alert.alert('エラー', '予定の復元に失敗しました');
+            Alert.alert(t('error'), t('restoreFailed'));
           }
         },
       });
     } catch {
-      Alert.alert('エラー', '予定の削除に失敗しました');
+      Alert.alert(t('error'), t('deleteFailed'));
     }
   }, [refreshAllViews]);
 
@@ -627,21 +640,21 @@ function AppContent() {
             <TouchableOpacity
               style={styles.todayBtn}
               onPress={goToToday}
-              accessibilityLabel="今日に移動"
+              accessibilityLabel={t('goToToday')}
               accessibilityRole="button">
-              <Text style={styles.todayBtnText}>今日</Text>
+              <Text style={styles.todayBtnText}>{t('today')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.iconBtn}
               onPress={() => setShowSearchModal(true)}
-              accessibilityLabel="予定を検索"
+              accessibilityLabel={t('searchEventsLabel')}
               accessibilityRole="button">
               <SearchIcon size={18} color="#007AFF" />
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.iconBtn}
               onPress={() => setShowSettingsModal(true)}
-              accessibilityLabel="設定"
+              accessibilityLabel={t('settingsLabel')}
               accessibilityRole="button">
               <Ionicons name="settings-outline" size={22} color="#007AFF" />
             </TouchableOpacity>
@@ -650,10 +663,10 @@ function AppContent() {
             <TouchableOpacity
               style={styles.viewToggle}
               onPress={toggleViewMode}
-              accessibilityLabel="表示切替"
+              accessibilityLabel={t('toggleView')}
               accessibilityRole="button">
               <Text style={styles.viewToggleText}>
-                {viewMode === 'month' ? '月' : '日'}
+                {viewMode === 'month' ? t('monthView') : t('dayView')}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -663,8 +676,8 @@ function AppContent() {
                 loadTemplates();
                 setShowTemplateModal(true);
               }}
-              accessibilityLabel="予定を追加"
-              accessibilityHint="長押しでテンプレートから作成"
+              accessibilityLabel={t('addEventLabel')}
+              accessibilityHint={t('addEventHint')}
               accessibilityRole="button">
               <Text style={styles.addButtonText}>+</Text>
             </TouchableOpacity>
@@ -735,15 +748,15 @@ function AppContent() {
           <View style={styles.templateOverlay}>
             <View style={styles.templateContainer}>
               <View style={styles.templateHeader}>
-                <Text style={styles.templateTitle}>テンプレート</Text>
+                <Text style={styles.templateTitle}>{t('template')}</Text>
                 <TouchableOpacity onPress={() => setShowTemplateModal(false)}>
-                  <Text style={styles.templateCloseBtn}>閉じる</Text>
+                  <Text style={styles.templateCloseBtn}>{t('close')}</Text>
                 </TouchableOpacity>
               </View>
               {templates.length === 0 ? (
                 <View style={styles.templateEmpty}>
-                  <Text style={styles.templateEmptyText}>テンプレートがありません</Text>
-                  <Text style={styles.templateEmptyHint}>予定作成画面で「テンプレートとして保存」から追加できます</Text>
+                  <Text style={styles.templateEmptyText}>{t('noTemplates')}</Text>
+                  <Text style={styles.templateEmptyHint}>{t('templateHint')}</Text>
                 </View>
               ) : (
                 <FlatList
@@ -753,15 +766,15 @@ function AppContent() {
                   renderItem={({item}) => {
                     const hours = Math.floor(item.durationMinutes / 60);
                     const mins = item.durationMinutes % 60;
-                    const durationStr = hours > 0 && mins > 0 ? `${hours}時間${mins}分` : hours > 0 ? `${hours}時間` : `${mins}分`;
+                    const durationStr = hours > 0 && mins > 0 ? t('hoursMinutesFmt', {h: hours, m: mins}) : hours > 0 ? t('hoursFmt', {h: hours}) : t('minutesFmt', {m: mins});
                     return (
                       <TouchableOpacity
                         style={styles.templateItem}
                         onPress={() => handleUseTemplate(item)}
                         onLongPress={() => {
-                          Alert.alert('テンプレートを削除', `「${item.title}」を削除しますか？`, [
-                            {text: 'キャンセル', style: 'cancel'},
-                            {text: '削除', style: 'destructive', onPress: () => handleDeleteTemplate(item.id)},
+                          Alert.alert(t('deleteTemplate'), t('deleteTemplateConfirm', {title: item.title}), [
+                            {text: t('cancel'), style: 'cancel'},
+                            {text: t('delete'), style: 'destructive', onPress: () => handleDeleteTemplate(item.id)},
                           ]);
                         }}>
                         <View style={[styles.templateItemColor, {backgroundColor: item.color}]} />
@@ -780,7 +793,7 @@ function AppContent() {
                   setShowTemplateModal(false);
                   handleAddEvent();
                 }}>
-                <Text style={styles.templateNewBtnText}>+ 新規作成</Text>
+                <Text style={styles.templateNewBtnText}>{t('newTemplate')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -804,15 +817,15 @@ function AppContent() {
                   setSearchQuery('');
                   setSearchResults([]);
                 }}>
-                <Text style={styles.searchCancelBtn}>キャンセル</Text>
+                <Text style={styles.searchCancelBtn}>{t('cancel')}</Text>
               </TouchableOpacity>
-              <Text style={styles.searchTitle}>予定を検索</Text>
+              <Text style={styles.searchTitle}>{t('searchEvents')}</Text>
               <View style={{width: 80}} />
             </View>
             <View style={styles.searchInputContainer}>
               <TextInput
                 style={styles.searchInput}
-                placeholder="予定のタイトルを入力..."
+                placeholder={t('searchPlaceholder')}
                 value={searchQuery}
                 onChangeText={(text) => {
                   setSearchQuery(text);
@@ -839,7 +852,7 @@ function AppContent() {
             </View>
             {isSearching ? (
               <View style={styles.searchLoading}>
-                <Text style={styles.searchLoadingText}>検索中...</Text>
+                <Text style={styles.searchLoadingText}>{t('searching')}</Text>
               </View>
             ) : searchResults.length > 0 ? (
               <FlatList
@@ -865,7 +878,7 @@ function AppContent() {
               />
             ) : searchQuery.length > 0 ? (
               <View style={styles.searchNoResults}>
-                <Text style={styles.searchNoResultsText}>該当する予定がありません</Text>
+                <Text style={styles.searchNoResultsText}>{t('noResults')}</Text>
               </View>
             ) : null}
           </View>
@@ -889,9 +902,9 @@ function AppContent() {
                 {/* Settings Main View */}
                 <View style={styles.settingsHeader}>
                   <View style={{width: 80}} />
-                  <Text style={styles.settingsTitle}>設定</Text>
+                  <Text style={styles.settingsTitle}>{t('settings')}</Text>
                   <TouchableOpacity onPress={() => { setShowWidgetGuide(false); setShowSettingsModal(false); }}>
-                    <Text style={styles.settingsDoneBtn}>完了</Text>
+                    <Text style={styles.settingsDoneBtn}>{t('done')}</Text>
                   </TouchableOpacity>
                 </View>
                 <FlatList
@@ -901,9 +914,9 @@ function AppContent() {
                     <>
                       {/* Theme Settings */}
                       <View style={styles.settingsSection}>
-                        <Text style={styles.settingsSectionTitle}>外観</Text>
+                        <Text style={styles.settingsSectionTitle}>{t('appearance')}</Text>
                         <View style={styles.settingsItem}>
-                          <Text style={styles.settingsItemLabel}>テーマ</Text>
+                          <Text style={styles.settingsItemLabel}>{t('theme')}</Text>
                           <View style={styles.themeSelector}>
                             <TouchableOpacity
                               style={[
@@ -914,7 +927,7 @@ function AppContent() {
                               <Text style={[
                                 styles.themeSelectorText,
                                 themeMode === 'system' && styles.themeSelectorTextActive,
-                              ]}>自動</Text>
+                              ]}>{t('themeAuto')}</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
                               style={[
@@ -925,7 +938,7 @@ function AppContent() {
                               <Text style={[
                                 styles.themeSelectorText,
                                 themeMode === 'light' && styles.themeSelectorTextActive,
-                              ]}>ライト</Text>
+                              ]}>{t('themeLight')}</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
                               style={[
@@ -936,7 +949,7 @@ function AppContent() {
                               <Text style={[
                                 styles.themeSelectorText,
                                 themeMode === 'dark' && styles.themeSelectorTextActive,
-                              ]}>ダーク</Text>
+                              ]}>{t('themeDark')}</Text>
                             </TouchableOpacity>
                           </View>
                         </View>
@@ -944,7 +957,7 @@ function AppContent() {
 
                       {/* Sleep Settings */}
                       <View style={styles.settingsSection}>
-                        <Text style={styles.settingsSectionTitle}>生活リズム</Text>
+                        <Text style={styles.settingsSectionTitle}>{t('sleepRhythm')}</Text>
                         <TouchableOpacity
                           style={styles.sleepSettingsItem}
                           onPress={() => {
@@ -952,33 +965,33 @@ function AppContent() {
                             setTimeout(() => openSleepSettings(), 300);
                           }}>
                           <View style={styles.sleepSettingsRow}>
-                            <Text style={styles.settingsItemLabel}>起床・就寝時間</Text>
-                            <Text style={styles.settingsItemLink}>変更 →</Text>
+                            <Text style={styles.settingsItemLabel}>{t('wakeUpAndBedTime')}</Text>
+                            <Text style={styles.settingsItemLink}>{t('changeLink')}</Text>
                           </View>
                           {sleepSettings && (
                             <View style={styles.sleepSettingsValues}>
                               <Text style={styles.sleepSettingsText}>
-                                平日 {formatTimeDisplay(sleepSettings.weekday.wakeUpHour, sleepSettings.weekday.wakeUpMinute)}〜{formatTimeDisplay(sleepSettings.weekday.sleepHour, sleepSettings.weekday.sleepMinute)}
+                                {t('weekday')} {formatTimeDisplay(sleepSettings.weekday.wakeUpHour, sleepSettings.weekday.wakeUpMinute)}〜{formatTimeDisplay(sleepSettings.weekday.sleepHour, sleepSettings.weekday.sleepMinute)}
                               </Text>
                               <Text style={styles.sleepSettingsText}>
-                                休日 {formatTimeDisplay(sleepSettings.weekend.wakeUpHour, sleepSettings.weekend.wakeUpMinute)}〜{formatTimeDisplay(sleepSettings.weekend.sleepHour, sleepSettings.weekend.sleepMinute)}
+                                {t('weekend')} {formatTimeDisplay(sleepSettings.weekend.wakeUpHour, sleepSettings.weekend.wakeUpMinute)}〜{formatTimeDisplay(sleepSettings.weekend.sleepHour, sleepSettings.weekend.sleepMinute)}
                               </Text>
                             </View>
                           )}
                           {!sleepSettings && (
-                            <Text style={styles.sleepSettingsText}>未設定</Text>
+                            <Text style={styles.sleepSettingsText}>{t('notSet')}</Text>
                           )}
                         </TouchableOpacity>
                       </View>
 
                       {/* Calendar Settings */}
                       <View style={styles.settingsSection}>
-                        <Text style={styles.settingsSectionTitle}>カレンダー</Text>
+                        <Text style={styles.settingsSectionTitle}>{t('calendarSection')}</Text>
                         <TouchableOpacity
                           style={styles.settingsItem}
                           onPress={() => Linking.openSettings()}>
-                          <Text style={styles.settingsItemLabel}>カレンダーの権限</Text>
-                          <Text style={styles.settingsItemLink}>設定を開く →</Text>
+                          <Text style={styles.settingsItemLabel}>{t('calendarPermission')}</Text>
+                          <Text style={styles.settingsItemLink}>{t('openSettingsLink')}</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                           style={styles.settingsItem}
@@ -986,55 +999,67 @@ function AppContent() {
                             calendarRef.current?.refreshEvents();
                             dayViewRef.current?.refreshEvents();
                             weekViewRef.current?.refreshEvents();
-                            Alert.alert('完了', 'カレンダーを更新しました');
+                            Alert.alert(t('done'), t('refreshDone'));
                           }}>
-                          <Text style={styles.settingsItemLabel}>カレンダーを更新</Text>
-                          <Text style={styles.settingsItemLink}>今すぐ更新</Text>
+                          <Text style={styles.settingsItemLabel}>{t('refreshCalendar')}</Text>
+                          <Text style={styles.settingsItemLink}>{t('refreshNow')}</Text>
                         </TouchableOpacity>
                       </View>
 
                       {/* Premium */}
                       <View style={styles.settingsSection}>
-                        <Text style={styles.settingsSectionTitle}>プレミアム</Text>
+                        <Text style={styles.settingsSectionTitle}>{t('premium')}</Text>
                         <TouchableOpacity
                           style={[styles.settingsItem, {backgroundColor: '#007AFF10'}]}
                           onPress={() => { setShowSettingsModal(false); setShowPaywall(true); }}>
-                          <Text style={[styles.settingsItemLabel, {color: '#007AFF', fontWeight: '700'}]}>プレミアムにアップグレード</Text>
-                          <Text style={styles.settingsItemLink}>詳細 →</Text>
+                          <Text style={[styles.settingsItemLabel, {color: '#007AFF', fontWeight: '700'}]}>{t('upgradeToPremium')}</Text>
+                          <Text style={styles.settingsItemLink}>{t('detailsLink')}</Text>
                         </TouchableOpacity>
                       </View>
 
                       {/* Notification Settings */}
                       <View style={styles.settingsSection}>
-                        <Text style={styles.settingsSectionTitle}>通知</Text>
+                        <Text style={styles.settingsSectionTitle}>{t('notification')}</Text>
                         <TouchableOpacity
                           style={styles.settingsItem}
                           onPress={() => Linking.openSettings()}>
-                          <Text style={styles.settingsItemLabel}>通知設定</Text>
-                          <Text style={styles.settingsItemLink}>設定を開く →</Text>
+                          <Text style={styles.settingsItemLabel}>{t('notificationSettings')}</Text>
+                          <Text style={styles.settingsItemLink}>{t('openSettingsLink')}</Text>
                         </TouchableOpacity>
                       </View>
 
                       {/* Widget Guide */}
                       <View style={styles.settingsSection}>
-                        <Text style={styles.settingsSectionTitle}>ウィジェット</Text>
+                        <Text style={styles.settingsSectionTitle}>{t('widget')}</Text>
                         <TouchableOpacity
                           style={styles.settingsItem}
                           onPress={() => setShowWidgetGuide(true)}>
-                          <Text style={styles.settingsItemLabel}>ウィジェットの使い方</Text>
-                          <Text style={styles.settingsItemLink}>詳しく見る →</Text>
+                          <Text style={styles.settingsItemLabel}>{t('widgetUsage')}</Text>
+                          <Text style={styles.settingsItemLink}>{t('showMore')}</Text>
                         </TouchableOpacity>
                       </View>
 
                       {/* About */}
                       <View style={styles.settingsSection}>
-                        <Text style={styles.settingsSectionTitle}>アプリについて</Text>
+                        <Text style={styles.settingsSectionTitle}>{t('language')}</Text>
+                        <TouchableOpacity
+                          style={styles.settingsItem}
+                          onPress={() => setShowLanguageModal(true)}>
+                          <Text style={styles.settingsItemLabel}>{t('language')}</Text>
+                          <Text style={styles.settingsItemLink}>
+                            {selectedLanguage === 'auto' ? t('languageAuto') : LANGUAGES.find(l => l.code === selectedLanguage)?.label || selectedLanguage} →
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      <View style={styles.settingsSection}>
+                        <Text style={styles.settingsSectionTitle}>{t('aboutApp')}</Text>
                         <View style={styles.settingsItem}>
-                          <Text style={styles.settingsItemLabel}>バージョン</Text>
+                          <Text style={styles.settingsItemLabel}>{t('version')}</Text>
                           <Text style={styles.settingsItemValue}>1.8.0</Text>
                         </View>
                         <View style={styles.settingsItem}>
-                          <Text style={styles.settingsItemLabel}>ビルド</Text>
+                          <Text style={styles.settingsItemLabel}>{t('build')}</Text>
                           <Text style={styles.settingsItemValue}>React Native 0.83</Text>
                         </View>
                       </View>
@@ -1048,23 +1073,23 @@ function AppContent() {
                 {/* Widget Guide View */}
                 <View style={styles.settingsHeader}>
                   <TouchableOpacity onPress={() => setShowWidgetGuide(false)}>
-                    <Text style={[styles.settingsItemLink, {width: 80}]}>← 設定</Text>
+                    <Text style={[styles.settingsItemLink, {width: 80}]}>{t('backToSettings')}</Text>
                   </TouchableOpacity>
-                  <Text style={styles.settingsTitle}>ウィジェット</Text>
+                  <Text style={styles.settingsTitle}>{t('widgetTitle')}</Text>
                   <TouchableOpacity onPress={() => { setShowWidgetGuide(false); setShowSettingsModal(false); }}>
-                    <Text style={styles.settingsDoneBtn}>完了</Text>
+                    <Text style={styles.settingsDoneBtn}>{t('done')}</Text>
                   </TouchableOpacity>
                 </View>
                 <ScrollView style={styles.settingsContent}>
                   {/* Setup Guide */}
                   <View style={styles.settingsSection}>
-                    <Text style={styles.settingsSectionTitle}>ホーム画面への追加方法</Text>
+                    <Text style={styles.settingsSectionTitle}>{t('widgetHowToAdd')}</Text>
                     <View style={styles.widgetGuideStep}>
                       <View style={styles.widgetGuideStepNumber}>
                         <Text style={styles.widgetGuideStepNumberText}>1</Text>
                       </View>
                       <Text style={styles.widgetGuideStepText}>
-                        ホーム画面の空白部分を長押しします
+                        {t('widgetStep1')}
                       </Text>
                     </View>
                     <View style={styles.widgetGuideStep}>
@@ -1072,7 +1097,7 @@ function AppContent() {
                         <Text style={styles.widgetGuideStepNumberText}>2</Text>
                       </View>
                       <Text style={styles.widgetGuideStepText}>
-                        左上の「＋」ボタンをタップします
+                        {t('widgetStep2')}
                       </Text>
                     </View>
                     <View style={styles.widgetGuideStep}>
@@ -1080,7 +1105,7 @@ function AppContent() {
                         <Text style={styles.widgetGuideStepNumberText}>3</Text>
                       </View>
                       <Text style={styles.widgetGuideStepText}>
-                        一覧から「理想のカレンダー」を探してタップ
+                        {t('widgetStep3')}
                       </Text>
                     </View>
                     <View style={styles.widgetGuideStep}>
@@ -1088,20 +1113,20 @@ function AppContent() {
                         <Text style={styles.widgetGuideStepNumberText}>4</Text>
                       </View>
                       <Text style={styles.widgetGuideStepText}>
-                        サイズを選んで「ウィジェットを追加」をタップ
+                        {t('widgetStep4')}
                       </Text>
                     </View>
                   </View>
 
                   {/* Widget 1: Today's Events */}
                   <View style={styles.settingsSection}>
-                    <Text style={styles.settingsSectionTitle}>今日の予定 — Small / Medium</Text>
+                    <Text style={styles.settingsSectionTitle}>{t('widgetTodaySmallMedium')}</Text>
                     <View style={styles.widgetPreviewArea}>
                       <SmallWidgetPreview />
                     </View>
                     <View style={styles.widgetGuideCard}>
                       <Text style={styles.widgetGuideCardDesc}>
-                        今日の日付と予定をコンパクトに表示します。Smallサイズでは最大3件の予定が確認できます。
+                        {t('widgetTodaySmallDesc')}
                       </Text>
                     </View>
                     <View style={styles.widgetPreviewArea}>
@@ -1109,72 +1134,72 @@ function AppContent() {
                     </View>
                     <View style={styles.widgetGuideCard}>
                       <Text style={styles.widgetGuideCardDesc}>
-                        Mediumサイズでは左に大きな日付、右に最大4件の予定を時間付きで表示します。
+                        {t('widgetTodayMediumDesc')}
                       </Text>
                     </View>
                   </View>
 
                   {/* Widget 2: Month Calendar */}
                   <View style={styles.settingsSection}>
-                    <Text style={styles.settingsSectionTitle}>月間カレンダー — Large</Text>
+                    <Text style={styles.settingsSectionTitle}>{t('widgetMonthLarge')}</Text>
                     <View style={styles.widgetPreviewArea}>
                       <MonthCalendarPreview />
                     </View>
                     <View style={styles.widgetGuideCard}>
                       <Text style={styles.widgetGuideCardDesc}>
-                        月のカレンダーをグリッド表示します。今日の日付は青丸でハイライト、予定がある日にはドットが表示されます。日曜は赤、土曜は青で色分け。
+                        {t('widgetMonthDesc')}
                       </Text>
                     </View>
                   </View>
 
                   {/* Widget 3: Upcoming Events */}
                   <View style={styles.settingsSection}>
-                    <Text style={styles.settingsSectionTitle}>今後の予定 — Medium / Large</Text>
+                    <Text style={styles.settingsSectionTitle}>{t('widgetUpcomingMediumLarge')}</Text>
                     <View style={styles.widgetPreviewArea}>
                       <UpcomingEventsPreview />
                     </View>
                     <View style={styles.widgetGuideCard}>
                       <Text style={styles.widgetGuideCardDesc}>
-                        複数日にわたる予定を日別にグループ化して表示します。Mediumでは3日先まで、Largeでは7日先まで確認できます。
+                        {t('widgetUpcomingDesc')}
                       </Text>
                     </View>
                   </View>
 
                   {/* Widget 4: Lock Screen */}
                   <View style={styles.settingsSection}>
-                    <Text style={styles.settingsSectionTitle}>ロック画面 — iOS 16以降</Text>
+                    <Text style={styles.settingsSectionTitle}>{t('widgetLockScreen')}</Text>
                     <View style={styles.widgetPreviewAreaDark}>
                       <View style={{alignItems: 'center', gap: 14}}>
                         <View style={{alignItems: 'center'}}>
                           <LockScreenCircularPreview />
-                          <Text style={{fontSize: 10, color: '#aaa', marginTop: 6}}>丸型</Text>
+                          <Text style={{fontSize: 10, color: '#aaa', marginTop: 6}}>{t('widgetLockCircle')}</Text>
                         </View>
                         <View style={{alignItems: 'center'}}>
                           <LockScreenRectangularPreview />
-                          <Text style={{fontSize: 10, color: '#aaa', marginTop: 6}}>長方形</Text>
+                          <Text style={{fontSize: 10, color: '#aaa', marginTop: 6}}>{t('widgetLockRect')}</Text>
                         </View>
                         <View style={{alignItems: 'center'}}>
                           <LockScreenInlinePreview />
-                          <Text style={{fontSize: 10, color: '#aaa', marginTop: 6}}>インライン</Text>
+                          <Text style={{fontSize: 10, color: '#aaa', marginTop: 6}}>{t('widgetLockInline')}</Text>
                         </View>
                       </View>
                     </View>
                     <View style={styles.widgetGuideCard}>
                       <Text style={styles.widgetGuideCardDesc}>
-                        ロック画面に日付や次の予定を表示します。丸型は曜日と日付、長方形は日付と次の予定、インラインは「10:00 チームMTG」のように1行で表示します。
+                        {t('widgetLockDesc')}
                       </Text>
                     </View>
                   </View>
 
                   {/* Lock Screen Setup */}
                   <View style={styles.settingsSection}>
-                    <Text style={styles.settingsSectionTitle}>ロック画面への追加方法</Text>
+                    <Text style={styles.settingsSectionTitle}>{t('widgetLockHowToAdd')}</Text>
                     <View style={styles.widgetGuideStep}>
                       <View style={styles.widgetGuideStepNumber}>
                         <Text style={styles.widgetGuideStepNumberText}>1</Text>
                       </View>
                       <Text style={styles.widgetGuideStepText}>
-                        ロック画面を長押しして「カスタマイズ」をタップ
+                        {t('widgetLockStep1')}
                       </Text>
                     </View>
                     <View style={styles.widgetGuideStep}>
@@ -1182,7 +1207,7 @@ function AppContent() {
                         <Text style={styles.widgetGuideStepNumberText}>2</Text>
                       </View>
                       <Text style={styles.widgetGuideStepText}>
-                        「ロック画面」を選択し、ウィジェット欄をタップ
+                        {t('widgetLockStep2')}
                       </Text>
                     </View>
                     <View style={styles.widgetGuideStep}>
@@ -1190,27 +1215,27 @@ function AppContent() {
                         <Text style={styles.widgetGuideStepNumberText}>3</Text>
                       </View>
                       <Text style={styles.widgetGuideStepText}>
-                        「理想のカレンダー」の「ロック画面」を追加
+                        {t('widgetLockStep3')}
                       </Text>
                     </View>
                   </View>
 
                   {/* Notes */}
                   <View style={styles.settingsSection}>
-                    <Text style={styles.settingsSectionTitle}>ご注意</Text>
+                    <Text style={styles.settingsSectionTitle}>{t('widgetNote')}</Text>
                     <View style={styles.settingsTipItem}>
                       <Text style={styles.settingsTipText}>
-                        • ウィジェットの利用にはカレンダーへのアクセス許可が必要です
+                        {t('widgetNote1')}
                       </Text>
                     </View>
                     <View style={styles.settingsTipItem}>
                       <Text style={styles.settingsTipText}>
-                        • ウィジェットは約30分ごとに自動更新されます
+                        {t('widgetNote2')}
                       </Text>
                     </View>
                     <View style={styles.settingsTipItem}>
                       <Text style={styles.settingsTipText}>
-                        • 月間カレンダーは日付変更時に更新されます
+                        {t('widgetNote3')}
                       </Text>
                     </View>
                   </View>
@@ -1231,6 +1256,41 @@ function AppContent() {
           formatTimeDisplay={formatTimeDisplay}
         />
       </SafeAreaView>
+      {/* Language Selection Modal */}
+      <Modal
+        visible={showLanguageModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowLanguageModal(false)}>
+        <View style={styles.settingsContainer}>
+          <View style={styles.settingsHeader}>
+            <View style={{width: 80}} />
+            <Text style={styles.settingsTitle}>{t('language')}</Text>
+            <TouchableOpacity onPress={() => setShowLanguageModal(false)}>
+              <Text style={styles.settingsDoneBtn}>{t('done')}</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={styles.settingsContent}>
+            {LANGUAGES.map((lang) => (
+              <TouchableOpacity
+                key={lang.code}
+                style={[styles.settingsItem, {paddingVertical: 14}]}
+                onPress={async () => {
+                  setSelectedLanguage(lang.code);
+                  await setAppLanguage(lang.code);
+                  setShowLanguageModal(false);
+                }}>
+                <Text style={styles.settingsItemLabel}>
+                  {lang.code === 'auto' ? t('languageAuto') : lang.label}
+                </Text>
+                {selectedLanguage === lang.code && (
+                  <Text style={{fontSize: 18, color: '#007AFF'}}>✓</Text>
+                )}
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      </Modal>
       <UndoToast action={undoAction} onDismiss={() => setUndoAction(null)} />
       {!__DEV__ && (
         <View style={styles.bannerContainer}>

@@ -13,10 +13,10 @@ import {CalendarEventReadable} from 'react-native-calendar-events';
 import RNCalendarEvents from 'react-native-calendar-events';
 import {getEventColor, setEventColor} from './AddEventModal';
 import {useTheme} from '../theme/ThemeContext';
+import {useTranslation} from 'react-i18next';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const CALENDAR_DAY_WIDTH = Math.floor((SCREEN_WIDTH - 80) / 7);
-const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 
 interface EventDetailModalProps {
   visible: boolean;
@@ -41,12 +41,14 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
   const [copyCalendarDate, setCopyCalendarDate] = useState(new Date());
   const [selectedDates, setSelectedDates] = useState<Date[]>([]);
   const {colors} = useTheme();
+  const {t} = useTranslation();
+  const WEEKDAYS = t('weekdaysSingle', {returnObjects: true}) as string[];
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
     const year = date.getFullYear();
     const month = (date.getMonth() + 1).toString().padStart(2, '0');
     const day = date.getDate().toString().padStart(2, '0');
-    const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
+    const weekdays = t('weekdaysSingle', {returnObjects: true}) as string[];
     const weekday = weekdays[date.getDay()];
     return `${year}/${month}/${day} (${weekday})`;
   };
@@ -68,15 +70,15 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
     const minutes = diffMinutes % 60;
 
     if (days > 0 && hours === 0 && minutes === 0) {
-      return `${days}日`;
+      return t('daysFmt', {d: days});
     } else if (days > 0) {
-      return `${days}日${hours}時間`;
+      return t('daysHoursFmt', {d: days, h: hours});
     } else if (hours === 0) {
-      return `${minutes}分`;
+      return t('minutesFmt', {m: minutes});
     } else if (minutes === 0) {
-      return `${hours}時間`;
+      return t('hoursFmt', {h: hours});
     } else {
-      return `${hours}時間${minutes}分`;
+      return t('hoursMinutesFmt', {h: hours, m: minutes});
     }
   };
 
@@ -102,26 +104,26 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
       onClose();
       onDeleted();
     } catch (_error) {
-      Alert.alert('エラー', '予定の削除に失敗しました');
+      Alert.alert(t('error'), t('deleteFailed'));
     }
-  }, [event, onClose, onDeleted, onUndoableDelete]);
+  }, [event, onClose, onDeleted, onUndoableDelete, t]);
 
   const handleDelete = useCallback(async () => {
     if (!event?.id) return;
 
     if (isRecurring) {
       Alert.alert(
-        '繰り返しイベントを削除',
-        `「${event.title}」を削除しますか？`,
+        t('deleteRecurring'),
+        t('deleteEventConfirm', {title: event.title}),
         [
-          {text: 'キャンセル', style: 'cancel'},
+          {text: t('cancel'), style: 'cancel'},
           {
-            text: 'この予定のみ',
+            text: t('thisEventOnly'),
             style: 'destructive',
             onPress: () => deleteEvent('single'),
           },
           {
-            text: 'これ以降の予定',
+            text: t('thisAndFuture'),
             style: 'destructive',
             onPress: () => deleteEvent('future'),
           },
@@ -129,12 +131,12 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
       );
     } else {
       Alert.alert(
-        '予定を削除',
-        `「${event.title}」を削除しますか？`,
+        t('deleteEvent'),
+        t('deleteEventConfirm', {title: event.title}),
         [
-          {text: 'キャンセル', style: 'cancel'},
+          {text: t('cancel'), style: 'cancel'},
           {
-            text: '削除',
+            text: t('delete'),
             style: 'destructive',
             onPress: () => deleteEvent('all'),
           },
@@ -179,7 +181,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
       const calendars = await RNCalendarEvents.findCalendars();
       const writableCalendars = calendars.filter(cal => cal.allowsModifications);
       if (writableCalendars.length === 0) {
-        Alert.alert('エラー', '書き込み可能なカレンダーが見つかりません');
+        Alert.alert(t('error'), t('noWritableCalendar'));
         return;
       }
       const defaultCalendar = writableCalendars.find(cal => cal.isPrimary) || writableCalendars[0];
@@ -192,7 +194,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
         newStart.setHours(originalStart.getHours(), originalStart.getMinutes(), 0, 0);
         const newEnd = new Date(newStart.getTime() + durationMs);
 
-        const newEventId = await RNCalendarEvents.saveEvent(event.title || '(タイトルなし)', {
+        const newEventId = await RNCalendarEvents.saveEvent(event.title || t('noTitle'), {
           calendarId: defaultCalendar.id,
           startDate: newStart.toISOString(),
           endDate: newEnd.toISOString(),
@@ -209,9 +211,9 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
       onClose();
       onCopied();
     } catch (_error) {
-      Alert.alert('エラー', '予定のコピーに失敗しました');
+      Alert.alert(t('error'), t('copyFailed'));
     }
-  }, [event, selectedDates, onClose, onCopied]);
+  }, [event, selectedDates, onClose, onCopied, t]);
 
   // Calendar navigation for copy
   const goToPrevMonth = useCallback(() => {
@@ -270,16 +272,16 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
         <View style={[styles.header, {backgroundColor: colors.surface, borderBottomColor: colors.border}]}>
           <TouchableOpacity
             onPress={onClose}
-            accessibilityLabel="閉じる"
+            accessibilityLabel={t('close')}
             accessibilityRole="button">
-            <Text style={[styles.closeButton, {color: colors.primary}]}>閉じる</Text>
+            <Text style={[styles.closeButton, {color: colors.primary}]}>{t('close')}</Text>
           </TouchableOpacity>
           <View style={styles.headerSpacer} />
           <TouchableOpacity
             onPress={handleEdit}
-            accessibilityLabel="編集"
+            accessibilityLabel={t('edit')}
             accessibilityRole="button">
-            <Text style={[styles.editButton, {color: colors.primary}]}>編集</Text>
+            <Text style={[styles.editButton, {color: colors.primary}]}>{t('edit')}</Text>
           </TouchableOpacity>
         </View>
 
@@ -296,7 +298,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
 
           <View style={[styles.infoSection, {backgroundColor: colors.surface}]}>
             <View style={[styles.infoRow, {borderBottomColor: colors.borderLight}]}>
-              <Text style={[styles.infoLabel, {color: colors.textSecondary}]}>開始</Text>
+              <Text style={[styles.infoLabel, {color: colors.textSecondary}]}>{t('startDate')}</Text>
               <View style={styles.infoValue}>
                 <Text style={[styles.infoDate, {color: colors.text}]}>
                   {event.startDate && formatDate(event.startDate)}
@@ -310,7 +312,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
             </View>
 
             <View style={[styles.infoRow, {borderBottomColor: colors.borderLight}]}>
-              <Text style={[styles.infoLabel, {color: colors.textSecondary}]}>終了</Text>
+              <Text style={[styles.infoLabel, {color: colors.textSecondary}]}>{t('endDate')}</Text>
               <View style={styles.infoValue}>
                 {!isSameDay && event.endDate && (
                   <Text style={[styles.infoDate, {color: colors.text}]}>
@@ -323,14 +325,14 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
                   </Text>
                 )}
                 {isSameDay && event.allDay && (
-                  <Text style={[styles.infoDate, {color: colors.text}]}>終日</Text>
+                  <Text style={[styles.infoDate, {color: colors.text}]}>{t('allDay')}</Text>
                 )}
               </View>
             </View>
 
             {!event.allDay && event.startDate && event.endDate && (
               <View style={[styles.infoRow, {borderBottomColor: colors.borderLight}]}>
-                <Text style={[styles.infoLabel, {color: colors.textSecondary}]}>所要時間</Text>
+                <Text style={[styles.infoLabel, {color: colors.textSecondary}]}>{t('duration')}</Text>
                 <Text style={[styles.infoDuration, {color: colors.text}]}>
                   {formatDuration(event.startDate, event.endDate)}
                 </Text>
@@ -339,21 +341,21 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
 
             {event.calendar && (
               <View style={[styles.infoRow, {borderBottomColor: colors.borderLight}]}>
-                <Text style={[styles.infoLabel, {color: colors.textSecondary}]}>カレンダー</Text>
+                <Text style={[styles.infoLabel, {color: colors.textSecondary}]}>{t('calendar')}</Text>
                 <Text style={[styles.infoCalendar, {color: colors.text}]}>{event.calendar.title}</Text>
               </View>
             )}
 
             {event.location && (
               <View style={[styles.infoRow, {borderBottomColor: colors.borderLight}]}>
-                <Text style={[styles.infoLabel, {color: colors.textSecondary}]}>場所</Text>
+                <Text style={[styles.infoLabel, {color: colors.textSecondary}]}>{t('location')}</Text>
                 <Text style={[styles.infoLocation, {color: colors.text}]}>{event.location}</Text>
               </View>
             )}
 
             {event.notes && (
               <View style={styles.notesSection}>
-                <Text style={[styles.infoLabel, {color: colors.textSecondary}]}>メモ</Text>
+                <Text style={[styles.infoLabel, {color: colors.textSecondary}]}>{t('notes')}</Text>
                 <Text style={[styles.notes, {color: colors.text}]}>{event.notes}</Text>
               </View>
             )}
@@ -362,9 +364,9 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
           <TouchableOpacity
             style={[styles.copyButton, {backgroundColor: colors.primary}]}
             onPress={handleShowCopyCalendar}
-            accessibilityLabel="別の日にコピー"
+            accessibilityLabel={t('copyToAnotherDay')}
             accessibilityRole="button">
-            <Text style={[styles.copyButtonText, {color: colors.onPrimary}]}>別の日にコピー</Text>
+            <Text style={[styles.copyButtonText, {color: colors.onPrimary}]}>{t('copyToAnotherDay')}</Text>
           </TouchableOpacity>
 
           {/* Copy Calendar Modal */}
@@ -377,9 +379,9 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
               <View style={[styles.copyModalContent, {backgroundColor: colors.surface}]}>
                 <View style={styles.copyModalHeader}>
                   <TouchableOpacity onPress={() => setShowCopyCalendar(false)}>
-                    <Text style={[styles.copyModalCancel, {color: colors.textTertiary}]}>キャンセル</Text>
+                    <Text style={[styles.copyModalCancel, {color: colors.textTertiary}]}>{t('cancel')}</Text>
                   </TouchableOpacity>
-                  <Text style={[styles.copyModalTitle, {color: colors.text}]}>コピー先を選択</Text>
+                  <Text style={[styles.copyModalTitle, {color: colors.text}]}>{t('selectCopyTarget')}</Text>
                   <TouchableOpacity
                     onPress={handleCopyToSelectedDates}
                     disabled={selectedDates.length === 0}>
@@ -388,7 +390,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
                       {color: colors.primary},
                       selectedDates.length === 0 && {color: colors.disabled},
                     ]}>
-                      コピー{selectedDates.length > 0 ? `(${selectedDates.length})` : ''}
+                      {selectedDates.length > 0 ? t('copyCount', {count: selectedDates.length}) : t('copy')}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -398,7 +400,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
                     <Text style={[styles.copyCalendarNavText, {color: colors.primary}]}>{'<'}</Text>
                   </TouchableOpacity>
                   <Text style={[styles.copyCalendarMonth, {color: colors.text}]}>
-                    {copyCalendarDate.getFullYear()}年{copyCalendarDate.getMonth() + 1}月
+                    {t('yearMonthFormat', {year: copyCalendarDate.getFullYear(), month: (t('monthNames', {returnObjects: true}) as string[])[copyCalendarDate.getMonth()]})}
                   </Text>
                   <TouchableOpacity onPress={goToNextMonth} style={styles.copyCalendarNavBtn}>
                     <Text style={[styles.copyCalendarNavText, {color: colors.primary}]}>{'>'}</Text>
@@ -456,10 +458,10 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
           <TouchableOpacity
             style={[styles.deleteButton, {backgroundColor: colors.surface}]}
             onPress={handleDelete}
-            accessibilityLabel="予定を削除"
+            accessibilityLabel={t('deleteEvent')}
             accessibilityRole="button"
-            accessibilityHint="この予定を削除します">
-            <Text style={[styles.deleteButtonText, {color: colors.delete}]}>予定を削除</Text>
+            accessibilityHint={t('deleteThisEventHint')}>
+            <Text style={[styles.deleteButtonText, {color: colors.delete}]}>{t('deleteEvent')}</Text>
           </TouchableOpacity>
         </ScrollView>
       </View>

@@ -1,5 +1,6 @@
 import React, {useEffect, useRef, useCallback} from 'react';
 import {View, Text, TouchableOpacity, StyleSheet, Animated} from 'react-native';
+import {useTranslation} from 'react-i18next';
 
 export interface UndoAction {
   message: string;
@@ -14,6 +15,7 @@ interface UndoToastProps {
 const TOAST_DURATION = 5000;
 
 export const UndoToast: React.FC<UndoToastProps> = ({action, onDismiss}) => {
+  const {t} = useTranslation();
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(50)).current;
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -63,7 +65,7 @@ export const UndoToast: React.FC<UndoToastProps> = ({action, onDismiss}) => {
       <View style={styles.toast}>
         <Text style={styles.message} numberOfLines={1}>{action.message}</Text>
         <TouchableOpacity onPress={handleUndo} style={styles.undoButton}>
-          <Text style={styles.undoText}>元に戻す</Text>
+          <Text style={styles.undoText}>{t('undo')}</Text>
         </TouchableOpacity>
       </View>
     </Animated.View>

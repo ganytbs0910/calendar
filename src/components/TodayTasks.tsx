@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import RNCalendarEvents from 'react-native-calendar-events';
 import {useTheme} from '../theme/ThemeContext';
+import {useTranslation} from 'react-i18next';
 import {Task, getTodayTasks, addTaskForDate, getDateKey, toggleTask, deleteTask} from '../services/taskService';
 import {
   SleepSettings,
@@ -19,6 +20,7 @@ import {
 
 const TodayTasks: React.FC = () => {
   const {colors} = useTheme();
+  const {t} = useTranslation();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [showInput, setShowInput] = useState(false);
   const [inputText, setInputText] = useState('');
@@ -46,7 +48,7 @@ const TodayTasks: React.FC = () => {
       const remainingMin = getRemainingActiveMinutes(todayDay);
       const rH = Math.floor(remainingMin / 60);
       const rM = remainingMin % 60;
-      setRemainingText(`残り ${rH}時間${rM}分`);
+      setRemainingText(`${t('remaining')} ${rH > 0 && rM > 0 ? t('hoursMinutesFmt', {h: rH, m: rM}) : rH > 0 ? t('hoursFmt', {h: rH}) : t('minutesFmt', {m: rM})}`);
 
       // Calculate today's remaining event minutes
       try {
@@ -88,7 +90,7 @@ const TodayTasks: React.FC = () => {
         const freeMin = Math.max(0, remainingMin - busyMinutes);
         const fH = Math.floor(freeMin / 60);
         const fM = freeMin % 60;
-        setFreeTimeText(`余白 ${fH}時間${fM}分`);
+        setFreeTimeText(`${t('freeTimeTotal')} ${fH > 0 && fM > 0 ? t('hoursMinutesFmt', {h: fH, m: fM}) : fH > 0 ? t('hoursFmt', {h: fH}) : t('minutesFmt', {m: fM})}`);
       } catch {
         setFreeTimeText('');
       }
@@ -133,7 +135,7 @@ const TodayTasks: React.FC = () => {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerTitleRow}>
-          <Text style={[styles.headerTitle, {color: colors.text}]}>やることリスト</Text>
+          <Text style={[styles.headerTitle, {color: colors.text}]}>{t('todoList')}</Text>
           {sleepSettings && (
             <View style={styles.timeInfo}>
               {remainingText ? (
@@ -157,7 +159,7 @@ const TodayTasks: React.FC = () => {
         <View style={styles.inputRow}>
           <TextInput
             style={[styles.input, {backgroundColor: colors.inputBackground, color: colors.text}]}
-            placeholder="タスクを入力..."
+            placeholder={t('taskPlaceholder')}
             placeholderTextColor={colors.textTertiary}
             value={inputText}
             onChangeText={setInputText}
@@ -168,7 +170,7 @@ const TodayTasks: React.FC = () => {
           <TouchableOpacity
             onPress={handleAdd}
             style={[styles.submitBtn, {backgroundColor: colors.primary}]}>
-            <Text style={styles.submitBtnText}>追加</Text>
+            <Text style={styles.submitBtnText}>{t('add')}</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -176,7 +178,7 @@ const TodayTasks: React.FC = () => {
       {/* Task list */}
       <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
         {tasks.length === 0 && !showInput && (
-          <Text style={[styles.emptyText, {color: colors.textTertiary}]}>タスクなし</Text>
+          <Text style={[styles.emptyText, {color: colors.textTertiary}]}>{t('noTasks')}</Text>
         )}
         {tasks.map(task => (
           <View key={task.id} style={styles.taskRow}>
