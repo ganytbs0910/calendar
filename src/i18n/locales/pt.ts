@@ -203,6 +203,7 @@ export default {
   settingsLabel: 'Configurações',
   toggleView: 'Alternar visualização',
   monthView: 'M',
+  weekView: 'S',
   dayView: 'D',
   addEventLabel: 'Adicionar evento',
   addEventHint: 'Pressione e segure para criar a partir de modelo',

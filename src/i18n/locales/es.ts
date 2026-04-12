@@ -203,6 +203,7 @@ export default {
   settingsLabel: 'Ajustes',
   toggleView: 'Cambiar vista',
   monthView: 'M',
+  weekView: 'S',
   dayView: 'D',
   addEventLabel: 'Agregar evento',
   addEventHint: 'Mantén presionado para crear desde plantilla',

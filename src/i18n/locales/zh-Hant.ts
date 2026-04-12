@@ -203,6 +203,7 @@ export default {
   settingsLabel: '設定',
   toggleView: '切換檢視',
   monthView: '月',
+  weekView: '週',
   dayView: '日',
   addEventLabel: '新增活動',
   addEventHint: '長按以從範本建立',

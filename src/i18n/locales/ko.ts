@@ -203,6 +203,7 @@ export default {
   settingsLabel: '설정',
   toggleView: '보기 전환',
   monthView: '월',
+  weekView: '주',
   dayView: '일',
   addEventLabel: '일정 추가',
   addEventHint: '길게 눌러 템플릿에서 생성',

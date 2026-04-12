@@ -203,6 +203,7 @@ export default {
   settingsLabel: 'Einstellungen',
   toggleView: 'Ansicht wechseln',
   monthView: 'M',
+  weekView: 'W',
   dayView: 'T',
   addEventLabel: 'Termin hinzufügen',
   addEventHint: 'Lange drücken, um aus Vorlage zu erstellen',

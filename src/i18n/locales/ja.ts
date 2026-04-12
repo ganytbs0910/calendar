@@ -221,6 +221,7 @@ export default {
   settingsLabel: '設定',
   toggleView: '表示切替',
   monthView: '月',
+  weekView: '週',
   dayView: '日',
   addEventLabel: '予定を追加',
   addEventHint: '長押しでテンプレートから作成',

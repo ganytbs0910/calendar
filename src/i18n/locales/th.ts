@@ -203,6 +203,7 @@ export default {
   settingsLabel: 'การตั้งค่า',
   toggleView: 'สลับมุมมอง',
   monthView: 'ด',
+  weekView: 'ส',
   dayView: 'ว',
   addEventLabel: 'เพิ่มกิจกรรม',
   addEventHint: 'กดค้างเพื่อสร้างจากเทมเพลต',

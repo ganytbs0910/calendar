@@ -203,6 +203,7 @@ export default {
   settingsLabel: 'Settings',
   toggleView: 'Toggle view',
   monthView: 'M',
+  weekView: 'W',
   dayView: 'D',
   addEventLabel: 'Add event',
   addEventHint: 'Long press to create from template',

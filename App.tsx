@@ -17,7 +17,6 @@ import {
 import {SafeAreaProvider, SafeAreaView} from 'react-native-safe-area-context';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
 import Calendar, {CalendarRef} from './src/components/Calendar';
-import DayView, {DayViewRef} from './src/components/DayView';
 import WeekView, {WeekViewRef} from './src/components/WeekView';
 import AddEventModal from './src/components/AddEventModal';
 import EventDetailModal from './src/components/EventDetailModal';
@@ -90,7 +89,7 @@ const SearchIcon = ({size = 20, color = '#666'}: {size?: number; color?: string}
 
 // Custom Settings Icon Component (gear)
 
-type ViewMode = 'month' | 'week' | 'day';
+type ViewMode = 'month' | 'week';
 
 // Sleep Setup Modal with weekday/weekend tabs
 const SleepSetupModal = ({
@@ -256,7 +255,6 @@ function AppContent() {
   const [undoAction, setUndoAction] = useState<UndoAction | null>(null);
   const [initialColor, setInitialColor] = useState<string | undefined>(undefined);
   const calendarRef = useRef<CalendarRef>(null);
-  const dayViewRef = useRef<DayViewRef>(null);
   const weekViewRef = useRef<WeekViewRef>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -434,7 +432,6 @@ function AppContent() {
 
   const handleEventAdded = useCallback(() => {
     calendarRef.current?.refreshEvents();
-    dayViewRef.current?.refreshEvents();
     weekViewRef.current?.refreshEvents();
   }, []);
 
@@ -468,13 +465,11 @@ function AppContent() {
 
   const handleEventCopied = useCallback(() => {
     calendarRef.current?.refreshEvents();
-    dayViewRef.current?.refreshEvents();
     weekViewRef.current?.refreshEvents();
   }, []);
 
   const refreshAllViews = useCallback(() => {
     calendarRef.current?.refreshEvents();
-    dayViewRef.current?.refreshEvents();
     weekViewRef.current?.refreshEvents();
   }, []);
 
@@ -540,11 +535,7 @@ function AppContent() {
   }, [refreshAllViews]);
 
   const toggleViewMode = useCallback(() => {
-    setViewMode(prev => prev === 'month' ? 'day' : 'month');
-  }, []);
-
-  const switchBetweenDayWeek = useCallback(() => {
-    setViewMode(prev => prev === 'day' ? 'week' : 'day');
+    setViewMode(prev => prev === 'month' ? 'week' : 'month');
   }, []);
 
   const goToToday = useCallback(() => {
@@ -616,7 +607,6 @@ function AppContent() {
     handleEventPress(event);
   }, [viewMode, handleEventPress]);
 
-  // Handler for swipe navigation in DayView
   const handleDayChange = useCallback((newDate: Date) => {
     setCurrentDate(newDate);
   }, []);
@@ -666,7 +656,7 @@ function AppContent() {
               accessibilityLabel={t('toggleView')}
               accessibilityRole="button">
               <Text style={styles.viewToggleText}>
-                {viewMode === 'month' ? t('monthView') : t('dayView')}
+                {viewMode === 'month' ? t('monthView') : t('weekView')}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -693,7 +683,7 @@ function AppContent() {
               onDateRangeSelect={handleTimeRangeSelect}
               hasPermission={hasPermission}
             />
-        ) : viewMode === 'week' ? (
+        ) : (
           <WeekView
             ref={weekViewRef}
             currentDate={currentDate}
@@ -702,19 +692,7 @@ function AppContent() {
             onDayChange={handleDayChange}
             hasPermission={hasPermission}
             sleepSettings={sleepSettings}
-            onSwitchToDay={() => setViewMode('day')}
-          />
-        ) : (
-          <DayView
-            ref={dayViewRef}
-            currentDate={currentDate}
-            onTimeRangeSelect={handleTimeRangeSelect}
-            onEventPress={handleEventPress}
-            onDayChange={handleDayChange}
-            hasPermission={hasPermission}
-            sleepSettings={sleepSettings}
-            onSleepSettingsChange={handleSleepSettingsChange}
-            onSwitchToWeek={() => setViewMode('week')}
+            onOpenSleepSettings={openSleepSettings}
           />
         )}
 
@@ -997,7 +975,6 @@ function AppContent() {
                           style={styles.settingsItem}
                           onPress={() => {
                             calendarRef.current?.refreshEvents();
-                            dayViewRef.current?.refreshEvents();
                             weekViewRef.current?.refreshEvents();
                             Alert.alert(t('done'), t('refreshDone'));
                           }}>

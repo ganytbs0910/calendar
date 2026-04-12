@@ -203,6 +203,7 @@ export default {
   settingsLabel: '设置',
   toggleView: '切换视图',
   monthView: '月',
+  weekView: '周',
   dayView: '日',
   addEventLabel: '添加日程',
   addEventHint: '长按从模板创建',

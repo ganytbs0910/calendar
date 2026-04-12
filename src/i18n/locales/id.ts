@@ -203,6 +203,7 @@ export default {
   settingsLabel: 'Pengaturan',
   toggleView: 'Ganti tampilan',
   monthView: 'B',
+  weekView: 'M',
   dayView: 'H',
   addEventLabel: 'Tambah acara',
   addEventHint: 'Tekan lama untuk membuat dari template',
