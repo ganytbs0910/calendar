@@ -45,6 +45,21 @@ const DURATION_OPTIONS: {label: string; value: number}[] = [
   {label: 'duration6h', value: 360},
 ];
 
+const getDeadlineKey = (daysFromNow: number): string => {
+  const d = new Date();
+  d.setDate(d.getDate() + daysFromNow);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+const formatDeadline = (deadline: string, t: (key: string) => string): string => {
+  const today = getDeadlineKey(0);
+  const tomorrow = getDeadlineKey(1);
+  if (deadline === today) return t('deadlineToday');
+  if (deadline === tomorrow) return t('deadlineTomorrow');
+  const [y, m, d] = deadline.split('-');
+  return `${parseInt(m, 10)}/${parseInt(d, 10)}`;
+};
+
 const formatMinutes = (m: number): string => {
   const h = Math.floor(m / 60);
   const min = m % 60;
@@ -287,6 +302,7 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
     setTaskDurationCustom(false);
     setTaskCustomMinutes('');
     setTaskInputError(false);
+    setAddDeadline(null);
   };
 
   const handleAddTask = useCallback(async () => {
@@ -294,7 +310,7 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
     if (!trimmed) { setTaskInputError(true); return; }
     try {
       const duration = taskDuration || undefined;
-      await addTaskForDate(trimmed, dateKey, undefined, duration, 'todo');
+      await addTaskForDate(trimmed, dateKey, undefined, duration, 'todo', undefined, addDeadline || undefined);
       resetAddOverlay();
       Keyboard.dismiss();
       fetchTasks();
@@ -310,6 +326,8 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
   const [editCustomMinutes, setEditCustomMinutes] = useState('');
   const [editTaskTimeHour, setEditTaskTimeHour] = useState('');
   const [editTaskTimeMinute, setEditTaskTimeMinute] = useState('');
+  const [editDeadline, setEditDeadline] = useState<string | null>(null);
+  const [addDeadline, setAddDeadline] = useState<string | null>(null);
 
   const handleExpandTask = useCallback((task: Task) => {
     if (expandedTaskId === task.id) {
@@ -318,6 +336,7 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
     }
     setExpandedTaskId(task.id);
     setEditTaskDuration(task.duration || null);
+    setEditDeadline(task.deadline || null);
     const isPreset = DURATION_OPTIONS.some(o => o.value === task.duration);
     if (task.duration && !isPreset) {
       setEditDurationCustom(true);
@@ -344,11 +363,16 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
     fetchTasks();
   }, [editTaskTimeHour, editTaskTimeMinute, editTaskDuration, fetchTasks]);
 
-  const handleSaveDurationOnly = useCallback(async (taskId: string) => {
-    await updateTask(taskId, {duration: editTaskDuration || undefined, clearDuration: !editTaskDuration});
+  const handleSaveEdits = useCallback(async (taskId: string) => {
+    await updateTask(taskId, {
+      duration: editTaskDuration || undefined,
+      clearDuration: !editTaskDuration,
+      deadline: editDeadline || undefined,
+      clearDeadline: !editDeadline,
+    });
     setExpandedTaskId(null);
     fetchTasks();
-  }, [editTaskDuration, fetchTasks]);
+  }, [editTaskDuration, editDeadline, fetchTasks]);
 
   // ── Render ──
   return (
@@ -435,11 +459,18 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
                           task.completed && {textDecorationLine: 'line-through', color: colors.textTertiary},
                         ]}
                         numberOfLines={1}>{task.title}</Text>
-                      {task.duration ? (
-                        <Text style={[styles.sheetEventTime, {color: colors.textSecondary}]}>
-                          {formatDuration(task.duration, t)}
-                        </Text>
-                      ) : null}
+                      <View style={{flexDirection: 'row', gap: 6}}>
+                        {task.duration ? (
+                          <Text style={[styles.sheetEventTime, {color: colors.textSecondary}]}>
+                            {formatDuration(task.duration, t)}
+                          </Text>
+                        ) : null}
+                        {task.deadline ? (
+                          <Text style={[styles.sheetEventTime, {color: task.deadline < getDeadlineKey(0) ? colors.error : task.deadline === getDeadlineKey(0) ? '#FF9500' : colors.textTertiary}]}>
+                            {formatDeadline(task.deadline, t)}
+                          </Text>
+                        ) : null}
+                      </View>
                     </TouchableOpacity>
                   </Animated.View>
                 </View>
@@ -540,6 +571,36 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
                       <Text style={[styles.customDurationUnit, {color: colors.textSecondary}]}>{t('minutes')}</Text>
                     </View>
                   )}
+                  <Text style={[styles.taskEditLabel, {color: colors.textSecondary, marginTop: 10}]}>{t('taskDeadline')}</Text>
+                  <View style={styles.durationOptions}>
+                    {[
+                      {label: t('deadlineToday'), value: getDeadlineKey(0)},
+                      {label: t('deadlineTomorrow'), value: getDeadlineKey(1)},
+                      {label: t('deadlineNextWeek'), value: getDeadlineKey(7)},
+                    ].map(opt => (
+                      <TouchableOpacity
+                        key={opt.value}
+                        style={[
+                          styles.durationChip,
+                          {borderColor: colors.border},
+                          editDeadline === opt.value && {backgroundColor: colors.primary, borderColor: colors.primary},
+                        ]}
+                        onPress={() => setEditDeadline(editDeadline === opt.value ? null : opt.value)}>
+                        <Text style={[
+                          styles.durationChipText,
+                          {color: colors.textSecondary},
+                          editDeadline === opt.value && {color: colors.onPrimary},
+                        ]}>{opt.label}</Text>
+                      </TouchableOpacity>
+                    ))}
+                    {editDeadline && (
+                      <TouchableOpacity
+                        style={[styles.durationChip, {borderColor: colors.error}]}
+                        onPress={() => setEditDeadline(null)}>
+                        <Text style={[styles.durationChipText, {color: colors.error}]}>✕</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
                   <Text style={[styles.taskEditLabel, {color: colors.textSecondary, marginTop: 10}]}>{t('taskTimezone')}</Text>
                   <View style={styles.taskEditTimeRow}>
                     <View style={styles.addTimeInputs}>
@@ -569,11 +630,11 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
                       <Text style={[styles.placeBtnText, {color: colors.onPrimary}]}>{t('place')}</Text>
                     </TouchableOpacity>
                   </View>
-                  {editTaskDuration !== task.duration && (
+                  {(editTaskDuration !== task.duration || editDeadline !== (task.deadline || null)) && (
                     <TouchableOpacity
                       style={[styles.saveDurationBtn, {borderColor: colors.primary}]}
-                      onPress={() => handleSaveDurationOnly(task.id)}>
-                      <Text style={[styles.saveDurationBtnText, {color: colors.primary}]}>{t('saveDurationOnly')}</Text>
+                      onPress={() => handleSaveEdits(task.id)}>
+                      <Text style={[styles.saveDurationBtnText, {color: colors.primary}]}>{t('saveChanges')}</Text>
                     </TouchableOpacity>
                   )}
                 </View>
@@ -716,6 +777,36 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
                     <Text style={[styles.customDurationUnit, {color: colors.textSecondary}]}>{t('minutes')}</Text>
                   </View>
                 )}
+                <Text style={[styles.taskEditLabel, {color: colors.textSecondary, marginTop: 12}]}>{t('taskDeadline')}</Text>
+                <View style={styles.durationOptions}>
+                  {[
+                    {label: t('deadlineToday'), value: getDeadlineKey(0)},
+                    {label: t('deadlineTomorrow'), value: getDeadlineKey(1)},
+                    {label: t('deadlineNextWeek'), value: getDeadlineKey(7)},
+                  ].map(opt => (
+                    <TouchableOpacity
+                      key={opt.value}
+                      style={[
+                        styles.durationChip,
+                        {borderColor: colors.border},
+                        addDeadline === opt.value && {backgroundColor: colors.primary, borderColor: colors.primary},
+                      ]}
+                      onPress={() => setAddDeadline(addDeadline === opt.value ? null : opt.value)}>
+                      <Text style={[
+                        styles.durationChipText,
+                        {color: colors.textSecondary},
+                        addDeadline === opt.value && {color: colors.onPrimary},
+                      ]}>{opt.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                  {addDeadline && (
+                    <TouchableOpacity
+                      style={[styles.durationChip, {borderColor: colors.error}]}
+                      onPress={() => setAddDeadline(null)}>
+                      <Text style={[styles.durationChipText, {color: colors.error}]}>✕</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
                 <View style={styles.addActions}>
                   <TouchableOpacity
                     style={[styles.addActionBtn, {backgroundColor: colors.inputBackground}]}

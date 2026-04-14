@@ -53,6 +53,7 @@ PODS:
     - React-RCTText (= 0.83.1)
     - React-RCTVibration (= 0.83.1)
   - React-callinvoker (0.83.1)
+  - React-Codegen (0.1.0)
   - React-Core (0.83.1):
     - boost
     - DoubleConversion
@@ -2627,6 +2628,13 @@ PODS:
     - ReactCommon/turbomodule/core
     - SocketRocket
     - Yoga
+  - RNIap (12.15.4):
+    - RCT-Folly
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Codegen
+    - React-Core
+    - ReactCommon/turbomodule/core
   - SocketRocket (0.7.1)
   - Yoga (0.0.0)
 
@@ -2713,6 +2721,7 @@ DEPENDENCIES:
   - "RNCAsyncStorage (from `../node_modules/@react-native-async-storage/async-storage`)"
   - "RNDateTimePicker (from `../node_modules/@react-native-community/datetimepicker`)"
   - RNGoogleMobileAds (from `../node_modules/react-native-google-mobile-ads`)
+  - RNIap (from `../node_modules/react-native-iap`)
   - SocketRocket (~> 0.7.1)
   - Yoga (from `../node_modules/react-native/ReactCommon/yoga`)
 
@@ -2720,6 +2729,7 @@ SPEC REPOS:
   trunk:
     - Google-Mobile-Ads-SDK
     - GoogleUserMessagingPlatform
+    - React-Codegen
     - SocketRocket
 
 EXTERNAL SOURCES:
@@ -2886,6 +2896,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/@react-native-community/datetimepicker"
   RNGoogleMobileAds:
     :path: "../node_modules/react-native-google-mobile-ads"
+  RNIap:
+    :path: "../node_modules/react-native-iap"
   Yoga:
     :path: "../node_modules/react-native/ReactCommon/yoga"
 
@@ -2907,6 +2919,7 @@ SPEC CHECKSUMS:
   RCTTypeSafety: 27927d0ca04e419ed9467578b3e6297e37210b5c
   React: 4bc1f928568ad4bcfd147260f907b4ea5873a03b
   React-callinvoker: 87f8728235a0dc62e9dc19b3851c829d9347d015
+  React-Codegen: 4b8b4817cea7a54b83851d4c1f91f79aa73de30a
   React-Core: 76bed73b02821e5630e7f2cb2e82432ee964695d
   React-CoreModules: 752dbfdaeb096658aa0adc4a03ba6214815a08df
   React-cxxreact: b6798528aa601c6db66e6adc7e2da2b059c8be74
@@ -2973,6 +2986,7 @@ SPEC CHECKSUMS:
   RNCAsyncStorage: 29f0230e1a25f36c20b05f65e2eb8958d6526e82
   RNDateTimePicker: 97a86d7c8b51f2d51f694a9dddfe5996dfd9a407
   RNGoogleMobileAds: ea2da81e7951ed0ce97902b01fa80c39b2bb3ff9
+  RNIap: 5928184ff16db28ca308b071403c54cf0d462f74
   SocketRocket: d4aabe649be1e368d1318fdf28a022d714d65748
   Yoga: 5456bb010373068fc92221140921b09d126b116e
 

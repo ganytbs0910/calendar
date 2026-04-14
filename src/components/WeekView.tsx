@@ -9,6 +9,9 @@ import {
   TouchableOpacity,
   NativeSyntheticEvent,
   NativeScrollEvent,
+  useWindowDimensions,
+  Vibration,
+  Platform,
 } from 'react-native';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
 import {getAllEventColors} from './AddEventModal';
@@ -17,9 +20,7 @@ import {useTranslation} from 'react-i18next';
 import {SleepSettings, getSettingsForDate} from '../services/sleepSettingsService';
 import TaskBottomSheet, {TaskBottomSheetRef} from './TaskBottomSheet';
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
 const TIME_LABEL_WIDTH = 48;
-const DAY_WIDTH = (SCREEN_WIDTH - TIME_LABEL_WIDTH) / 7;
 const HOUR_HEIGHT = 44;
 const ALL_DAY_ROW_HEIGHT = 28;
 
@@ -44,6 +45,7 @@ interface WeekViewProps {
   hasPermission?: boolean;
   sleepSettings?: SleepSettings | null;
   onOpenSleepSettings?: () => void;
+  onJumpToToday?: () => void;
 }
 
 const dayKey = (d: Date): string =>
@@ -68,10 +70,15 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
   hasPermission,
   sleepSettings,
   onOpenSleepSettings,
+  onJumpToToday,
 }, ref) => {
   const {colors, isDark} = useTheme();
   const {t} = useTranslation();
   const WEEKDAYS_JA = t('weekdaysSingle', {returnObjects: true}) as string[];
+
+  // Responsive to rotation / iPad multitasking via useWindowDimensions
+  const {width: screenWidth} = useWindowDimensions();
+  const dayWidth = useMemo(() => (screenWidth - TIME_LABEL_WIDTH) / 7, [screenWidth]);
 
   // Anchor = Monday of the week containing currentDate when the component mounted.
   // All day offsets are computed relative to this, so FlatList never needs resetting.
@@ -222,18 +229,18 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
 
     headerListRef.current?.scrollToOffset({offset: x, animated: false});
 
-    const newLeftIdx = Math.round(x / DAY_WIDTH);
+    const newLeftIdx = Math.round(x / dayWidth);
     if (newLeftIdx !== leftVisibleIndexRef.current) {
       leftVisibleIndexRef.current = newLeftIdx;
       const newLabel = computeMonthLabel(newLeftIdx);
       setMonthLabel(prev => (prev === newLabel ? prev : newLabel));
     }
-  }, [computeMonthLabel]);
+  }, [computeMonthLabel, dayWidth]);
 
   // ── After a horizontal flick settles, update parent + consider a refetch. ──
   const onHorizontalMomentumEnd = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const x = e.nativeEvent.contentOffset.x;
-    const leftIdx = Math.round(x / DAY_WIDTH);
+    const leftIdx = Math.round(x / dayWidth);
     const centerIdx = leftIdx + 3;
 
     const centerDate = getDateForIndex(centerIdx);
@@ -242,10 +249,13 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
     onDayChange?.(targetDate);
     setSheetDate(targetDate);
 
+    // Subtle haptic when a fresh day lands in the centre
+    // Haptic removed
+
     if (Math.abs(centerIdx - lastFetchCenterRef.current) > REFETCH_THRESHOLD) {
       fetchEventsForCenter(centerIdx);
     }
-  }, [getDateForIndex, currentDate, onDayChange, fetchEventsForCenter]);
+  }, [getDateForIndex, currentDate, onDayChange, fetchEventsForCenter, dayWidth]);
 
   // Keep sheetDate in sync when the parent changes currentDate (e.g. day header tap)
   useEffect(() => {
@@ -317,10 +327,19 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
 
   // ── FlatList plumbing ──
   const getItemLayout = useCallback((_: any, index: number) => ({
-    length: DAY_WIDTH,
-    offset: DAY_WIDTH * index,
+    length: dayWidth,
+    offset: dayWidth * index,
     index,
-  }), []);
+  }), [dayWidth]);
+
+  // Resync scroll position after window width changes (rotation / iPad split)
+  useEffect(() => {
+    const idx = leftVisibleIndexRef.current;
+    requestAnimationFrame(() => {
+      bodyListRef.current?.scrollToIndex({index: idx, animated: false});
+      headerListRef.current?.scrollToIndex({index: idx, animated: false});
+    });
+  }, [dayWidth]);
 
   const keyExtractorHeader = useCallback((_: any, index: number) => `h-${index}`, []);
   const keyExtractorBody = useCallback((_: any, index: number) => `b-${index}`, []);
@@ -342,7 +361,7 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
     const eventCount = timedCount + allDayList.length;
 
     return (
-      <View style={styles.headerDayWrapper}>
+      <View style={{width: dayWidth}}>
         <TouchableOpacity
           style={styles.headerDay}
           onPress={() => {
@@ -382,27 +401,36 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
             </Text>
           </View>
         </TouchableOpacity>
-        <View style={[styles.allDayCell, {borderBottomColor: colors.border}]}>
-          {allDayList.slice(0, 2).map(event => (
-            <TouchableOpacity
-              key={event.id}
-              style={[styles.allDayEvent, {backgroundColor: colors.allDayEvent}]}
-              onPress={() => onEventPress?.(event)}>
-              <Text style={[styles.allDayEventText, {color: colors.allDayEventText}]} numberOfLines={1}>
-                {event.title}
-              </Text>
-            </TouchableOpacity>
-          ))}
+        <View style={[styles.allDayCell, {width: dayWidth, borderBottomColor: colors.border}]}>
+          {allDayList.slice(0, 2).map(event => {
+            const evColor = eventColors[event.id] || event.calendar?.color || colors.primary;
+            return (
+              <TouchableOpacity
+                key={event.id}
+                style={[styles.allDayEvent, {backgroundColor: evColor + '22', borderLeftColor: evColor}]}
+                onPress={() => onEventPress?.(event)}>
+                <Text style={[styles.allDayEventText, {color: evColor}]} numberOfLines={1}>
+                  {event.title}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+          {allDayList.length > 2 && (
+            <Text style={{fontSize: 9, color: colors.textTertiary, textAlign: 'center'}}>
+              +{allDayList.length - 2}
+            </Text>
+          )}
         </View>
       </View>
     );
-  }, [getDateForIndex, timedEventsByKey, allDayEventsByKey, colors, isSameDay, today, WEEKDAYS_JA, currentDate, onDayChange, onEventPress]);
+  }, [getDateForIndex, timedEventsByKey, allDayEventsByKey, colors, isSameDay, today, WEEKDAYS_JA, currentDate, onDayChange, onEventPress, dayWidth]);
 
   const renderBodyItem = useCallback(({index}: {index: number}) => {
     const date = getDateForIndex(index);
     return (
       <DayColumn
         date={date}
+        dayWidth={dayWidth}
         dayEvents={timedEventsByKey.get(dayKey(date)) || []}
         eventColors={eventColors}
         displayStartHour={displayStartHour}
@@ -413,6 +441,13 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
         isToday={isSameDay(date, today)}
         onEventPress={onEventPress}
         onTimeRangeSelect={onTimeRangeSelect}
+        onEventMoved={(eventId, newStart, newEnd) => {
+          setEvents(prev => prev.map(ev =>
+            ev.id === eventId
+              ? {...ev, startDate: newStart.toISOString(), endDate: newEnd.toISOString()}
+              : ev
+          ));
+        }}
         verticalOffsetRef={verticalOffsetRef}
         gridTopOnScreenRef={gridTopOnScreenRef}
         scrollingRef={scrollingRef}
@@ -423,20 +458,26 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
         onOpenSleepSettings={onOpenSleepSettings}
       />
     );
-  }, [getDateForIndex, timedEventsByKey, eventColors, displayStartHour, totalDisplayHours, timelineHeight, colors, isDark, isSameDay, today, onEventPress, onTimeRangeSelect, lockInteraction, unlockInteraction, sleepSettings, onOpenSleepSettings]);
+  }, [getDateForIndex, timedEventsByKey, eventColors, displayStartHour, totalDisplayHours, timelineHeight, colors, isDark, isSameDay, today, onEventPress, onTimeRangeSelect, fetchEventsForCenter, lockInteraction, unlockInteraction, sleepSettings, onOpenSleepSettings, dayWidth]);
 
   return (
     <View style={[styles.container, {backgroundColor: colors.background}]}>
       {/* Fixed header row: corner + horizontal list of day headers */}
       <View style={[styles.header, {backgroundColor: colors.surface, borderBottomColor: colors.border}]}>
-        <View style={styles.timeCorner}>
-          <Text style={[styles.monthLabel, {color: colors.textSecondary}]}>
+        <TouchableOpacity
+          style={styles.timeCorner}
+          activeOpacity={0.6}
+          onPress={onJumpToToday}>
+          <Text style={[styles.monthLabel, {color: onJumpToToday ? colors.primary : colors.textSecondary}]}>
             {monthLabel}
           </Text>
-        </View>
+          {onJumpToToday && (
+            <Text style={[styles.jumpTodayHint, {color: colors.primary}]}>{t('today')}</Text>
+          )}
+        </TouchableOpacity>
         <FlatList
           ref={headerListRef}
-          style={{width: SCREEN_WIDTH - TIME_LABEL_WIDTH}}
+          style={{width: screenWidth - TIME_LABEL_WIDTH}}
           data={Array.from({length: TOTAL_DAYS})}
           keyExtractor={keyExtractorHeader}
           renderItem={renderHeaderItem}
@@ -532,7 +573,7 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
           {/* Horizontal FlatList of day columns */}
           <FlatList
             ref={bodyListRef}
-            style={{width: SCREEN_WIDTH - TIME_LABEL_WIDTH, height: timelineHeight}}
+            style={{width: screenWidth - TIME_LABEL_WIDTH, height: timelineHeight}}
             data={Array.from({length: TOTAL_DAYS})}
             keyExtractor={keyExtractorBody}
             renderItem={renderBodyItem}
@@ -543,7 +584,7 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
             onScroll={onBodyHScroll}
             onMomentumScrollEnd={onHorizontalMomentumEnd}
             scrollEventThrottle={16}
-            snapToInterval={DAY_WIDTH}
+            snapToInterval={dayWidth}
             decelerationRate="fast"
             initialNumToRender={8}
             windowSize={5}
@@ -571,11 +612,12 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
 });
 
 // ──────────────────────────────────────────────────────────────
-// DayColumn — one DAY_WIDTH-wide, timelineHeight-tall column
+// DayColumn — one dayWidth-wide, timelineHeight-tall column
 // ──────────────────────────────────────────────────────────────
 
 interface DayColumnProps {
   date: Date;
+  dayWidth: number;
   dayEvents: CalendarEventReadable[];
   eventColors: Record<string, string>;
   displayStartHour: number;
@@ -586,6 +628,7 @@ interface DayColumnProps {
   isToday: boolean;
   onEventPress?: (event: CalendarEventReadable) => void;
   onTimeRangeSelect?: (startDate: Date, endDate: Date) => void;
+  onEventMoved?: (eventId: string, newStartDate: Date, newEndDate: Date) => void;
   verticalOffsetRef: React.MutableRefObject<number>;
   gridTopOnScreenRef: React.MutableRefObject<number>;
   scrollingRef: React.MutableRefObject<boolean>;
@@ -598,6 +641,7 @@ interface DayColumnProps {
 
 const DayColumn = React.memo(function DayColumn({
   date,
+  dayWidth,
   dayEvents,
   eventColors,
   displayStartHour,
@@ -608,6 +652,7 @@ const DayColumn = React.memo(function DayColumn({
   isToday,
   onEventPress,
   onTimeRangeSelect,
+  onEventMoved,
   verticalOffsetRef,
   gridTopOnScreenRef,
   scrollingRef,
@@ -626,6 +671,13 @@ const DayColumn = React.memo(function DayColumn({
   const creatingEventRef = useRef(creatingEvent);
   useEffect(() => { creatingEventRef.current = creatingEvent; }, [creatingEvent]);
 
+  // Moving event state
+  const [movingEvent, setMovingEvent] = useState<{event: CalendarEventReadable; startMin: number; durationMin: number} | null>(null);
+  const movingEventRef = useRef(movingEvent);
+  useEffect(() => { movingEventRef.current = movingEvent; }, [movingEvent]);
+  const lpDragModeRef = useRef<'create' | 'move'>('create');
+  const lpHitEventRef = useRef<CalendarEventReadable | null>(null);
+
   // Long-press state
   const lpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lpActiveRef = useRef(false);
@@ -634,6 +686,8 @@ const DayColumn = React.memo(function DayColumn({
   const lpTouchXRef = useRef(0);
   const lpWasDragRef = useRef(false);
   const lpTouchTimeRef = useRef(0);
+  const lpOffsetMinRef = useRef(0);
+  const lpStartPageXRef = useRef(0);
 
   // ── pageY → minutes ──
   const pageYToMinutes = useCallback((pageY: number) => {
@@ -646,22 +700,53 @@ const DayColumn = React.memo(function DayColumn({
     const {pageX, pageY} = e.nativeEvent;
     lpTouchYRef.current = pageY;
     lpTouchXRef.current = pageX;
+    lpStartPageXRef.current = pageX;
     lpTouchTimeRef.current = Date.now();
     lpActiveRef.current = false;
     lpWasDragRef.current = false;
+    lpHitEventRef.current = null;
+
+    // Check if touch is on an existing event
+    const touchMin = pageYToMinutes(pageY);
+    for (const ev of dayEvents) {
+      if (!ev.startDate || !ev.endDate || ev.allDay) continue;
+      const s = new Date(ev.startDate);
+      const eEnd = new Date(ev.endDate);
+      const evStartMin = s.getHours() * 60 + s.getMinutes();
+      const evEndMin = eEnd.getHours() * 60 + eEnd.getMinutes();
+      if (touchMin >= evStartMin && touchMin <= evEndMin) {
+        lpHitEventRef.current = ev;
+        lpOffsetMinRef.current = touchMin - evStartMin;
+        break;
+      }
+    }
 
     lpTimerRef.current = setTimeout(() => {
       lpTimerRef.current = null;
       lpActiveRef.current = true;
       lpWasDragRef.current = true;
-      // Lock scrolling on both axes so the drag isn't stolen by the ScrollView / FlatList.
       onLockInteraction();
-      const minutes = pageYToMinutes(pageY);
-      const snappedMin = Math.max(0, Math.min(23 * 60 + 55, minutes));
-      lpStartMinRef.current = snappedMin;
-      setCreatingEvent({startMin: snappedMin, endMin: snappedMin + 30});
-    }, 300);
-  }, [pageYToMinutes, onLockInteraction]);
+      // Haptic removed
+
+      if (lpHitEventRef.current) {
+        // Move existing event
+        lpDragModeRef.current = 'move';
+        const ev = lpHitEventRef.current;
+        const s = new Date(ev.startDate!);
+        const eEnd = new Date(ev.endDate!);
+        const evStartMin = s.getHours() * 60 + s.getMinutes();
+        const evEndMin = eEnd.getHours() * 60 + eEnd.getMinutes();
+        setMovingEvent({event: ev, startMin: evStartMin, durationMin: evEndMin - evStartMin});
+      } else {
+        // Create new event
+        lpDragModeRef.current = 'create';
+        const minutes = pageYToMinutes(pageY);
+        const snappedMin = Math.max(0, Math.min(23 * 60 + 55, minutes));
+        lpStartMinRef.current = snappedMin;
+        setCreatingEvent({startMin: snappedMin, endMin: snappedMin + 30});
+      }
+    }, 200);
+  }, [pageYToMinutes, onLockInteraction, dayEvents]);
 
   const handleTouchMove = useCallback((e: any) => {
     const {pageX, pageY} = e.nativeEvent;
@@ -676,10 +761,25 @@ const DayColumn = React.memo(function DayColumn({
       return;
     }
 
-    const endMin = pageYToMinutes(pageY);
-    const startMin = lpStartMinRef.current;
-    const clampedEnd = Math.max(startMin + 5, Math.min(24 * 60, endMin));
-    setCreatingEvent({startMin, endMin: clampedEnd});
+    if (lpDragModeRef.current === 'move') {
+      // Move event: update start position
+      const touchMin = pageYToMinutes(pageY);
+      const me = movingEventRef.current;
+      if (me) {
+        const newStart = Math.max(0, Math.min(24 * 60 - me.durationMin, touchMin - lpOffsetMinRef.current));
+        const snappedStart = Math.round(newStart / 15) * 15;
+        setMovingEvent({...me, startMin: snappedStart});
+      }
+    } else {
+      // Create event - support multi-day by tracking horizontal offset
+      const endMin = pageYToMinutes(pageY);
+      const startMin = lpStartMinRef.current;
+      const dx = pageX - lpStartPageXRef.current;
+      const extraDays = Math.round(dx / dayWidth);
+      const totalEndMin = endMin + extraDays * 24 * 60;
+      const clampedEnd = Math.max(startMin + 5, totalEndMin);
+      setCreatingEvent({startMin, endMin: clampedEnd});
+    }
 
     const screenH = Dimensions.get('window').height;
     if (pageY > screenH - 80) {
@@ -706,15 +806,44 @@ const DayColumn = React.memo(function DayColumn({
     if (lpActiveRef.current) {
       lpActiveRef.current = false;
       onUnlockInteraction();
-      const ce = creatingEventRef.current;
-      if (ce && ce.endMin - ce.startMin >= 5 && onTimeRangeSelect) {
-        const s = new Date(date);
-        s.setHours(Math.floor(ce.startMin / 60), ce.startMin % 60, 0, 0);
-        const ed = new Date(date);
-        ed.setHours(Math.floor(ce.endMin / 60), ce.endMin % 60, 0, 0);
-        onTimeRangeSelect(s, ed);
+
+      if (lpDragModeRef.current === 'move') {
+        // Save moved event
+        const me = movingEventRef.current;
+        if (me && me.event.id) {
+          const newStart = new Date(date);
+          newStart.setHours(Math.floor(me.startMin / 60), me.startMin % 60, 0, 0);
+          const newEnd = new Date(date);
+          const endMin = me.startMin + me.durationMin;
+          newEnd.setHours(Math.floor(endMin / 60), endMin % 60, 0, 0);
+          // Optimistic UI update first
+          onEventMoved?.(me.event.id, newStart, newEnd);
+          // Save in background
+          RNCalendarEvents.saveEvent(me.event.title || '', {
+            id: me.event.id,
+            calendarId: me.event.calendar?.id,
+            startDate: newStart.toISOString(),
+            endDate: newEnd.toISOString(),
+            allDay: me.event.allDay,
+          }).catch(() => {});
+        }
+        setMovingEvent(null);
+      } else {
+        // Finish creating event (supports multi-day)
+        const ce = creatingEventRef.current;
+        if (ce && ce.endMin - ce.startMin >= 5 && onTimeRangeSelect) {
+          const s = new Date(date);
+          s.setHours(Math.floor(ce.startMin / 60), ce.startMin % 60, 0, 0);
+          const totalMinutes = ce.endMin;
+          const extraDays = Math.floor(totalMinutes / (24 * 60));
+          const remainingMin = totalMinutes % (24 * 60);
+          const ed = new Date(date);
+          ed.setDate(ed.getDate() + extraDays);
+          ed.setHours(Math.floor(remainingMin / 60), remainingMin % 60, 0, 0);
+          onTimeRangeSelect(s, ed);
+        }
+        setCreatingEvent(null);
       }
-      setCreatingEvent(null);
       return;
     }
 
@@ -731,7 +860,7 @@ const DayColumn = React.memo(function DayColumn({
         onTimeRangeSelect(s, ed);
       }
     }
-  }, [date, onTimeRangeSelect, pageYToMinutes, scrollingRef, onUnlockInteraction]);
+  }, [date, onTimeRangeSelect, onEventMoved, pageYToMinutes, scrollingRef, onUnlockInteraction]);
 
   // ── Current time indicator ──
   const now = new Date();
@@ -753,7 +882,7 @@ const DayColumn = React.memo(function DayColumn({
       style={[
         styles.dayColumn,
         {
-          width: DAY_WIDTH,
+          width: dayWidth,
           height: timelineHeight,
           borderRightColor: gridColor,
           backgroundColor: isToday ? (isDark ? 'rgba(10, 132, 255, 0.08)' : 'rgba(0, 122, 255, 0.04)') : 'transparent',
@@ -769,6 +898,7 @@ const DayColumn = React.memo(function DayColumn({
           onUnlockInteraction();
         }
         setCreatingEvent(null);
+        setMovingEvent(null);
       }}>
 
       {/* Horizontal grid lines */}
@@ -822,11 +952,13 @@ const DayColumn = React.memo(function DayColumn({
         }
         if (height <= 0 || top > totalDisplayHours * HOUR_HEIGHT) return null;
 
-        const width = DAY_WIDTH - 4;
+        const width = dayWidth - 4;
         const eventColor = event.id && eventColors[event.id]
           ? eventColors[event.id]
           : event.calendar?.color || colors.primary;
         const isShort = height < 30;
+
+        const isBeingMoved = movingEvent?.event.id === event.id;
 
         return (
           <TouchableOpacity
@@ -843,6 +975,7 @@ const DayColumn = React.memo(function DayColumn({
                 backgroundColor: eventColor + 'E8',
                 borderLeftWidth: 3,
                 borderLeftColor: eventColor,
+                opacity: isBeingMoved ? 0.3 : 1,
               },
             ]}
             onPress={() => onEventPress?.(event)}>
@@ -859,27 +992,131 @@ const DayColumn = React.memo(function DayColumn({
       })}
 
       {/* Creation preview */}
-      {creatingEvent && (
-        <View style={[
-          styles.creationPreview,
-          {
-            top: ((creatingEvent.startMin - displayStartHour * 60) / 60) * HOUR_HEIGHT,
-            height: Math.max(((creatingEvent.endMin - creatingEvent.startMin) / 60) * HOUR_HEIGHT, 10),
-            left: 2,
-            width: DAY_WIDTH - 4,
-            backgroundColor: colors.primary + '40',
-            borderColor: colors.primary,
-          },
-        ]}>
-          <Text style={[styles.creationPreviewText, {color: colors.primary}]}>
-            {Math.floor(creatingEvent.startMin / 60).toString().padStart(2, '0')}:
-            {(creatingEvent.startMin % 60).toString().padStart(2, '0')}
-            {' - '}
-            {Math.floor(creatingEvent.endMin / 60).toString().padStart(2, '0')}:
-            {(creatingEvent.endMin % 60).toString().padStart(2, '0')}
-          </Text>
-        </View>
-      )}
+      {creatingEvent && (() => {
+        const totalDays = Math.floor(creatingEvent.endMin / (24 * 60));
+        const endMinInLastDay = creatingEvent.endMin % (24 * 60);
+        const startMin = creatingEvent.startMin;
+        const displayStart = displayStartHour * 60;
+        const fmtTime = (m: number) => `${Math.floor(m / 60).toString().padStart(2, '0')}:${(m % 60).toString().padStart(2, '0')}`;
+
+        if (totalDays === 0) {
+          // Single day - simple rectangle
+          return (
+            <View style={[
+              styles.creationPreview,
+              {
+                top: ((startMin - displayStart) / 60) * HOUR_HEIGHT,
+                height: Math.max(((creatingEvent.endMin - startMin) / 60) * HOUR_HEIGHT, 10),
+                left: 2,
+                width: dayWidth - 4,
+                backgroundColor: colors.primary + '40',
+                borderColor: colors.primary,
+                zIndex: 50,
+              },
+            ]}>
+              <Text style={[styles.creationPreviewText, {color: colors.primary}]}>
+                {fmtTime(startMin)} - {fmtTime(creatingEvent.endMin)}
+              </Text>
+            </View>
+          );
+        }
+
+        // Multi-day: render separate preview for each day
+        const previews = [];
+        // First day: startMin to end of day
+        const firstDayEnd = 24 * 60;
+        previews.push(
+          <View key="day-0" style={[
+            styles.creationPreview,
+            {
+              top: ((startMin - displayStart) / 60) * HOUR_HEIGHT,
+              height: Math.max(((firstDayEnd - startMin) / 60) * HOUR_HEIGHT, 10),
+              left: 2,
+              width: dayWidth - 4,
+              backgroundColor: colors.primary + '40',
+              borderColor: colors.primary,
+              zIndex: 50,
+            },
+          ]}>
+            <Text style={[styles.creationPreviewText, {color: colors.primary}]}>
+              {fmtTime(startMin)} -
+            </Text>
+          </View>
+        );
+        // Middle full days
+        for (let d = 1; d < totalDays; d++) {
+          previews.push(
+            <View key={`day-${d}`} style={[
+              styles.creationPreview,
+              {
+                top: ((0 - displayStart) / 60) * HOUR_HEIGHT,
+                height: (24 * 60 / 60) * HOUR_HEIGHT,
+                left: d * dayWidth + 2,
+                width: dayWidth - 4,
+                backgroundColor: colors.primary + '30',
+                borderColor: colors.primary,
+                zIndex: 50,
+              },
+            ]} />
+          );
+        }
+        // Last day: start of day to endMinInLastDay
+        if (endMinInLastDay > 0) {
+          previews.push(
+            <View key={`day-${totalDays}`} style={[
+              styles.creationPreview,
+              {
+                top: ((0 - displayStart) / 60) * HOUR_HEIGHT,
+                height: Math.max((endMinInLastDay / 60) * HOUR_HEIGHT, 10),
+                left: totalDays * dayWidth + 2,
+                width: dayWidth - 4,
+                backgroundColor: colors.primary + '40',
+                borderColor: colors.primary,
+                zIndex: 50,
+              },
+            ]}>
+              <Text style={[styles.creationPreviewText, {color: colors.primary}]}>
+                - {fmtTime(endMinInLastDay)}
+              </Text>
+            </View>
+          );
+        }
+        return <>{previews}</>;
+      })()}
+
+      {/* Move event preview */}
+      {movingEvent && (() => {
+        const moveColor = (movingEvent.event.id && eventColors[movingEvent.event.id])
+          || movingEvent.event.calendar?.color || colors.primary;
+        const moveTop = ((movingEvent.startMin - displayStartHour * 60) / 60) * HOUR_HEIGHT;
+        const moveHeight = Math.max((movingEvent.durationMin / 60) * HOUR_HEIGHT, 20);
+        const moveEndMin = movingEvent.startMin + movingEvent.durationMin;
+        return (
+          <View style={[
+            styles.eventContainer,
+            styles.event,
+            {
+              top: moveTop,
+              height: moveHeight,
+              left: 2,
+              width: dayWidth - 4,
+              backgroundColor: moveColor + 'CC',
+              borderLeftWidth: 3,
+              borderLeftColor: moveColor,
+              zIndex: 100,
+            },
+          ]}>
+            <Text style={styles.eventTitle} numberOfLines={1}>{movingEvent.event.title}</Text>
+            <Text style={styles.eventTime}>
+              {Math.floor(movingEvent.startMin / 60).toString().padStart(2, '0')}:
+              {(movingEvent.startMin % 60).toString().padStart(2, '0')}
+              {' - '}
+              {Math.floor(moveEndMin / 60).toString().padStart(2, '0')}:
+              {(moveEndMin % 60).toString().padStart(2, '0')}
+            </Text>
+          </View>
+        );
+      })()}
 
       {/* Current time indicator (only in today's column) */}
       {isToday && (
@@ -918,8 +1155,10 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '600',
   },
-  headerDayWrapper: {
-    width: DAY_WIDTH,
+  jumpTodayHint: {
+    fontSize: 9,
+    fontWeight: '700',
+    marginTop: 1,
   },
   headerDay: {
     alignItems: 'center',
@@ -961,7 +1200,6 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   allDayCell: {
-    width: DAY_WIDTH,
     minHeight: ALL_DAY_ROW_HEIGHT,
     paddingHorizontal: 1,
     paddingVertical: 2,
@@ -970,7 +1208,8 @@ const styles = StyleSheet.create({
   allDayEvent: {
     borderRadius: 3,
     paddingHorizontal: 3,
-    paddingVertical: 1,
+    paddingVertical: 2,
+    borderLeftWidth: 2,
   },
   allDayEventText: {
     fontSize: 10,
@@ -1019,10 +1258,10 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   eventTitle: {
-    fontSize: 11,
+    fontSize: 9,
     fontWeight: '600',
     color: '#fff',
-    lineHeight: 13,
+    lineHeight: 11,
   },
   eventTime: {
     fontSize: 9,

@@ -19,6 +19,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {useTheme} from '../theme/ThemeContext';
+import {usePremium} from '../context/PremiumContext';
 import {addTemplate} from '../services/templateService';
 import {useTranslation} from 'react-i18next';
 
@@ -43,7 +44,7 @@ const COLOR_SETTINGS_KEY = '@color_settings';
 const REMINDER_OPTIONS = [
   {label: 'reminderNone', value: null},
   {label: 'reminder5min', value: -5},
-  {label: 'reminder10min', value: -10},
+  {label: 'reminder15min', value: -15},
   {label: 'reminder30min', value: -30},
   {label: 'reminder1hour', value: -60},
   {label: 'reminder1day', value: -1440},
@@ -247,7 +248,6 @@ const MonthDayPicker: React.FC<MonthDayPickerProps & {t: (key: string, opts?: an
 
 // Duration options (labels are i18n keys)
 const DURATION_OPTIONS = [
-  {label: 'duration5min', minutes: 5},
   {label: 'duration15min', minutes: 15},
   {label: 'duration30min', minutes: 30},
   {label: 'duration45min', minutes: 45},
@@ -255,12 +255,7 @@ const DURATION_OPTIONS = [
   {label: 'duration1_5h', minutes: 90},
   {label: 'duration2h', minutes: 120},
   {label: 'duration3h', minutes: 180},
-  {label: 'duration4h', minutes: 240},
-  {label: 'duration5h', minutes: 300},
   {label: 'duration6h', minutes: 360},
-  {label: 'duration8h', minutes: 480},
-  {label: 'duration10h', minutes: 600},
-  {label: 'duration1day', minutes: 24 * 60},
   {label: 'custom', minutes: -1},
 ];
 
@@ -291,6 +286,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   const isEditing = !!(editingEvent?.id);
   const isCopying = !!(editingEvent && !editingEvent.id);
   const {colors} = useTheme();
+  const {isPremium} = usePremium();
   const [title, setTitle] = useState('');
   const [startDate, setStartDate] = useState(new Date());
   const [endDate, setEndDate] = useState(new Date());
@@ -497,16 +493,11 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   }, [onClose]);
 
   const handleSave = useCallback(async () => {
-    console.log('handleSave called', {startDate, endDate, title});
-
     // Check and request permission before saving
     const permissionStatus = await RNCalendarEvents.checkPermissions();
-    console.log('Current permission status:', permissionStatus);
 
     if (permissionStatus !== 'authorized' && permissionStatus !== 'fullAccess') {
       const requestedStatus = await RNCalendarEvents.requestPermissions();
-      console.log('Requested permission status:', requestedStatus);
-
       if (requestedStatus !== 'authorized' && requestedStatus !== 'fullAccess') {
         Alert.alert(
           t('calendarAccess'),
@@ -548,23 +539,13 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
       } else {
         // Create new event
         const calendars = await RNCalendarEvents.findCalendars();
-        console.log('Found calendars:', calendars.map(c => ({
-          title: c.title,
-          allowsModifications: c.allowsModifications,
-          isPrimary: c.isPrimary,
-          type: c.type,
-        })));
-
-        // Only select calendars that allow modifications
         const writableCalendars = calendars.filter(cal => cal.allowsModifications);
         if (writableCalendars.length === 0) {
           Alert.alert(t('error'), t('noWritableCalendar'));
           return;
         }
 
-        // Prefer primary calendar if writable, otherwise use first writable calendar
         const defaultCalendar = writableCalendars.find(cal => cal.isPrimary) || writableCalendars[0];
-        console.log('Using calendar:', defaultCalendar.title, 'allowsModifications:', defaultCalendar.allowsModifications);
 
         const eventConfig: any = {
           calendarId: defaultCalendar.id,
@@ -576,12 +557,10 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         if (recurrence !== 'none') {
           eventConfig.recurrenceRule = {
             frequency: recurrence === 'daily' ? 'daily' : 'weekly',
-            occurrence: 52, // 1年分
+            occurrence: 260, // ~5 years weekly / daily
           };
         }
         const eventId = await RNCalendarEvents.saveEvent(title.trim() || t('noTitle'), eventConfig);
-        console.log('Event saved successfully with id:', eventId);
-        // Save custom color for new event
         if (eventId) {
           await setEventColor(eventId, selectedColor);
         }
@@ -964,12 +943,9 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           </View>
 
           <View style={[styles.dateTimeSection, {backgroundColor: colors.surface}]}>
-            <Text style={[styles.selectedDateDisplay, {color: colors.text}]}>
-              {t('dateDayOfWeek', {month: startDate.getMonth() + 1, day: startDate.getDate(), weekday: WEEKDAYS[startDate.getDay()]})}
-            </Text>
-            <View style={styles.dateTimeCompactRow}>
+            <View style={styles.dtRow}>
               <TouchableOpacity
-                style={[styles.compactDateButton, {backgroundColor: colors.inputBackground}]}
+                style={[styles.dtCell, {backgroundColor: colors.today}]}
                 onPress={() => {
                   setShowStartTimePicker(false);
                   setShowEndDatePicker(false);
@@ -977,22 +953,13 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                   setTempDate(new Date(startDate));
                   setShowStartDatePicker(true);
                 }}>
-                <Text style={[styles.compactDateText, {color: colors.primary}]}>{formatDate(startDate)}</Text>
+                <Text style={[styles.dtCellText, {color: colors.primary}]}>
+                  {t('dateDayOfWeek', {month: startDate.getMonth() + 1, day: startDate.getDate(), weekday: WEEKDAYS[startDate.getDay()]})}
+                </Text>
               </TouchableOpacity>
+              <Text style={[styles.dtArrow, {color: colors.textTertiary}]}>→</Text>
               <TouchableOpacity
-                style={[styles.compactTimeButton, {backgroundColor: colors.today}]}
-                onPress={() => {
-                  setShowStartDatePicker(false);
-                  setShowEndDatePicker(false);
-                  setShowEndTimePicker(false);
-                  setTempDate(new Date(startDate));
-                  setShowStartTimePicker(true);
-                }}>
-                <Text style={[styles.compactTimeText, {color: colors.primary}]}>{formatTime(startDate)}</Text>
-              </TouchableOpacity>
-              <Text style={[styles.dateTimeSeparator, {color: colors.textTertiary}]}>→</Text>
-              <TouchableOpacity
-                style={[styles.compactDateButton, {backgroundColor: colors.inputBackground}]}
+                style={[styles.dtCell, {backgroundColor: colors.inputBackground}]}
                 onPress={() => {
                   setShowStartDatePicker(false);
                   setShowStartTimePicker(false);
@@ -1000,25 +967,52 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                   setTempDate(new Date(endDate));
                   setShowEndDatePicker(true);
                 }}>
-                <Text style={[styles.compactDateText, {color: colors.primary}]}>{formatDate(endDate)}</Text>
+                <Text style={[styles.dtCellText, {color: colors.text}]}>
+                  {t('dateDayOfWeek', {month: endDate.getMonth() + 1, day: endDate.getDate(), weekday: WEEKDAYS[endDate.getDay()]})}
+                </Text>
               </TouchableOpacity>
-              <View
-                style={[styles.compactTimeButton, {backgroundColor: colors.inputBackground}]}>
-                <Text style={[styles.compactTimeText, {color: colors.textSecondary}]}>{formatTime(endDate)}</Text>
-              </View>
             </View>
-          </View>
-
-          <View style={[styles.durationSection, {backgroundColor: colors.surface}]}>
-            <View style={styles.durationHeader}>
-              <Text style={[styles.sectionLabel, {color: colors.textSecondary}]}>{t('duration')}</Text>
-              <Text style={[styles.durationDisplay, {color: colors.primary}]}>{formatDuration(endDate.getTime() - startDate.getTime())}</Text>
+            <View style={styles.dtRow}>
+              <TouchableOpacity
+                style={[styles.dtCell, {backgroundColor: colors.today}]}
+                onPress={() => {
+                  setShowStartDatePicker(false);
+                  setShowEndDatePicker(false);
+                  setShowEndTimePicker(false);
+                  setTempDate(new Date(startDate));
+                  setShowStartTimePicker(true);
+                }}>
+                <Text style={[styles.dtCellTime, {color: colors.primary}]}>{formatTime(startDate)}</Text>
+              </TouchableOpacity>
+              <Text style={[styles.dtArrow, {color: colors.textTertiary}]}>→</Text>
+              <TouchableOpacity
+                style={[styles.dtCell, {backgroundColor: colors.inputBackground}]}
+                onPress={() => {
+                  setShowStartDatePicker(false);
+                  setShowStartTimePicker(false);
+                  setShowEndDatePicker(false);
+                  setTempDate(new Date(endDate));
+                  setShowEndTimePicker(true);
+                }}>
+                <Text style={[styles.dtCellTime, {color: colors.text}]}>{formatTime(endDate)}</Text>
+              </TouchableOpacity>
             </View>
-            <View style={styles.durationButtons}>
+            <View style={styles.durationInline}>
+              <Text style={[styles.durationInlineLabel, {color: colors.textSecondary}]}>{t('duration')}</Text>
+              <Text style={[styles.durationInlineValue, {color: colors.primary}]}>
+                {formatDuration(endDate.getTime() - startDate.getTime())}
+              </Text>
+            </View>
+            <View style={styles.durationChipRow}>
               {DURATION_OPTIONS.map((option) => (
                 <TouchableOpacity
                   key={option.minutes}
-                  style={[styles.durationButton, option.minutes === -1 ? {backgroundColor: colors.textTertiary} : {backgroundColor: colors.primary}]}
+                  style={[
+                    styles.durationChipSmall,
+                    option.minutes === -1
+                      ? {backgroundColor: colors.inputBackground}
+                      : {backgroundColor: colors.primary},
+                  ]}
                   onPress={() => {
                     if (option.minutes === -1) {
                       const durationMs = endDate.getTime() - startDate.getTime();
@@ -1029,14 +1023,16 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                       handleSetDuration(option.minutes);
                     }
                   }}>
-                  <Text style={styles.durationButtonText}>{t(option.label)}</Text>
+                  <Text style={[
+                    styles.durationChipSmallText,
+                    {color: option.minutes === -1 ? colors.textSecondary : '#fff'},
+                  ]}>{t(option.label)}</Text>
                 </TouchableOpacity>
               ))}
             </View>
           </View>
 
           <View style={[styles.colorSection, {backgroundColor: colors.surface}]}>
-            <Text style={[styles.sectionLabel, {color: colors.textSecondary}]}>{t('color')}</Text>
             <View style={styles.colorButtons}>
               {colorOptions.map((colorOption) => (
                 <View key={colorOption.name} style={styles.colorButtonWrapper}>
@@ -1065,7 +1061,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                   </TouchableOpacity>
                 </View>
               ))}
-              {availableColorsToAdd.length > 0 && (
+              {availableColorsToAdd.length > 0 && isPremium && (
                 <View style={styles.colorButtonWrapper}>
                   <TouchableOpacity
                     style={[styles.addColorButton, {backgroundColor: colors.inputBackground, borderColor: colors.border}]}
@@ -1079,57 +1075,57 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           </View>
 
           <View style={[styles.reminderSection, {backgroundColor: colors.surface}]}>
-            <Text style={[styles.sectionLabel, {color: colors.textSecondary}]}>{t('reminder')}</Text>
-            <View style={styles.reminderButtons}>
-              {REMINDER_OPTIONS.map((option) => (
-                <TouchableOpacity
-                  key={option.label}
-                  style={[
-                    styles.reminderButton,
-                    {backgroundColor: colors.inputBackground},
-                    reminder === option.value && [styles.reminderButtonSelected, {backgroundColor: colors.primary}],
-                  ]}
-                  onPress={() => setReminder(option.value)}>
-                  <Text style={[
-                    styles.reminderButtonText,
-                    {color: colors.text},
-                    reminder === option.value && styles.reminderButtonTextSelected,
-                  ]}>
-                    {t(option.label)}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+            <View style={styles.optionRow}>
+              <Text style={[styles.optionRowLabel, {color: colors.textSecondary}]}>{t('reminder')}</Text>
+              <View style={styles.optionRowChips}>
+                {REMINDER_OPTIONS.map((option) => (
+                  <TouchableOpacity
+                    key={option.label}
+                    style={[
+                      styles.reminderButton,
+                      {backgroundColor: colors.inputBackground},
+                      reminder === option.value && [styles.reminderButtonSelected, {backgroundColor: colors.primary}],
+                    ]}
+                    onPress={() => setReminder(option.value)}>
+                    <Text style={[
+                      styles.reminderButtonText,
+                      {color: colors.text},
+                      reminder === option.value && styles.reminderButtonTextSelected,
+                    ]}>
+                      {t(option.label)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
             </View>
-          </View>
-
-          {/* Repeat */}
-          <View style={[styles.reminderSection, {backgroundColor: colors.surface}]}>
-            <Text style={[styles.sectionLabel, {color: colors.textSecondary}]}>{t('repeat')}</Text>
-            <View style={styles.reminderButtons}>
-              {([{label: 'repeatNone', value: 'none'}, {label: 'repeatDaily', value: 'daily'}, {label: 'repeatWeekly', value: 'weekly'}] as const).map((option) => (
-                <TouchableOpacity
-                  key={option.value}
-                  style={[
-                    styles.reminderButton,
-                    {backgroundColor: colors.inputBackground},
-                    recurrence === option.value && [styles.reminderButtonSelected, {backgroundColor: colors.primary}],
-                  ]}
-                  onPress={() => setRecurrence(option.value)}>
-                  <Text style={[
-                    styles.reminderButtonText,
-                    {color: colors.text},
-                    recurrence === option.value && styles.reminderButtonTextSelected,
-                  ]}>
-                    {t(option.label)}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+            <View style={[styles.optionRow, {marginTop: 8}]}>
+              <Text style={[styles.optionRowLabel, {color: colors.textSecondary}]}>{t('repeat')}</Text>
+              <View style={styles.optionRowChips}>
+                {([{label: 'repeatNone', value: 'none'}, {label: 'repeatDaily', value: 'daily'}, {label: 'repeatWeekly', value: 'weekly'}] as const).map((option) => (
+                  <TouchableOpacity
+                    key={option.value}
+                    style={[
+                      styles.reminderButton,
+                      {backgroundColor: colors.inputBackground},
+                      recurrence === option.value && [styles.reminderButtonSelected, {backgroundColor: colors.primary}],
+                    ]}
+                    onPress={() => setRecurrence(option.value)}>
+                    <Text style={[
+                      styles.reminderButtonText,
+                      {color: colors.text},
+                      recurrence === option.value && styles.reminderButtonTextSelected,
+                    ]}>
+                      {t(option.label)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
             </View>
           </View>
 
           {!isEditing && !isCopying && (
             <TouchableOpacity
-              style={[styles.templateSaveButton, {backgroundColor: colors.surface, borderColor: colors.border}]}
+              style={styles.templateSaveLink}
               onPress={async () => {
                 const durationMs = endDate.getTime() - startDate.getTime();
                 const durationMinutes = Math.round(durationMs / (1000 * 60));
@@ -1141,7 +1137,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                 });
                 Alert.alert(t('saved'), t('templateSaved'));
               }}>
-              <Text style={[styles.templateSaveButtonText, {color: colors.primary}]}>{t('saveAsTemplate')}</Text>
+              <Text style={[styles.templateSaveLinkText, {color: colors.primary}]}>{t('saveAsTemplate')}</Text>
             </TouchableOpacity>
           )}
 
@@ -1456,12 +1452,12 @@ const styles = StyleSheet.create({
   },
   form: {
     flex: 1,
-    padding: 16,
+    padding: 14,
   },
   inputGroup: {
     backgroundColor: '#fff',
     borderRadius: 10,
-    marginBottom: 12,
+    marginBottom: 10,
   },
   titleInputContainer: {
     flexDirection: 'row',
@@ -1470,7 +1466,8 @@ const styles = StyleSheet.create({
   titleInput: {
     flex: 1,
     fontSize: 17,
-    padding: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     color: '#333',
   },
   titleClearButton: {
@@ -1501,65 +1498,76 @@ const styles = StyleSheet.create({
   dateTimeSection: {
     backgroundColor: '#fff',
     borderRadius: 10,
-    padding: 14,
-    marginBottom: 12,
-  },
-  sectionLabel: {
-    fontSize: 14,
-    color: '#666',
+    padding: 12,
     marginBottom: 10,
   },
-  selectedDateDisplay: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-    textAlign: 'center',
-    marginBottom: 12,
+  sectionLabel: {
+    fontSize: 13,
+    color: '#666',
+    marginBottom: 8,
   },
-  dateTimeCompactRow: {
+  dtRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: 10,
+    marginBottom: 8,
   },
-  compactDateButton: {
-    backgroundColor: '#f0f0f0',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+  dtCell: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRadius: 9,
+    alignItems: 'center',
   },
-  compactDateText: {
-    fontSize: 14,
-    color: '#007AFF',
+  dtCellText: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  dtCellTime: {
+    fontSize: 22,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+  },
+  dtArrow: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  durationInline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 10,
+    marginBottom: 8,
+  },
+  durationInlineLabel: {
+    fontSize: 13,
     fontWeight: '500',
   },
-  compactTimeButton: {
-    backgroundColor: '#E8F4FD',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+  durationInlineValue: {
+    fontSize: 16,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
   },
-  compactTimeText: {
-    fontSize: 15,
-    color: '#007AFF',
+  durationChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  durationChipSmall: {
+    paddingVertical: 6,
+    paddingHorizontal: 11,
+    borderRadius: 7,
+  },
+  durationChipSmallText: {
+    fontSize: 13,
     fontWeight: '600',
-  },
-  dateTimeSeparator: {
-    fontSize: 18,
-    color: '#999',
-    marginHorizontal: 4,
-  },
-  durationSection: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 14,
-    marginBottom: 12,
   },
   colorSection: {
     backgroundColor: '#fff',
     borderRadius: 10,
-    padding: 14,
-    marginBottom: 12,
+    padding: 12,
+    marginBottom: 10,
   },
   colorHeader: {
     flexDirection: 'row',
@@ -1574,12 +1582,12 @@ const styles = StyleSheet.create({
   colorButtons: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    marginTop: 8,
+    marginTop: 0,
   },
   colorButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1612,9 +1620,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   addColorButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#f0f0f0',
@@ -1709,8 +1717,24 @@ const styles = StyleSheet.create({
   reminderSection: {
     backgroundColor: '#fff',
     borderRadius: 10,
-    padding: 14,
-    marginBottom: 12,
+    padding: 12,
+    marginBottom: 10,
+  },
+  optionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  optionRowLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    width: 64,
+  },
+  optionRowChips: {
+    flex: 1,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
   },
   reminderButtons: {
     flexDirection: 'row',
@@ -1720,7 +1744,7 @@ const styles = StyleSheet.create({
   },
   reminderButton: {
     paddingVertical: 7,
-    paddingHorizontal: 10,
+    paddingHorizontal: 11,
     borderRadius: 7,
     backgroundColor: '#f0f0f0',
   },
@@ -1735,77 +1759,48 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '600',
   },
-  durationHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  templateSaveLink: {
     alignItems: 'center',
-    marginBottom: 10,
-  },
-  durationDisplay: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#007AFF',
-  },
-  durationButtons: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  durationButton: {
-    backgroundColor: '#007AFF',
     paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 7,
+    marginBottom: 8,
   },
-  durationButtonText: {
+  templateSaveLinkText: {
     fontSize: 13,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  templateSaveButton: {
-    borderRadius: 10,
-    padding: 14,
-    alignItems: 'center',
-    marginBottom: 12,
-    borderWidth: 1,
-  },
-  templateSaveButtonText: {
-    fontSize: 15,
-    fontWeight: '600',
+    fontWeight: '500',
   },
   bottomButtonsRow: {
     flexDirection: 'row',
     gap: 10,
-    marginBottom: 24,
+    marginBottom: 12,
   },
   copyButtonBottom: {
     flex: 1,
-    borderRadius: 10,
-    padding: 16,
+    borderRadius: 9,
+    paddingVertical: 11,
     alignItems: 'center',
     borderWidth: 1.5,
   },
   copyButtonBottomText: {
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: '600',
   },
   saveButtonBottom: {
     flex: 2,
     backgroundColor: '#007AFF',
-    borderRadius: 10,
-    padding: 16,
+    borderRadius: 9,
+    paddingVertical: 11,
     alignItems: 'center',
   },
   saveButtonBottomText: {
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: '600',
     color: '#fff',
   },
   deleteButtonBottom: {
-    borderRadius: 10,
-    padding: 16,
+    borderRadius: 9,
+    paddingVertical: 11,
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 24,
   },
   deleteButtonBottomText: {
     fontSize: 17,

@@ -22,6 +22,8 @@ import AddEventModal from './src/components/AddEventModal';
 import EventDetailModal from './src/components/EventDetailModal';
 import {UndoToast, UndoAction} from './src/components/UndoToast';
 import {ThemeProvider, useTheme} from './src/theme/ThemeContext';
+import {PremiumProvider, usePremium} from './src/context/PremiumContext';
+import {SKINS} from './src/theme/colors';
 import {PaywallScreen} from './src/components/PaywallScreen';
 import {
   SmallWidgetPreview,
@@ -41,6 +43,7 @@ import {
   getDefaultSettings,
 } from './src/services/sleepSettingsService';
 import {EventTemplate, getTemplates, deleteTemplate} from './src/services/templateService';
+import {seedDevEventsIfNeeded} from './src/services/devSeedData';
 import {useTranslation} from 'react-i18next';
 import './src/i18n/i18n';
 import {loadSavedLanguage, setAppLanguage, getSavedLanguageCode, LANGUAGES} from './src/i18n/i18n';
@@ -228,7 +231,8 @@ const SleepSetupModal = ({
 
 function AppContent() {
   const {t} = useTranslation();
-  const {colors, isDark, themeMode, setThemeMode} = useTheme();
+  const {colors, isDark, themeMode, setThemeMode, skinId, setSkinId} = useTheme();
+  const {isPremium} = usePremium();
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState('auto');
   const [showLanguageModal, setShowLanguageModal] = useState(false);
@@ -380,6 +384,16 @@ function AppContent() {
     };
     checkAndRequestPermission();
   }, []);
+
+  // Dev-only: seed April 2026 with sample events once so the UI has something to show
+  useEffect(() => {
+    if (!__DEV__) return;
+    if (!hasPermission) return;
+    seedDevEventsIfNeeded().then(() => {
+      calendarRef.current?.refreshEvents();
+      weekViewRef.current?.refreshEvents();
+    });
+  }, [hasPermission]);
 
   // Reset app icon to default (month icons disabled for now)
   useEffect(() => {
@@ -693,6 +707,7 @@ function AppContent() {
             hasPermission={hasPermission}
             sleepSettings={sleepSettings}
             onOpenSleepSettings={openSleepSettings}
+            onJumpToToday={goToToday}
           />
         )}
 
@@ -983,15 +998,82 @@ function AppContent() {
                         </TouchableOpacity>
                       </View>
 
+                      {/* Skin Selection */}
+                      <View style={styles.settingsSection}>
+                        <Text style={styles.settingsSectionTitle}>{t('skin')}</Text>
+                        <View style={styles.skinGrid}>
+                          {SKINS.map(skin => {
+                            const isActive = skinId === skin.id;
+                            const skinPrimary = isDark ? (skin.dark.primary || colors.primary) : (skin.light.primary || colors.primary);
+                            const locked = skin.isPremium && !isPremium;
+                            return (
+                              <TouchableOpacity
+                                key={skin.id}
+                                style={[
+                                  styles.skinItem,
+                                  {borderColor: isActive ? skinPrimary : colors.border},
+                                  isActive && {borderWidth: 2},
+                                ]}
+                                onPress={() => {
+                                  if (locked) {
+                                    setShowSettingsModal(false);
+                                    setShowPaywall(true);
+                                  } else {
+                                    setSkinId(skin.id);
+                                  }
+                                }}>
+                                <View style={[styles.skinSwatch, {backgroundColor: skinPrimary}]} />
+                                <Text style={[styles.skinLabel, {color: colors.text}]}>{t(skin.nameKey)}</Text>
+                                {locked && <Text style={styles.skinLock}>🔒</Text>}
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      </View>
+
+                      {/* App Icon */}
+                      {Platform.OS === 'ios' && isPremium && (
+                        <View style={styles.settingsSection}>
+                          <Text style={styles.settingsSectionTitle}>{t('appIcon')}</Text>
+                          <View style={styles.iconGrid}>
+                            {[
+                              {id: null, label: t('iconDefault'), color: '#007AFF'},
+                              {id: 'AppIcon-Rose', label: t('skinRose'), color: '#E91E63'},
+                              {id: 'AppIcon-Ocean', label: t('skinOcean'), color: '#00897B'},
+                              {id: 'AppIcon-Lavender', label: t('skinLavender'), color: '#7C4DFF'},
+                              {id: 'AppIcon-Sunset', label: t('skinSunset'), color: '#FF6D00'},
+                            ].map(icon => (
+                              <TouchableOpacity
+                                key={icon.id || 'default'}
+                                style={[styles.iconItem, {borderColor: colors.border}]}
+                                onPress={async () => {
+                                  try {
+                                    await AppIconManager.changeIcon(icon.id);
+                                  } catch (_e) {}
+                                }}>
+                                <View style={[styles.iconSwatch, {backgroundColor: icon.color, borderRadius: 12}]} />
+                                <Text style={[styles.skinLabel, {color: colors.text}]}>{icon.label}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        </View>
+                      )}
+
                       {/* Premium */}
                       <View style={styles.settingsSection}>
                         <Text style={styles.settingsSectionTitle}>{t('premium')}</Text>
-                        <TouchableOpacity
-                          style={[styles.settingsItem, {backgroundColor: '#007AFF10'}]}
-                          onPress={() => { setShowSettingsModal(false); setShowPaywall(true); }}>
-                          <Text style={[styles.settingsItemLabel, {color: '#007AFF', fontWeight: '700'}]}>{t('upgradeToPremium')}</Text>
-                          <Text style={styles.settingsItemLink}>{t('detailsLink')}</Text>
-                        </TouchableOpacity>
+                        {isPremium ? (
+                          <View style={[styles.settingsItem, {backgroundColor: '#34C75910'}]}>
+                            <Text style={[styles.settingsItemLabel, {color: '#34C759', fontWeight: '700'}]}>{t('premiumActive')}</Text>
+                          </View>
+                        ) : (
+                          <TouchableOpacity
+                            style={[styles.settingsItem, {backgroundColor: '#007AFF10'}]}
+                            onPress={() => { setShowSettingsModal(false); setShowPaywall(true); }}>
+                            <Text style={[styles.settingsItemLabel, {color: '#007AFF', fontWeight: '700'}]}>{t('upgradeToPremium')}</Text>
+                            <Text style={styles.settingsItemLink}>{t('detailsLink')}</Text>
+                          </TouchableOpacity>
+                        )}
                       </View>
 
                       {/* Notification Settings */}
@@ -1269,7 +1351,7 @@ function AppContent() {
         </View>
       </Modal>
       <UndoToast action={undoAction} onDismiss={() => setUndoAction(null)} />
-      {!__DEV__ && (
+      {!__DEV__ && !isPremium && (
         <View style={styles.bannerContainer}>
           <BannerAd
             unitId={adUnitId}
@@ -1853,13 +1935,64 @@ const styles = StyleSheet.create({
     color: '#999',
     fontSize: 15,
   },
+  skinGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 10,
+  },
+  skinItem: {
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 8,
+    width: 72,
+  },
+  skinSwatch: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    marginBottom: 4,
+  },
+  skinLabel: {
+    fontSize: 11,
+    textAlign: 'center',
+  },
+  skinLock: {
+    fontSize: 10,
+    position: 'absolute',
+    top: 4,
+    right: 4,
+  },
+  iconGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 10,
+  },
+  iconItem: {
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 8,
+    width: 72,
+  },
+  iconSwatch: {
+    width: 40,
+    height: 40,
+    marginBottom: 4,
+  },
 });
 
 function App() {
   return (
-    <ThemeProvider>
-      <AppContent />
-    </ThemeProvider>
+    <PremiumProvider>
+      <ThemeProvider>
+        <AppContent />
+      </ThemeProvider>
+    </PremiumProvider>
   );
 }
 

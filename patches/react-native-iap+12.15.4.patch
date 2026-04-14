@@ -1,0 +1,62 @@
+diff --git a/node_modules/react-native-iap/android/src/main/java/com/dooboolab/rniap/PromiseUtlis.kt b/node_modules/react-native-iap/android/src/main/java/com/dooboolab/rniap/PromiseUtlis.kt
+index c1bc5af..59a5037 100644
+--- a/node_modules/react-native-iap/android/src/main/java/com/dooboolab/rniap/PromiseUtlis.kt
++++ b/node_modules/react-native-iap/android/src/main/java/com/dooboolab/rniap/PromiseUtlis.kt
+@@ -1,21 +1,15 @@
+ package com.dooboolab.rniap
+ 
+ import android.util.Log
+-import com.facebook.react.bridge.ObjectAlreadyConsumedException
+ import com.facebook.react.bridge.Promise
+ 
+-/**
+- * Extension functions used to simplify promise handling since we don't
+- * want to crash in the case of it being resolved/rejected more than once
+- */
+-
+ const val TAG = "IapPromises"
+ 
+ fun Promise.safeResolve(value: Any?) {
+     try {
+         this.resolve(value)
+-    } catch (oce: ObjectAlreadyConsumedException) {
+-        Log.d(TAG, "Already consumed ${oce.message}")
++    } catch (e: Exception) {
++        Log.d(TAG, "Already consumed ${e.message}")
+     }
+ }
+ 
+@@ -37,8 +31,8 @@ fun Promise.safeReject(
+     throwable: Throwable?,
+ ) {
+     try {
+-        this.reject(code, message, throwable)
+-    } catch (oce: ObjectAlreadyConsumedException) {
+-        Log.d(TAG, "Already consumed ${oce.message}")
++        this.reject(code ?: "", message, throwable)
++    } catch (e: Exception) {
++        Log.d(TAG, "Already consumed ${e.message}")
+     }
+ }
+diff --git a/node_modules/react-native-iap/android/src/play/java/com/dooboolab/rniap/RNIapModule.kt b/node_modules/react-native-iap/android/src/play/java/com/dooboolab/rniap/RNIapModule.kt
+index e68412a..2fe687e 100644
+--- a/node_modules/react-native-iap/android/src/play/java/com/dooboolab/rniap/RNIapModule.kt
++++ b/node_modules/react-native-iap/android/src/play/java/com/dooboolab/rniap/RNIapModule.kt
+@@ -457,7 +457,7 @@ class RNIapModule(
+         isOfferPersonalized: Boolean, // New parameter in V5
+         promise: Promise,
+     ) {
+-        val activity = currentActivity
++        val activity = getCurrentActivity()
+         if (activity == null) {
+             promise.safeReject(PromiseUtils.E_UNKNOWN, "getCurrentActivity returned null")
+             return
+@@ -536,7 +536,7 @@ class RNIapModule(
+             }
+ 
+             val flowParams = builder.build()
+-            val billingResultCode = billingClient.launchBillingFlow(activity, flowParams).responseCode
++            val billingResultCode = billingClient.launchBillingFlow(activity as android.app.Activity, flowParams).responseCode
+             if (billingResultCode != BillingClient.BillingResponseCode.OK) {
+                 val errorData = PlayUtils.getBillingResponseData(billingResultCode)
+                 promise.safeReject(errorData.code, errorData.message)

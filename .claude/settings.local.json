@@ -60,7 +60,14 @@
       "Bash(rm -rf /Users/gan/Library/Developer/Xcode/DerivedData/CalendarApp-fzthcrbghfgphacwttzaroajmosu)",
       "Bash(pod deintegrate:*)",
       "Bash(brew list:*)",
-      "Bash(awk '{print $NF}')"
+      "Bash(awk '{print $NF}')",
+      "Bash(awk '/const styles|StyleSheet.create/,/^\\\\}\\\\\\);?$/' /Users/gan/Desktop/calendar/App.tsx)",
+      "Bash(awk '/^const styles = StyleSheet\\\\.create/,/^\\\\}\\\\\\);/' /Users/gan/Desktop/calendar/App.tsx)",
+      "Bash(awk '/^const styles = StyleSheet\\\\.create/,/^\\\\}\\\\\\);/' /Users/gan/Desktop/calendar/src/components/WeekView.tsx)",
+      "Bash(sort -u grep -o \"styles\\\\.[a-zA-Z_][a-zA-Z0-9_]*\" /Users/gan/Desktop/calendar/src/components/WeekView.tsx)",
+      "Bash(pod install:*)",
+      "Bash(npm info:*)",
+      "Bash(npx patch-package:*)"
     ]
   }
 }

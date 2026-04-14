@@ -10,7 +10,7 @@ export interface Task {
   duration?: number; // minutes
   taskType?: 'todo' | 'schedule'; // 'todo' = あとでやる, 'schedule' = 予定
   memo?: string;
-  deadline?: string; // "HH:MM" e.g. "17:00"
+  deadline?: string; // "YYYY-MM-DD" e.g. "2026-04-20"
 }
 
 const STORAGE_KEY = '@today_tasks';

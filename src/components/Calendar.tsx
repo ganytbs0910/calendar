@@ -6,6 +6,7 @@ import {
   StyleSheet,
   Dimensions,
   ScrollView,
+  FlatList,
   Alert,
   ActivityIndicator,
   Modal,
@@ -21,8 +22,10 @@ import {useTheme} from '../theme/ThemeContext';
 import {useTranslation} from 'react-i18next';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
+const CALENDAR_GRID_WIDTH = SCREEN_WIDTH - 24; // Container has paddingHorizontal: 12
 // Container has paddingHorizontal: 12 (both sides = 24) total
 const DAY_WIDTH = Math.floor((SCREEN_WIDTH - 24) / 7);
+const MONTH_ANCHOR = 120; // Center index for infinite-like scrolling
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 // Calculate day height to fill screen (subtract header, weekday row, margins, safe area)
 const CALENDAR_AVAILABLE_HEIGHT = SCREEN_HEIGHT - 280;
@@ -118,6 +121,18 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
   const getMonthKeyRef = useRef<(year: number, month: number) => string>((y, m) => `${y}-${m}`);
   const dayHeightRef = useRef(Math.floor(CALENDAR_AVAILABLE_HEIGHT / 5));
 
+  // FlatList month paging
+  const monthListRef = useRef<FlatList>(null);
+  const [baseDate] = useState(() => new Date()); // Fixed reference date
+  const isScrollingMonthRef = useRef(false);
+  const monthData = useMemo(() => Array.from({length: MONTH_ANCHOR * 2 + 1}, (_, i) => i), []);
+
+  const getMonthForIndex = useCallback((index: number) => {
+    const offset = index - MONTH_ANCHOR;
+    const d = new Date(baseDate.getFullYear(), baseDate.getMonth() + offset, 1);
+    return {year: d.getFullYear(), month: d.getMonth()};
+  }, [baseDate]);
+
   useEffect(() => { currentDateRef.current = currentDate; }, [currentDate]);
   useEffect(() => { onDateRangeSelectRef.current = onDateRangeSelect; }, [onDateRangeSelect]);
   useEffect(() => { dragEndDateRef.current = dragEndDate; }, [dragEndDate]);
@@ -156,8 +171,6 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
     const endDay = new Date(eventEnd);
     endDay.setHours(0, 0, 0, 0);
     if (startDay.getTime() !== endDay.getTime()) return;
-
-    Vibration.vibrate(50);
 
     const dragData = {
       event,
@@ -220,9 +233,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
         const date = getDateFromPosition(evt.nativeEvent.pageX, evt.nativeEvent.pageY);
         if (date) {
           const prev = draggingEventRef.current.currentDate;
-          if (prev.getTime() !== date.getTime()) {
-            Vibration.vibrate(30);
-          }
+          if (prev.getTime() === date.getTime()) return;
           draggingEventRef.current = {...draggingEventRef.current, currentDate: date};
           setDraggingEvent({...draggingEventRef.current});
         }
@@ -329,16 +340,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
         return;
       }
 
-      // Swipe to change month (left swipe = next month, right swipe = previous month)
-      const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.2;
-      if (Math.abs(gestureState.dx) > SWIPE_THRESHOLD && Math.abs(gestureState.dx) > Math.abs(gestureState.dy)) {
-        const current = currentDateRef.current;
-        if (gestureState.dx > 0) {
-          setCurrentDate(new Date(current.getFullYear(), current.getMonth() - 1, 1));
-        } else {
-          setCurrentDate(new Date(current.getFullYear(), current.getMonth() + 1, 1));
-        }
-      }
+      // Month swipe is handled by FlatList paging
     },
     onPanResponderTerminate: () => {
       if (longPressTimer.current) {
@@ -794,18 +796,33 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
     return result;
   }, [calendarDays, getEventsForDate]);
 
+  const getIndexForDate = useCallback((d: Date) => {
+    return MONTH_ANCHOR + (d.getFullYear() - baseDate.getFullYear()) * 12 + (d.getMonth() - baseDate.getMonth());
+  }, [baseDate]);
+
+  const scrollToMonth = useCallback((d: Date) => {
+    const idx = getIndexForDate(d);
+    monthListRef.current?.scrollToIndex({index: idx, animated: true});
+  }, [getIndexForDate]);
+
   const goToPreviousMonth = useCallback(() => {
-    setCurrentDate(new Date(currentYear, currentMonth - 1, 1));
-  }, [currentYear, currentMonth]);
+    const d = new Date(currentYear, currentMonth - 1, 1);
+    setCurrentDate(d);
+    scrollToMonth(d);
+  }, [currentYear, currentMonth, scrollToMonth]);
 
   const goToNextMonth = useCallback(() => {
-    setCurrentDate(new Date(currentYear, currentMonth + 1, 1));
-  }, [currentYear, currentMonth]);
+    const d = new Date(currentYear, currentMonth + 1, 1);
+    setCurrentDate(d);
+    scrollToMonth(d);
+  }, [currentYear, currentMonth, scrollToMonth]);
 
   const goToToday = useCallback(() => {
-    setCurrentDate(new Date());
-    setSelectedDate(new Date());
-  }, []);
+    const now = new Date();
+    setCurrentDate(now);
+    setSelectedDate(now);
+    scrollToMonth(now);
+  }, [scrollToMonth]);
 
   // Bottom sheet functions - defined before handleDateSelect which uses them
   const openDayEventsSheet = useCallback((date: Date) => {
@@ -832,22 +849,26 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
 
   const handleDateSelect = useCallback(
     (date: Date) => {
-      // Select the date and show events
-      setSelectedDate(date);
-      onDateSelect?.(date);
+      const alreadySelected = selectedDate &&
+        date.getDate() === selectedDate.getDate() &&
+        date.getMonth() === selectedDate.getMonth() &&
+        date.getFullYear() === selectedDate.getFullYear();
 
-      // Get events for the day (excluding all-day events)
-      const dayEvents = getEventsForDate(date).filter(e => !e.allDay);
-
-      if (dayEvents.length > 0) {
-        // Show bottom sheet with day's events
-        openDayEventsSheet(date);
+      if (alreadySelected) {
+        // Tap again on selected date: show events or add event
+        const dayEvents = getEventsForDate(date).filter(e => !e.allDay);
+        if (dayEvents.length > 0) {
+          openDayEventsSheet(date);
+        } else {
+          onDateDoubleSelect?.(date);
+        }
       } else {
-        // No events - open add event modal
-        onDateDoubleSelect?.(date);
+        // First tap: just select the date
+        setSelectedDate(date);
+        onDateSelect?.(date);
       }
     },
-    [onDateSelect, onDateDoubleSelect, getEventsForDate, openDayEventsSheet],
+    [selectedDate, onDateSelect, onDateDoubleSelect, getEventsForDate, openDayEventsSheet],
   );
 
   const isToday = useCallback(
@@ -1012,235 +1033,263 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
           ))}
         </View>
 
-        {/* Calendar grid container with swipe */}
-        <View
-          style={[styles.calendarGridContainer, {height: numberOfWeeks * dayHeight, backgroundColor: colors.surface}]}
-          {...panResponder.panHandlers}
-          onLayout={(e) => {
-            e.target.measure((x, y, width, height, pageX, pageY) => {
-              gridLayoutRef.current = {x: pageX, y: pageY, width, height};
-            });
-          }}>
-          {/* Current month */}
-          <View style={[styles.calendarGridAnimated, {backgroundColor: colors.surface}]}>
-            <View style={[styles.calendarGrid, {borderColor: colors.border}]}>
-              {Array.from({length: numberOfWeeks}).map((_, weekIndex) => {
-                const weekDays = calendarDays.slice(weekIndex * 7, (weekIndex + 1) * 7);
+        {/* Calendar grid - horizontal FlatList for smooth month swiping */}
+        <FlatList
+          ref={monthListRef}
+          data={monthData}
+          keyExtractor={(item) => item.toString()}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          initialScrollIndex={MONTH_ANCHOR}
+          getItemLayout={(_, index) => ({length: CALENDAR_GRID_WIDTH, offset: CALENDAR_GRID_WIDTH * index, index})}
+          onMomentumScrollEnd={(e) => {
+            const idx = Math.round(e.nativeEvent.contentOffset.x / CALENDAR_GRID_WIDTH);
+            const {year, month} = getMonthForIndex(idx);
+            const cur = currentDateRef.current;
+            if (year !== cur.getFullYear() || month !== cur.getMonth()) {
+              const newDate = new Date(year, month, 1);
+              setCurrentDate(newDate);
+              // Prefetch adjacent months
+              prefetchMonths(year, month, 2);
+              // Fetch current month if not cached
+              fetchMonthEvents(year, month).then(() => setCacheVersion(v => v + 1));
+            }
+          }}
+          style={{height: numberOfWeeks * dayHeight}}
+          renderItem={({index: pageIndex}) => {
+            const {year: pageYear, month: pageMonth} = getMonthForIndex(pageIndex);
+            const pageDays = getCalendarDaysForMonth(pageYear, pageMonth);
+            const pageWeeks = Math.ceil(pageDays.length / 7);
+            const pageDayHeight = Math.floor(CALENDAR_AVAILABLE_HEIGHT / pageWeeks);
 
-                return (
-                  <View key={weekIndex} style={[styles.weekRow, {height: dayHeight, position: 'relative'}]}>
-                    {/* Day cells */}
-                    {weekDays.map((item, dayIndex) => {
-                      const globalIndex = weekIndex * 7 + dayIndex;
+            // Compute multi-day events for this page
+            const pageGetEventsForDate = (d: Date) => {
+              const key = `${d.getFullYear()}-${d.getMonth()}`;
+              const cached = eventsCache.current.get(key);
+              if (!cached) return [];
+              return cached.filter(event => {
+                if (!event.startDate || !event.endDate) return false;
+                const s = new Date(event.startDate);
+                const e = new Date(event.endDate);
+                s.setHours(0, 0, 0, 0);
+                e.setHours(0, 0, 0, 0);
+                const dd = new Date(d);
+                dd.setHours(0, 0, 0, 0);
+                return dd >= s && dd <= e;
+              });
+            };
 
-                      // Empty cell for days outside current month
-                      if (!item.date) {
-                        return (
-                          <View key={`empty-${globalIndex}`} style={[styles.dayCell, {height: dayHeight, borderColor: colors.border}]} />
-                        );
+            // Compute multi-day events by week for this page
+            const pageMultiDayByWeek: Array<Array<{event: CalendarEventReadable; startDayIndex: number; endDayIndex: number; rowIndex: number}>> = [];
+            for (let wi = 0; wi < pageWeeks; wi++) {
+              const wd = pageDays.slice(wi * 7, (wi + 1) * 7);
+              const weekEvents: Array<{event: CalendarEventReadable; startDayIndex: number; endDayIndex: number; rowIndex: number}> = [];
+              const daySlots: number[][] = Array.from({length: 7}, () => []);
+              const seen = new Set<string>();
+              wd.forEach((item, di) => {
+                if (!item.date) return;
+                const evts = pageGetEventsForDate(item.date);
+                evts.forEach(ev => {
+                  if (!ev.startDate || !ev.endDate || !ev.id) return;
+                  if (seen.has(ev.id)) return;
+                  const isMulti = ev.allDay || (() => {
+                    const s2 = new Date(ev.startDate!); const e2 = new Date(ev.endDate!);
+                    s2.setHours(0,0,0,0); e2.setHours(0,0,0,0);
+                    return s2.getTime() !== e2.getTime();
+                  })();
+                  if (!isMulti) return;
+                  seen.add(ev.id);
+                  const evS = new Date(ev.startDate); evS.setHours(0,0,0,0);
+                  const evE = new Date(ev.endDate); evE.setHours(0,0,0,0);
+                  let startIdx = -1, endIdx = -1;
+                  for (let k = 0; k < 7; k++) {
+                    const wdd = wd[k]?.date;
+                    if (!wdd) continue;
+                    const wdt = new Date(wdd); wdt.setHours(0,0,0,0);
+                    if (wdt >= evS && wdt <= evE) {
+                      if (startIdx === -1) startIdx = k;
+                      endIdx = k;
+                    }
+                  }
+                  if (startIdx >= 0) {
+                    let rowIndex = 0;
+                    while (true) {
+                      let ok = true;
+                      for (let k = startIdx; k <= endIdx; k++) {
+                        if (daySlots[k].includes(rowIndex)) { ok = false; break; }
                       }
+                      if (ok) break;
+                      rowIndex++;
+                    }
+                    for (let k = startIdx; k <= endIdx; k++) daySlots[k].push(rowIndex);
+                    weekEvents.push({event: ev, startDayIndex: startIdx, endDayIndex: endIdx, rowIndex});
+                  }
+                });
+              });
+              pageMultiDayByWeek.push(weekEvents);
+            }
 
-                      const dayEvents = getEventsForDate(item.date);
-                      // Separate allDay/multi-day events from timed single-day events
-                      const allDayEvents = dayEvents.filter(e => {
-                        if (!e.startDate || !e.endDate) return false;
-                        if (e.allDay) return true;
-                        const start = new Date(e.startDate);
-                        const end = new Date(e.endDate);
-                        start.setHours(0, 0, 0, 0);
-                        end.setHours(0, 0, 0, 0);
-                        return start.getTime() !== end.getTime(); // multi-day
-                      });
-                      const singleDayEvents = dayEvents.filter(e => {
-                        if (!e.startDate || !e.endDate) return false;
-                        if (e.allDay) return false;
-                        const start = new Date(e.startDate);
-                        const end = new Date(e.endDate);
-                        start.setHours(0, 0, 0, 0);
-                        end.setHours(0, 0, 0, 0);
-                        return start.getTime() === end.getTime();
-                      });
-                      // 連続予定はバーで表示するのでセル内はsingleDayEventsのみカウント
-                      const totalEvents = singleDayEvents.length;
+            return (
+              <View
+                style={{width: CALENDAR_GRID_WIDTH, backgroundColor: colors.surface}}
+                {...(pageYear === currentYear && pageMonth === currentMonth ? panResponder.panHandlers : {})}
+                onLayout={pageYear === currentYear && pageMonth === currentMonth ? (e) => {
+                  e.target.measure((_x, _y, width, height, pageX, pageY) => {
+                    gridLayoutRef.current = {x: pageX, y: pageY, width, height};
+                  });
+                } : undefined}>
+                <View style={[styles.calendarGrid, {borderColor: colors.border}]}>
+                  {Array.from({length: pageWeeks}).map((_, weekIndex) => {
+                    const weekDays = pageDays.slice(weekIndex * 7, (weekIndex + 1) * 7);
+                    return (
+                      <View key={weekIndex} style={[styles.weekRow, {height: pageDayHeight, position: 'relative'}]}>
+                        {weekDays.map((item, dayIndex) => {
+                          const globalIndex = weekIndex * 7 + dayIndex;
+                          if (!item.date) {
+                            return <View key={`empty-${globalIndex}`} style={[styles.dayCell, {height: pageDayHeight, borderColor: colors.border}]} />;
+                          }
 
-                      // この日にかかる連続予定バーの行数を計算し、普通予定を下にずらす
-                      const multiDayRowCount = multiDayEventsByWeek[weekIndex]?.reduce((max, mdEvent) => {
-                        if (dayIndex >= mdEvent.startDayIndex && dayIndex <= mdEvent.endDayIndex) {
-                          return Math.max(max, mdEvent.rowIndex + 1);
-                        }
-                        return max;
-                      }, 0) || 0;
-                      const multiDayOffset = multiDayRowCount * (EVENT_BAR_HEIGHT + 2);
+                          const dayEvts = pageGetEventsForDate(item.date);
+                          const singleDayEvents = dayEvts.filter(e => {
+                            if (!e.startDate || !e.endDate) return false;
+                            if (e.allDay) return false;
+                            const s = new Date(e.startDate); const en = new Date(e.endDate);
+                            s.setHours(0,0,0,0); en.setHours(0,0,0,0);
+                            return s.getTime() === en.getTime();
+                          });
+                          const multiDayRowCount = pageMultiDayByWeek[weekIndex]?.reduce((max, md) => {
+                            if (dayIndex >= md.startDayIndex && dayIndex <= md.endDayIndex) return Math.max(max, md.rowIndex + 1);
+                            return max;
+                          }, 0) || 0;
+                          const multiDayOffset = multiDayRowCount * (EVENT_BAR_HEIGHT + 2);
+                          const totalEvents = singleDayEvents.length + multiDayRowCount;
 
-                      const inDragRange = item.date && isInDragRange(item.date);
-                      const isEventDragTarget = draggingEvent && item.date &&
-                        draggingEvent.currentDate.getFullYear() === item.date.getFullYear() &&
-                        draggingEvent.currentDate.getMonth() === item.date.getMonth() &&
-                        draggingEvent.currentDate.getDate() === item.date.getDate() &&
-                        draggingEvent.originalDate.getTime() !== draggingEvent.currentDate.getTime();
-                      const isEventDragSource = draggingEvent && item.date &&
-                        draggingEvent.originalDate.getFullYear() === item.date.getFullYear() &&
-                        draggingEvent.originalDate.getMonth() === item.date.getMonth() &&
-                        draggingEvent.originalDate.getDate() === item.date.getDate();
+                          const inDragRange = item.date && isInDragRange(item.date);
+                          const isEventDragTarget = draggingEvent && item.date &&
+                            draggingEvent.currentDate.getFullYear() === item.date.getFullYear() &&
+                            draggingEvent.currentDate.getMonth() === item.date.getMonth() &&
+                            draggingEvent.currentDate.getDate() === item.date.getDate() &&
+                            draggingEvent.originalDate.getTime() !== draggingEvent.currentDate.getTime();
+                          const isEventDragSource = draggingEvent && item.date &&
+                            draggingEvent.originalDate.getFullYear() === item.date.getFullYear() &&
+                            draggingEvent.originalDate.getMonth() === item.date.getMonth() &&
+                            draggingEvent.originalDate.getDate() === item.date.getDate();
 
-                      return (
-                        <TouchableOpacity
-                          key={`${item.date.toISOString()}-${globalIndex}`}
-                          style={[
-                            styles.dayCell,
-                            {height: dayHeight, borderColor: colors.border},
-                            isToday(item.date) && {backgroundColor: colors.today},
-                            isSelected(item.date) && {backgroundColor: colors.selected, borderColor: colors.primary},
-                            inDragRange && {backgroundColor: colors.dragRange},
-                            isEventDragTarget && {backgroundColor: colors.dragRange},
-                          ]}
-                          onPress={() => handleDateSelect(item.date!)}
-                          accessibilityRole="button">
-                          <Text
-                            style={[
-                              styles.dayText,
-                              {color: colors.text},
-                              isSunday(globalIndex) && {color: colors.sunday},
-                              isSaturday(globalIndex) && {color: colors.saturday},
-                              isToday(item.date) && {color: colors.primary, fontWeight: 'bold'},
-                              isSelected(item.date) && {color: colors.primary, fontWeight: 'bold'},
-                            ]}>
-                            {item.day}
-                          </Text>
-                          {/* Weather icon */}
-                          {(() => {
-                            if (!item.date) return null;
-                            const dateKey = `${item.date.getFullYear()}-${String(item.date.getMonth() + 1).padStart(2, '0')}-${String(item.date.getDate()).padStart(2, '0')}`;
-                            const weather = weatherData.get(dateKey);
-                            if (!weather) return null;
-                            return (
-                              <View style={styles.weatherContainer}>
-                                <Ionicons name={weather.iconName} size={12} color={weather.iconColor} />
-                                <Text style={[styles.weatherTemp, {color: weather.iconColor}]}>{weather.tempMax}°</Text>
-                              </View>
-                            );
-                          })()}
-                          {/* Events in cell */}
-                          {totalEvents > 0 && (
-                            <View style={[styles.singleDayEventsContainer, multiDayOffset > 0 && {marginTop: multiDayOffset}]}>
-                              {/* 連続予定はバーで表示済み。セル内はsingleDayEventsのみ */}
-                              {singleDayEvents.slice(0, 2).map(event => {
-                                const isDraggedEvent = isEventDragSource && draggingEvent?.event.id === event.id;
-                                return (
-                                <TouchableOpacity
-                                  key={event.id}
-                                  style={[
-                                    styles.singleDayEventBox,
-                                    {backgroundColor: (event.id && eventColors[event.id]) || event.calendar?.color || colors.primary},
-                                    isDraggedEvent && {opacity: 0.3},
-                                  ]}
-                                  onPress={() => onEventPress?.(event)}
-                                  onLongPress={() => handleEventLongPress(event, item.date!)}
-                                  delayLongPress={200}>
-                                  <Text style={[styles.singleDayEventTime, {color: colors.onEvent}]}>
-                                    {event.startDate && formatTimeCompact(event.startDate)}
-                                  </Text>
-                                  <Text style={[styles.singleDayEventTime, {color: colors.onEvent}]}>
-                                    {event.endDate && formatTimeCompact(event.endDate)}
-                                  </Text>
-                                  <Text style={[styles.singleDayEventTitle, {color: colors.onEvent}]} numberOfLines={1}>
-                                    {event.title}
-                                  </Text>
-                                </TouchableOpacity>);
-                              })}
-                              {totalEvents > 2 && (
-                                <Text style={[styles.cellEventMore, {color: colors.textSecondary}]}>{t('totalEvents', {count: totalEvents})}</Text>
-                              )}
-                            </View>
-                          )}
-                          {/* Drag preview in target cell (only if room) */}
-                          {isEventDragTarget && draggingEvent && totalEvents < 2 && (
-                            <View style={[styles.singleDayEventsContainer, multiDayOffset > 0 && {marginTop: multiDayOffset}]}>
-                              <View
-                                style={[
-                                  styles.singleDayEventBox,
-                                  {
-                                    backgroundColor: (draggingEvent.event.id && eventColors[draggingEvent.event.id]) || draggingEvent.event.calendar?.color || colors.primary,
-                                    opacity: 0.5,
-                                  },
+                          return (
+                            <TouchableOpacity
+                              key={`${item.date.toISOString()}-${globalIndex}`}
+                              style={[
+                                styles.dayCell,
+                                {height: pageDayHeight, borderColor: colors.border},
+                                isToday(item.date) && {backgroundColor: colors.today},
+                                isSelected(item.date) && {backgroundColor: colors.selected, borderColor: colors.primary},
+                                inDragRange && {backgroundColor: colors.dragRange},
+                                isEventDragTarget && {backgroundColor: colors.dragRange},
+                              ]}
+                              onPress={() => handleDateSelect(item.date!)}
+                              accessibilityRole="button">
+                              <View style={styles.dayHeader}>
+                                <Text style={[
+                                  styles.dayText,
+                                  {color: colors.text},
+                                  isSunday(globalIndex) && {color: colors.sunday},
+                                  isSaturday(globalIndex) && {color: colors.saturday},
+                                  isToday(item.date) && {color: colors.primary, fontWeight: 'bold'},
+                                  isSelected(item.date) && {color: colors.primary, fontWeight: 'bold'},
                                 ]}>
-                                <Text style={styles.singleDayEventTime}>
-                                  {draggingEvent.event.startDate && formatTimeCompact(draggingEvent.event.startDate)}
+                                  {item.day}
                                 </Text>
-                                <Text style={styles.singleDayEventTitle} numberOfLines={1}>
-                                  {draggingEvent.event.title}
-                                </Text>
+                                {(() => {
+                                  if (!item.date) return null;
+                                  const dateKey = `${item.date.getFullYear()}-${String(item.date.getMonth() + 1).padStart(2, '0')}-${String(item.date.getDate()).padStart(2, '0')}`;
+                                  const w = weatherData.get(dateKey);
+                                  if (!w) return null;
+                                  return <Ionicons name={w.iconName} size={10} color={w.iconColor} style={{marginLeft: 6}} />;
+                                })()}
                               </View>
-                            </View>
-                          )}
-                        </TouchableOpacity>
-                      );
-                    })}
-                    {/* 連続予定バー（週をまたいで表示） */}
-                    {multiDayEventsByWeek[weekIndex]?.map((mdEvent, mdIdx) => {
-                      const evColor = (mdEvent.event.id && eventColors[mdEvent.event.id]) || mdEvent.event.calendar?.color || colors.primary;
-                      const left = mdEvent.startDayIndex * DAY_WIDTH;
-                      const width = (mdEvent.endDayIndex - mdEvent.startDayIndex + 1) * DAY_WIDTH - 2;
-                      const top = DAY_NUMBER_HEIGHT + 2 + mdEvent.rowIndex * (EVENT_BAR_HEIGHT + 2);
+                              {singleDayEvents.length > 0 && (
+                                <View style={[styles.singleDayEventsContainer, totalEvents >= 2 ? {marginTop: 'auto', marginBottom: multiDayOffset > 0 ? multiDayOffset : 0} : {marginTop: 'auto', marginBottom: 'auto'}]}>
+                                  {singleDayEvents.slice(0, 2).map(event => {
+                                    const isDraggedEvent = isEventDragSource && draggingEvent?.event.id === event.id;
+                                    return (
+                                      <TouchableOpacity
+                                        key={event.id}
+                                        style={[
+                                          styles.singleDayEventBox,
+                                          {backgroundColor: (event.id && eventColors[event.id]) || event.calendar?.color || colors.primary},
+                                          isDraggedEvent && {opacity: 0.3},
+                                        ]}
+                                        onPress={() => onEventPress?.(event)}
+                                        onLongPress={() => handleEventLongPress(event, item.date!)}
+                                        delayLongPress={200}>
+                                        <Text style={[styles.singleDayEventTime, {color: colors.onEvent}]}>
+                                          {event.startDate && formatTimeCompact(event.startDate)}
+                                        </Text>
+                                        <Text style={[styles.singleDayEventTime, {color: colors.onEvent}]}>
+                                          {event.endDate && formatTimeCompact(event.endDate)}
+                                        </Text>
+                                        <Text style={[styles.singleDayEventTitle, {color: colors.onEvent}]} numberOfLines={1} ellipsizeMode="clip">
+                                          {event.title}
+                                        </Text>
+                                      </TouchableOpacity>
+                                    );
+                                  })}
+                                  {totalEvents > 2 && (
+                                    <Text style={[styles.cellEventMore, {color: colors.textSecondary}]}>{t('totalEvents', {count: totalEvents})}</Text>
+                                  )}
+                                </View>
+                              )}
+                              {isEventDragTarget && draggingEvent && totalEvents < 2 && (
+                                <View style={[styles.singleDayEventsContainer, multiDayOffset > 0 && {marginBottom: multiDayOffset}]}>
+                                  <View style={[styles.singleDayEventBox, {backgroundColor: (draggingEvent.event.id && eventColors[draggingEvent.event.id]) || draggingEvent.event.calendar?.color || colors.primary, opacity: 0.5}]}>
+                                    <Text style={styles.singleDayEventTime}>{draggingEvent.event.startDate && formatTimeCompact(draggingEvent.event.startDate)}</Text>
+                                    <Text style={styles.singleDayEventTitle} numberOfLines={1} ellipsizeMode="clip">{draggingEvent.event.title}</Text>
+                                  </View>
+                                </View>
+                              )}
+                            </TouchableOpacity>
+                          );
+                        })}
+                        {/* 連続予定バー */}
+                        {pageMultiDayByWeek[weekIndex]?.map((mdEvent, mdIdx) => {
+                          const evColor = (mdEvent.event.id && eventColors[mdEvent.event.id]) || mdEvent.event.calendar?.color || colors.primary;
+                          const left = mdEvent.startDayIndex * DAY_WIDTH;
+                          const width = (mdEvent.endDayIndex - mdEvent.startDayIndex + 1) * DAY_WIDTH - 2;
+                          const maxRowCount = pageMultiDayByWeek[weekIndex]?.reduce((max, md) => Math.max(max, md.rowIndex + 1), 0) || 1;
+                          const posStyle = {bottom: (maxRowCount - 1 - mdEvent.rowIndex) * (EVENT_BAR_HEIGHT + 2) + 2};
 
-                      // 初日・最終日の判定
-                      const evStart = mdEvent.event.startDate ? new Date(mdEvent.event.startDate) : null;
-                      const evEnd = mdEvent.event.endDate ? new Date(mdEvent.event.endDate) : null;
-                      const firstWeekDay = weekDays[mdEvent.startDayIndex]?.date;
-                      const lastWeekDay = weekDays[mdEvent.endDayIndex]?.date;
-                      const isFirstDay = evStart && firstWeekDay &&
-                        evStart.getFullYear() === firstWeekDay.getFullYear() &&
-                        evStart.getMonth() === firstWeekDay.getMonth() &&
-                        evStart.getDate() === firstWeekDay.getDate();
-                      const isLastDay = evEnd && lastWeekDay &&
-                        evEnd.getFullYear() === lastWeekDay.getFullYear() &&
-                        evEnd.getMonth() === lastWeekDay.getMonth() &&
-                        evEnd.getDate() === lastWeekDay.getDate();
+                          const evStart = mdEvent.event.startDate ? new Date(mdEvent.event.startDate) : null;
+                          const evEnd = mdEvent.event.endDate ? new Date(mdEvent.event.endDate) : null;
+                          const firstWeekDay = weekDays[mdEvent.startDayIndex]?.date;
+                          const lastWeekDay = weekDays[mdEvent.endDayIndex]?.date;
+                          const isFirstDay = evStart && firstWeekDay && evStart.getFullYear() === firstWeekDay.getFullYear() && evStart.getMonth() === firstWeekDay.getMonth() && evStart.getDate() === firstWeekDay.getDate();
+                          const isLastDay = evEnd && lastWeekDay && evEnd.getFullYear() === lastWeekDay.getFullYear() && evEnd.getMonth() === lastWeekDay.getMonth() && evEnd.getDate() === lastWeekDay.getDate();
 
-                      return (
-                        <TouchableOpacity
-                          key={`md-${mdEvent.event.id}-${mdIdx}`}
-                          style={{
-                            position: 'absolute',
-                            left: left + (isFirstDay ? 1 : 0),
-                            top,
-                            width: width - (isFirstDay ? 1 : 0) - (isLastDay ? 1 : 0),
-                            height: EVENT_BAR_HEIGHT - 2,
-                            backgroundColor: evColor + 'CC',
-                            borderTopLeftRadius: isFirstDay ? 6 : 0,
-                            borderBottomLeftRadius: isFirstDay ? 6 : 0,
-                            borderTopRightRadius: isLastDay ? 6 : 0,
-                            borderBottomRightRadius: isLastDay ? 6 : 0,
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            paddingHorizontal: 2,
-                            paddingVertical: 2,
-                            zIndex: 10,
-                          }}
-                          activeOpacity={0.7}
-                          onPress={() => onEventPress?.(mdEvent.event)}>
-                          {isFirstDay && evStart && !mdEvent.event.allDay && (
-                            <Text style={[styles.singleDayEventTime, {color: colors.onEvent}]}>
-                              {formatTimeCompact(mdEvent.event.startDate!)}
-                            </Text>
-                          )}
-                          {isLastDay && evEnd && !mdEvent.event.allDay && (
-                            <Text style={[styles.singleDayEventTime, {color: colors.onEvent}]}>
-                              {formatTimeCompact(mdEvent.event.endDate!)}
-                            </Text>
-                          )}
-                          <Text style={[styles.singleDayEventTitle, {color: colors.onEvent}]} numberOfLines={1}>
-                            {mdEvent.event.title || ''}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                );
-              })}
-            </View>
-          </View>
-        </View>
+                          return (
+                            <TouchableOpacity
+                              key={`md-${mdEvent.event.id}-${mdIdx}`}
+                              style={{position: 'absolute', left: left + (isFirstDay ? 1 : 0), ...posStyle, width: width - (isFirstDay ? 1 : 0) - (isLastDay ? 1 : 0), height: EVENT_BAR_HEIGHT - 2, backgroundColor: evColor + 'CC', borderTopLeftRadius: isFirstDay ? 6 : 0, borderBottomLeftRadius: isFirstDay ? 6 : 0, borderTopRightRadius: isLastDay ? 6 : 0, borderBottomRightRadius: isLastDay ? 6 : 0, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 2, paddingVertical: 2, zIndex: 10}}
+                              activeOpacity={0.7}
+                              onPress={() => onEventPress?.(mdEvent.event)}>
+                              {isFirstDay && evStart && !mdEvent.event.allDay && (
+                                <Text style={[styles.singleDayEventTime, {color: colors.onEvent}]}>{formatTimeCompact(mdEvent.event.startDate!)}</Text>
+                              )}
+                              {isLastDay && evEnd && !mdEvent.event.allDay && (
+                                <Text style={[styles.singleDayEventTime, {color: colors.onEvent}]}>{formatTimeCompact(mdEvent.event.endDate!)}</Text>
+                              )}
+                              <Text style={[styles.singleDayEventTitle, {color: colors.onEvent}]} numberOfLines={1} ellipsizeMode="clip">{mdEvent.event.title || ''}</Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+            );
+          }}
+        />
 
       </View>
 
@@ -1473,11 +1522,16 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderColor: '#e0e0e0',
   },
-  dayText: {
-    fontSize: 14,
-    color: '#333',
-    fontWeight: '500',
+  dayHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     height: DAY_NUMBER_HEIGHT,
+  },
+  dayText: {
+    fontSize: 15,
+    color: '#333',
+    fontWeight: '700',
     lineHeight: DAY_NUMBER_HEIGHT,
   },
   otherMonthText: {
