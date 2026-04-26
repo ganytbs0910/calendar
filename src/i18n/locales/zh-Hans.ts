@@ -97,6 +97,7 @@ export default {
   repeatNone: '无',
   repeatDaily: '每天',
   repeatWeekly: '每周',
+  repeatMonthly: '每月',
   location: '地点',
   notes: '备注',
   calendar: '日历',
@@ -109,6 +110,7 @@ export default {
   deleteRecurring: '删除重复日程',
   thisEventOnly: '仅此日程',
   thisAndFuture: '此日程及之后的日程',
+  allEvents: '所有重复日程',
 
   copy: '复制',
   selectCopyTarget: '选择复制目标',

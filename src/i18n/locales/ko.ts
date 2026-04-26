@@ -97,6 +97,7 @@ export default {
   repeatNone: '없음',
   repeatDaily: '매일',
   repeatWeekly: '매주',
+  repeatMonthly: '매월',
   location: '위치',
   notes: '메모',
   calendar: '캘린더',
@@ -109,6 +110,7 @@ export default {
   deleteRecurring: '반복 일정 삭제',
   thisEventOnly: '이 일정만',
   thisAndFuture: '이 일정 및 향후 일정',
+  allEvents: '모든 반복 일정',
 
   copy: '복사',
   selectCopyTarget: '복사 대상 선택',

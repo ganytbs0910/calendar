@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
 import {useTheme} from '../theme/ThemeContext';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import {useTranslation} from 'react-i18next';
 import {
   Task,
@@ -512,7 +513,7 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
                       <Text style={[styles.deleteBtn, {color: colors.error}]}>{t('delete')}</Text>
                     </TouchableOpacity>
                   </View>
-                  <Text style={[styles.taskEditLabel, {color: colors.textSecondary}]}>{t('taskDuration')}</Text>
+                  <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}><Ionicons name="hourglass-outline" size={13} color={colors.textSecondary} /><Text style={[styles.taskEditLabel, {color: colors.textSecondary}]}>{t('taskDuration')}</Text></View>
                   <View style={styles.durationOptions}>
                     {DURATION_OPTIONS.map(opt => (
                       <TouchableOpacity
@@ -571,7 +572,7 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
                       <Text style={[styles.customDurationUnit, {color: colors.textSecondary}]}>{t('minutes')}</Text>
                     </View>
                   )}
-                  <Text style={[styles.taskEditLabel, {color: colors.textSecondary, marginTop: 10}]}>{t('taskDeadline')}</Text>
+                  <View style={{flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 10}}><Ionicons name="flag-outline" size={13} color={colors.textSecondary} /><Text style={[styles.taskEditLabel, {color: colors.textSecondary}]}>{t('taskDeadline')}</Text></View>
                   <View style={styles.durationOptions}>
                     {[
                       {label: t('deadlineToday'), value: getDeadlineKey(0)},
@@ -601,7 +602,7 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
                       </TouchableOpacity>
                     )}
                   </View>
-                  <Text style={[styles.taskEditLabel, {color: colors.textSecondary, marginTop: 10}]}>{t('taskTimezone')}</Text>
+                  <View style={{flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 10}}><Ionicons name="time-outline" size={13} color={colors.textSecondary} /><Text style={[styles.taskEditLabel, {color: colors.textSecondary}]}>{t('taskTimezone')}</Text></View>
                   <View style={styles.taskEditTimeRow}>
                     <View style={styles.addTimeInputs}>
                       <TextInput
@@ -718,7 +719,7 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
                   placeholderTextColor={colors.textTertiary}
                   autoFocus
                 />
-                <Text style={[styles.taskEditLabel, {color: colors.textSecondary, marginTop: 12}]}>{t('taskDuration')}</Text>
+                <View style={{flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 12}}><Ionicons name="hourglass-outline" size={13} color={colors.textSecondary} /><Text style={[styles.taskEditLabel, {color: colors.textSecondary}]}>{t('taskDuration')}</Text></View>
                 <View style={styles.durationOptions}>
                   {DURATION_OPTIONS.map(opt => (
                     <TouchableOpacity
@@ -777,7 +778,7 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
                     <Text style={[styles.customDurationUnit, {color: colors.textSecondary}]}>{t('minutes')}</Text>
                   </View>
                 )}
-                <Text style={[styles.taskEditLabel, {color: colors.textSecondary, marginTop: 12}]}>{t('taskDeadline')}</Text>
+                <View style={{flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 12}}><Ionicons name="flag-outline" size={13} color={colors.textSecondary} /><Text style={[styles.taskEditLabel, {color: colors.textSecondary}]}>{t('taskDeadline')}</Text></View>
                 <View style={styles.durationOptions}>
                   {[
                     {label: t('deadlineToday'), value: getDeadlineKey(0)},
@@ -994,7 +995,7 @@ const styles = StyleSheet.create({
   taskEditLabel: {
     fontSize: 12,
     fontWeight: '500',
-    marginBottom: 6,
+    marginBottom: 8,
   },
   durationOptions: {
     flexDirection: 'row',

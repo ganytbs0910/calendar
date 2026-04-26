@@ -40,7 +40,7 @@ const PLAN_TO_SKU: Record<PlanType, string> = {
 };
 
 export const PaywallScreen: React.FC<PaywallScreenProps> = ({visible, onClose}) => {
-  const {colors, isDark} = useTheme();
+  const {colors} = useTheme();
   const {setPremium} = usePremium();
   const {t} = useTranslation();
   const [selectedPlan, setSelectedPlan] = useState<PlanType>('yearly');
@@ -63,11 +63,10 @@ export const PaywallScreen: React.FC<PaywallScreenProps> = ({visible, onClose}) 
       }
 
       const {subscriptions: subs, products: prods} = await fetchProducts();
-      if (mounted) {
-        setSubscriptions(subs);
-        setProducts(prods);
-        setIsLoading(false);
-      }
+      if (!mounted) return;
+      setSubscriptions(subs);
+      setProducts(prods);
+      setIsLoading(false);
 
       // Listen for purchase events
       setupPurchaseListeners(
@@ -148,7 +147,7 @@ export const PaywallScreen: React.FC<PaywallScreenProps> = ({visible, onClose}) 
   ];
 
   return (
-    <SafeAreaView style={[styles.container, {backgroundColor: isDark ? '#000' : '#fff'}]}>
+    <SafeAreaView style={[styles.container, {backgroundColor: colors.background}]}>
       <View style={styles.header}>
         <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
           <Text style={{fontSize: 16, color: colors.textSecondary}}>✕</Text>
@@ -165,8 +164,6 @@ export const PaywallScreen: React.FC<PaywallScreenProps> = ({visible, onClose}) 
           {[
             t('featureNoAds'),
             t('featureCustomColors'),
-            t('featureThemeSkins'),
-            t('featureAppIcon'),
           ].map((f, i) => (
             <View key={i} style={styles.featureRow}>
               <Text style={{fontSize: 16, color: colors.primary}}>✓</Text>

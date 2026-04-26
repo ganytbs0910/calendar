@@ -97,6 +97,7 @@ export default {
   repeatNone: 'ไม่ทำซ้ำ',
   repeatDaily: 'ทุกวัน',
   repeatWeekly: 'ทุกสัปดาห์',
+  repeatMonthly: 'ทุกเดือน',
   location: 'สถานที่',
   notes: 'บันทึก',
   calendar: 'ปฏิทิน',
@@ -109,6 +110,7 @@ export default {
   deleteRecurring: 'ลบกิจกรรมที่ทำซ้ำ',
   thisEventOnly: 'เฉพาะกิจกรรมนี้',
   thisAndFuture: 'กิจกรรมนี้และในอนาคต',
+  allEvents: 'กิจกรรมที่ทำซ้ำทั้งหมด',
 
   copy: 'คัดลอก',
   selectCopyTarget: 'เลือกวันที่คัดลอก',

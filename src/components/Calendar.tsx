@@ -192,9 +192,9 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
   }, []);
 
   const panResponder = useMemo(() => PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
+    onStartShouldSetPanResponder: () => false,
     onMoveShouldSetPanResponder: (_, gestureState) => {
-      return Math.abs(gestureState.dx) > 5 || isDraggingRef.current;
+      return isDraggingRef.current || dragModeRef.current === 'moveEvent';
     },
     onPanResponderGrant: (evt) => {
       // If already in moveEvent mode (started by event onLongPress), skip date-range setup
@@ -1043,8 +1043,11 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
           showsHorizontalScrollIndicator={false}
           initialScrollIndex={MONTH_ANCHOR}
           getItemLayout={(_, index) => ({length: CALENDAR_GRID_WIDTH, offset: CALENDAR_GRID_WIDTH * index, index})}
+          windowSize={3}
+          maxToRenderPerBatch={1}
+          removeClippedSubviews
           onMomentumScrollEnd={(e) => {
-            const idx = Math.round(e.nativeEvent.contentOffset.x / CALENDAR_GRID_WIDTH);
+            const idx = Math.floor(e.nativeEvent.contentOffset.x / CALENDAR_GRID_WIDTH + 0.5);
             const {year, month} = getMonthForIndex(idx);
             const cur = currentDateRef.current;
             if (year !== cur.getFullYear() || month !== cur.getMonth()) {
@@ -1056,7 +1059,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
               fetchMonthEvents(year, month).then(() => setCacheVersion(v => v + 1));
             }
           }}
-          style={{height: numberOfWeeks * dayHeight}}
+          style={{height: CALENDAR_AVAILABLE_HEIGHT}}
           renderItem={({index: pageIndex}) => {
             const {year: pageYear, month: pageMonth} = getMonthForIndex(pageIndex);
             const pageDays = getCalendarDaysForMonth(pageYear, pageMonth);

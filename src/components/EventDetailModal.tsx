@@ -123,9 +123,9 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
             onPress: () => deleteEvent('single'),
           },
           {
-            text: t('thisAndFuture'),
+            text: t('allEvents'),
             style: 'destructive',
-            onPress: () => deleteEvent('future'),
+            onPress: () => deleteEvent('all'),
           },
         ],
       );

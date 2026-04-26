@@ -97,6 +97,7 @@ export default {
   repeatNone: 'Nenhum',
   repeatDaily: 'Diário',
   repeatWeekly: 'Semanal',
+  repeatMonthly: 'Mensal',
   location: 'Local',
   notes: 'Notas',
   calendar: 'Calendário',
@@ -109,6 +110,7 @@ export default {
   deleteRecurring: 'Excluir Evento Recorrente',
   thisEventOnly: 'Apenas este evento',
   thisAndFuture: 'Este e eventos futuros',
+  allEvents: 'Todos os eventos recorrentes',
 
   copy: 'Copiar',
   selectCopyTarget: 'Selecionar destino da cópia',

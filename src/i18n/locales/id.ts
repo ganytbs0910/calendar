@@ -97,6 +97,7 @@ export default {
   repeatNone: 'Tidak ada',
   repeatDaily: 'Harian',
   repeatWeekly: 'Mingguan',
+  repeatMonthly: 'Bulanan',
   location: 'Lokasi',
   notes: 'Catatan',
   calendar: 'Kalender',
@@ -109,6 +110,7 @@ export default {
   deleteRecurring: 'Hapus Acara Berulang',
   thisEventOnly: 'Hanya Acara Ini',
   thisAndFuture: 'Acara Ini dan Selanjutnya',
+  allEvents: 'Semua Acara Berulang',
 
   copy: 'Salin',
   selectCopyTarget: 'Pilih Tujuan Salin',

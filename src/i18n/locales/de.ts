@@ -97,6 +97,7 @@ export default {
   repeatNone: 'Keine',
   repeatDaily: 'Täglich',
   repeatWeekly: 'Wöchentlich',
+  repeatMonthly: 'Monatlich',
   location: 'Ort',
   notes: 'Notizen',
   calendar: 'Kalender',
@@ -109,6 +110,7 @@ export default {
   deleteRecurring: 'Wiederkehrenden Termin löschen',
   thisEventOnly: 'Nur diesen Termin',
   thisAndFuture: 'Diesen und zukünftige Termine',
+  allEvents: 'Alle wiederkehrenden Termine',
 
   copy: 'Kopieren',
   selectCopyTarget: 'Kopierziel auswählen',

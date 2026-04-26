@@ -20,6 +20,7 @@ import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-eve
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {useTheme} from '../theme/ThemeContext';
 import {usePremium} from '../context/PremiumContext';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import {addTemplate} from '../services/templateService';
 import {useTranslation} from 'react-i18next';
 
@@ -305,7 +306,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   const [editingLabelText, setEditingLabelText] = useState('');
   const [showAddColor, setShowAddColor] = useState(false);
   const [reminder, setReminder] = useState<number | null>(null);
-  const [recurrence, setRecurrence] = useState<'none' | 'daily' | 'weekly'>('none');
+  const [recurrence, setRecurrence] = useState<'none' | 'daily' | 'weekly' | 'monthly'>('none');
   const [titleSuggestions, setTitleSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [recentTitles, setRecentTitles] = useState<string[]>([]);
@@ -556,8 +557,8 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         };
         if (recurrence !== 'none') {
           eventConfig.recurrenceRule = {
-            frequency: recurrence === 'daily' ? 'daily' : 'weekly',
-            occurrence: 260, // ~5 years weekly / daily
+            frequency: recurrence,
+            occurrence: recurrence === 'monthly' ? 60 : 260, // ~5 years
           };
         }
         const eventId = await RNCalendarEvents.saveEvent(title.trim() || t('noTitle'), eventConfig);
@@ -880,6 +881,10 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
 
         <ScrollView style={styles.form} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
           <View style={[styles.inputGroup, {backgroundColor: colors.surface}]}>
+            <View style={{flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 8}}>
+              <Ionicons name="create-outline" size={14} color={colors.textSecondary} />
+              <Text style={{fontSize: 12, color: colors.textSecondary, fontWeight: '500'}}>{t('eventTitle')}</Text>
+            </View>
             <View style={styles.titleInputContainer}>
               <TextInput
                 style={[styles.titleInput, {color: colors.text}]}
@@ -943,6 +948,10 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           </View>
 
           <View style={[styles.dateTimeSection, {backgroundColor: colors.surface}]}>
+            <View style={{flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 8}}>
+              <Ionicons name="calendar-outline" size={14} color={colors.textSecondary} />
+              <Text style={{fontSize: 12, color: colors.textSecondary, fontWeight: '500'}}>{t('dateTime')}</Text>
+            </View>
             <View style={styles.dtRow}>
               <TouchableOpacity
                 style={[styles.dtCell, {backgroundColor: colors.today}]}
@@ -998,7 +1007,10 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
               </TouchableOpacity>
             </View>
             <View style={styles.durationInline}>
-              <Text style={[styles.durationInlineLabel, {color: colors.textSecondary}]}>{t('duration')}</Text>
+              <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
+                <Ionicons name="time-outline" size={14} color={colors.textSecondary} />
+                <Text style={[styles.durationInlineLabel, {color: colors.textSecondary}]}>{t('duration')}</Text>
+              </View>
               <Text style={[styles.durationInlineValue, {color: colors.primary}]}>
                 {formatDuration(endDate.getTime() - startDate.getTime())}
               </Text>
@@ -1033,6 +1045,10 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           </View>
 
           <View style={[styles.colorSection, {backgroundColor: colors.surface}]}>
+            <View style={{flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 8}}>
+              <Ionicons name="color-fill-outline" size={14} color={colors.textSecondary} />
+              <Text style={{fontSize: 12, color: colors.textSecondary, fontWeight: '500'}}>{t('eventColor')}</Text>
+            </View>
             <View style={styles.colorButtons}>
               {colorOptions.map((colorOption) => (
                 <View key={colorOption.name} style={styles.colorButtonWrapper}>
@@ -1076,7 +1092,10 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
 
           <View style={[styles.reminderSection, {backgroundColor: colors.surface}]}>
             <View style={styles.optionRow}>
-              <Text style={[styles.optionRowLabel, {color: colors.textSecondary}]}>{t('reminder')}</Text>
+              <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
+                <Ionicons name="notifications-outline" size={14} color={colors.textSecondary} />
+                <Text style={[styles.optionRowLabel, {color: colors.textSecondary}]}>{t('reminder')}</Text>
+              </View>
               <View style={styles.optionRowChips}>
                 {REMINDER_OPTIONS.map((option) => (
                   <TouchableOpacity
@@ -1099,9 +1118,12 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
               </View>
             </View>
             <View style={[styles.optionRow, {marginTop: 8}]}>
-              <Text style={[styles.optionRowLabel, {color: colors.textSecondary}]}>{t('repeat')}</Text>
+              <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
+                <Ionicons name="repeat-outline" size={14} color={colors.textSecondary} />
+                <Text style={[styles.optionRowLabel, {color: colors.textSecondary}]}>{t('repeat')}</Text>
+              </View>
               <View style={styles.optionRowChips}>
-                {([{label: 'repeatNone', value: 'none'}, {label: 'repeatDaily', value: 'daily'}, {label: 'repeatWeekly', value: 'weekly'}] as const).map((option) => (
+                {([{label: 'repeatNone', value: 'none'}, {label: 'repeatDaily', value: 'daily'}, {label: 'repeatWeekly', value: 'weekly'}, {label: 'repeatMonthly', value: 'monthly'}] as const).map((option) => (
                   <TouchableOpacity
                     key={option.value}
                     style={[
@@ -1137,7 +1159,10 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                 });
                 Alert.alert(t('saved'), t('templateSaved'));
               }}>
-              <Text style={[styles.templateSaveLinkText, {color: colors.primary}]}>{t('saveAsTemplate')}</Text>
+              <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
+                <Ionicons name="bookmark-outline" size={14} color={colors.primary} />
+                <Text style={[styles.templateSaveLinkText, {color: colors.primary}]}>{t('saveAsTemplate')}</Text>
+              </View>
             </TouchableOpacity>
           )}
 
@@ -1457,6 +1482,7 @@ const styles = StyleSheet.create({
   inputGroup: {
     backgroundColor: '#fff',
     borderRadius: 10,
+    padding: 12,
     marginBottom: 10,
   },
   titleInputContainer: {
@@ -1466,8 +1492,8 @@ const styles = StyleSheet.create({
   titleInput: {
     flex: 1,
     fontSize: 17,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    paddingVertical: 8,
+    paddingHorizontal: 0,
     color: '#333',
   },
   titleClearButton: {
@@ -1541,7 +1567,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   durationInlineLabel: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '500',
   },
   durationInlineValue: {
@@ -1721,14 +1747,11 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   optionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+    gap: 8,
   },
   optionRowLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    width: 64,
+    fontSize: 12,
+    fontWeight: '500',
   },
   optionRowChips: {
     flex: 1,

@@ -667,7 +667,7 @@ const DayColumn = React.memo(function DayColumn({
   const gridColor = isDark ? '#2c2c2e' : '#e0e0e0';
 
   // Creation preview
-  const [creatingEvent, setCreatingEvent] = useState<{startMin: number; endMin: number} | null>(null);
+  const [creatingEvent, setCreatingEvent] = useState<{startMin: number; endMin: number; extraDays: number} | null>(null);
   const creatingEventRef = useRef(creatingEvent);
   useEffect(() => { creatingEventRef.current = creatingEvent; }, [creatingEvent]);
 
@@ -743,7 +743,7 @@ const DayColumn = React.memo(function DayColumn({
         const minutes = pageYToMinutes(pageY);
         const snappedMin = Math.max(0, Math.min(23 * 60 + 55, minutes));
         lpStartMinRef.current = snappedMin;
-        setCreatingEvent({startMin: snappedMin, endMin: snappedMin + 30});
+        setCreatingEvent({startMin: snappedMin, endMin: snappedMin + 30, extraDays: 0});
       }
     }, 200);
   }, [pageYToMinutes, onLockInteraction, dayEvents]);
@@ -775,10 +775,9 @@ const DayColumn = React.memo(function DayColumn({
       const endMin = pageYToMinutes(pageY);
       const startMin = lpStartMinRef.current;
       const dx = pageX - lpStartPageXRef.current;
-      const extraDays = Math.round(dx / dayWidth);
-      const totalEndMin = endMin + extraDays * 24 * 60;
-      const clampedEnd = Math.max(startMin + 5, totalEndMin);
-      setCreatingEvent({startMin, endMin: clampedEnd});
+      const extraDays = Math.max(0, Math.round(dx / dayWidth));
+      const clampedEnd = Math.max(startMin + 5, endMin);
+      setCreatingEvent({startMin, endMin: clampedEnd, extraDays});
     }
 
     const screenH = Dimensions.get('window').height;
@@ -831,16 +830,15 @@ const DayColumn = React.memo(function DayColumn({
       } else {
         // Finish creating event (supports multi-day)
         const ce = creatingEventRef.current;
-        if (ce && ce.endMin - ce.startMin >= 5 && onTimeRangeSelect) {
+        if (ce && (ce.endMin - ce.startMin >= 5 || ce.extraDays > 0) && onTimeRangeSelect) {
           const s = new Date(date);
           s.setHours(Math.floor(ce.startMin / 60), ce.startMin % 60, 0, 0);
-          const totalMinutes = ce.endMin;
-          const extraDays = Math.floor(totalMinutes / (24 * 60));
-          const remainingMin = totalMinutes % (24 * 60);
           const ed = new Date(date);
-          ed.setDate(ed.getDate() + extraDays);
-          ed.setHours(Math.floor(remainingMin / 60), remainingMin % 60, 0, 0);
-          onTimeRangeSelect(s, ed);
+          ed.setDate(ed.getDate() + ce.extraDays);
+          ed.setHours(Math.floor(ce.endMin / 60), ce.endMin % 60, 0, 0);
+          if (ed > s) {
+            onTimeRangeSelect(s, ed);
+          }
         }
         setCreatingEvent(null);
       }
@@ -993,8 +991,8 @@ const DayColumn = React.memo(function DayColumn({
 
       {/* Creation preview */}
       {creatingEvent && (() => {
-        const totalDays = Math.floor(creatingEvent.endMin / (24 * 60));
-        const endMinInLastDay = creatingEvent.endMin % (24 * 60);
+        const totalDays = creatingEvent.extraDays;
+        const endMinInLastDay = creatingEvent.endMin;
         const startMin = creatingEvent.startMin;
         const displayStart = displayStartHour * 60;
         const fmtTime = (m: number) => `${Math.floor(m / 60).toString().padStart(2, '0')}:${(m % 60).toString().padStart(2, '0')}`;

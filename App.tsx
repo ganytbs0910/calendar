@@ -11,7 +11,6 @@ import {
   TextInput,
   FlatList,
   ScrollView,
-  NativeModules,
   Platform,
 } from 'react-native';
 import {SafeAreaProvider, SafeAreaView} from 'react-native-safe-area-context';
@@ -23,8 +22,8 @@ import EventDetailModal from './src/components/EventDetailModal';
 import {UndoToast, UndoAction} from './src/components/UndoToast';
 import {ThemeProvider, useTheme} from './src/theme/ThemeContext';
 import {PremiumProvider, usePremium} from './src/context/PremiumContext';
-import {SKINS} from './src/theme/colors';
 import {PaywallScreen} from './src/components/PaywallScreen';
+import StatsScreen from './src/components/StatsScreen';
 import {
   SmallWidgetPreview,
   MediumWidgetPreview,
@@ -50,7 +49,6 @@ import {loadSavedLanguage, setAppLanguage, getSavedLanguageCode, LANGUAGES} from
 
 const adUnitId = __DEV__ ? TestIds.ADAPTIVE_BANNER : 'ca-app-pub-4317478239934902/3522055335';
 
-const {AppIconManager} = NativeModules;
 
 // Custom Search Icon Component
 const SearchIcon = ({size = 20, color = '#666'}: {size?: number; color?: string}) => {
@@ -231,7 +229,7 @@ const SleepSetupModal = ({
 
 function AppContent() {
   const {t} = useTranslation();
-  const {colors, isDark, themeMode, setThemeMode, skinId, setSkinId} = useTheme();
+  const {colors, isDark, themeMode, setThemeMode} = useTheme();
   const {isPremium} = usePremium();
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState('auto');
@@ -253,6 +251,7 @@ function AppContent() {
   const [searchResults, setSearchResults] = useState<CalendarEventReadable[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showSleepSetup, setShowSleepSetup] = useState(false);
+  const [showStats, setShowStats] = useState(false);
   const [sleepSettings, setSleepSettings] = useState<SleepSettings | null>(null);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [templates, setTemplates] = useState<EventTemplate[]>([]);
@@ -395,22 +394,6 @@ function AppContent() {
     });
   }, [hasPermission]);
 
-  // Reset app icon to default (month icons disabled for now)
-  useEffect(() => {
-    const resetAppIcon = async () => {
-      try {
-        if (Platform.OS === 'ios') {
-          const currentIcon = await AppIconManager.getIcon();
-          if (currentIcon) {
-            await AppIconManager.changeIcon(null);
-          }
-        }
-      } catch (_e) {
-        // Icon switch is non-critical, silently ignore
-      }
-    };
-    resetAppIcon();
-  }, []);
 
   const handleDateSelect = useCallback((date: Date) => {
     setSelectedDate(date);
@@ -653,14 +636,21 @@ function AppContent() {
               onPress={() => setShowSearchModal(true)}
               accessibilityLabel={t('searchEventsLabel')}
               accessibilityRole="button">
-              <SearchIcon size={18} color="#007AFF" />
+              <SearchIcon size={18} color={colors.primary} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.iconBtn}
+              onPress={() => setShowStats(true)}
+              accessibilityLabel={t('statsLabel')}
+              accessibilityRole="button">
+              <Ionicons name="stats-chart-outline" size={20} color={colors.primary} />
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.iconBtn}
               onPress={() => setShowSettingsModal(true)}
               accessibilityLabel={t('settingsLabel')}
               accessibilityRole="button">
-              <Ionicons name="settings-outline" size={22} color="#007AFF" />
+              <Ionicons name="settings-outline" size={22} color={colors.primary} />
             </TouchableOpacity>
           </View>
           <View style={styles.headerRight}>
@@ -907,7 +897,7 @@ function AppContent() {
                     <>
                       {/* Theme Settings */}
                       <View style={styles.settingsSection}>
-                        <Text style={styles.settingsSectionTitle}>{t('appearance')}</Text>
+                        <View style={styles.sectionTitleRow}><Ionicons name="color-palette-outline" size={14} color={colors.textSecondary} /><Text style={styles.settingsSectionTitle}>{t('appearance')}</Text></View>
                         <View style={styles.settingsItem}>
                           <Text style={styles.settingsItemLabel}>{t('theme')}</Text>
                           <View style={styles.themeSelector}>
@@ -950,7 +940,7 @@ function AppContent() {
 
                       {/* Sleep Settings */}
                       <View style={styles.settingsSection}>
-                        <Text style={styles.settingsSectionTitle}>{t('sleepRhythm')}</Text>
+                        <View style={styles.sectionTitleRow}><Ionicons name="moon-outline" size={14} color={colors.textSecondary} /><Text style={styles.settingsSectionTitle}>{t('sleepRhythm')}</Text></View>
                         <TouchableOpacity
                           style={styles.sleepSettingsItem}
                           onPress={() => {
@@ -979,7 +969,7 @@ function AppContent() {
 
                       {/* Calendar Settings */}
                       <View style={styles.settingsSection}>
-                        <Text style={styles.settingsSectionTitle}>{t('calendarSection')}</Text>
+                        <View style={styles.sectionTitleRow}><Ionicons name="calendar-outline" size={14} color={colors.textSecondary} /><Text style={styles.settingsSectionTitle}>{t('calendarSection')}</Text></View>
                         <TouchableOpacity
                           style={styles.settingsItem}
                           onPress={() => Linking.openSettings()}>
@@ -998,70 +988,9 @@ function AppContent() {
                         </TouchableOpacity>
                       </View>
 
-                      {/* Skin Selection */}
-                      <View style={styles.settingsSection}>
-                        <Text style={styles.settingsSectionTitle}>{t('skin')}</Text>
-                        <View style={styles.skinGrid}>
-                          {SKINS.map(skin => {
-                            const isActive = skinId === skin.id;
-                            const skinPrimary = isDark ? (skin.dark.primary || colors.primary) : (skin.light.primary || colors.primary);
-                            const locked = skin.isPremium && !isPremium;
-                            return (
-                              <TouchableOpacity
-                                key={skin.id}
-                                style={[
-                                  styles.skinItem,
-                                  {borderColor: isActive ? skinPrimary : colors.border},
-                                  isActive && {borderWidth: 2},
-                                ]}
-                                onPress={() => {
-                                  if (locked) {
-                                    setShowSettingsModal(false);
-                                    setShowPaywall(true);
-                                  } else {
-                                    setSkinId(skin.id);
-                                  }
-                                }}>
-                                <View style={[styles.skinSwatch, {backgroundColor: skinPrimary}]} />
-                                <Text style={[styles.skinLabel, {color: colors.text}]}>{t(skin.nameKey)}</Text>
-                                {locked && <Text style={styles.skinLock}>🔒</Text>}
-                              </TouchableOpacity>
-                            );
-                          })}
-                        </View>
-                      </View>
-
-                      {/* App Icon */}
-                      {Platform.OS === 'ios' && isPremium && (
-                        <View style={styles.settingsSection}>
-                          <Text style={styles.settingsSectionTitle}>{t('appIcon')}</Text>
-                          <View style={styles.iconGrid}>
-                            {[
-                              {id: null, label: t('iconDefault'), color: '#007AFF'},
-                              {id: 'AppIcon-Rose', label: t('skinRose'), color: '#E91E63'},
-                              {id: 'AppIcon-Ocean', label: t('skinOcean'), color: '#00897B'},
-                              {id: 'AppIcon-Lavender', label: t('skinLavender'), color: '#7C4DFF'},
-                              {id: 'AppIcon-Sunset', label: t('skinSunset'), color: '#FF6D00'},
-                            ].map(icon => (
-                              <TouchableOpacity
-                                key={icon.id || 'default'}
-                                style={[styles.iconItem, {borderColor: colors.border}]}
-                                onPress={async () => {
-                                  try {
-                                    await AppIconManager.changeIcon(icon.id);
-                                  } catch (_e) {}
-                                }}>
-                                <View style={[styles.iconSwatch, {backgroundColor: icon.color, borderRadius: 12}]} />
-                                <Text style={[styles.skinLabel, {color: colors.text}]}>{icon.label}</Text>
-                              </TouchableOpacity>
-                            ))}
-                          </View>
-                        </View>
-                      )}
-
                       {/* Premium */}
                       <View style={styles.settingsSection}>
-                        <Text style={styles.settingsSectionTitle}>{t('premium')}</Text>
+                        <View style={styles.sectionTitleRow}><Ionicons name="star-outline" size={14} color={colors.textSecondary} /><Text style={styles.settingsSectionTitle}>{t('premium')}</Text></View>
                         {isPremium ? (
                           <View style={[styles.settingsItem, {backgroundColor: '#34C75910'}]}>
                             <Text style={[styles.settingsItemLabel, {color: '#34C759', fontWeight: '700'}]}>{t('premiumActive')}</Text>
@@ -1078,7 +1007,7 @@ function AppContent() {
 
                       {/* Notification Settings */}
                       <View style={styles.settingsSection}>
-                        <Text style={styles.settingsSectionTitle}>{t('notification')}</Text>
+                        <View style={styles.sectionTitleRow}><Ionicons name="notifications-outline" size={14} color={colors.textSecondary} /><Text style={styles.settingsSectionTitle}>{t('notification')}</Text></View>
                         <TouchableOpacity
                           style={styles.settingsItem}
                           onPress={() => Linking.openSettings()}>
@@ -1089,7 +1018,7 @@ function AppContent() {
 
                       {/* Widget Guide */}
                       <View style={styles.settingsSection}>
-                        <Text style={styles.settingsSectionTitle}>{t('widget')}</Text>
+                        <View style={styles.sectionTitleRow}><Ionicons name="grid-outline" size={14} color={colors.textSecondary} /><Text style={styles.settingsSectionTitle}>{t('widget')}</Text></View>
                         <TouchableOpacity
                           style={styles.settingsItem}
                           onPress={() => setShowWidgetGuide(true)}>
@@ -1100,7 +1029,7 @@ function AppContent() {
 
                       {/* About */}
                       <View style={styles.settingsSection}>
-                        <Text style={styles.settingsSectionTitle}>{t('language')}</Text>
+                        <View style={styles.sectionTitleRow}><Ionicons name="globe-outline" size={14} color={colors.textSecondary} /><Text style={styles.settingsSectionTitle}>{t('language')}</Text></View>
                         <TouchableOpacity
                           style={styles.settingsItem}
                           onPress={() => setShowLanguageModal(true)}>
@@ -1112,7 +1041,7 @@ function AppContent() {
                       </View>
 
                       <View style={styles.settingsSection}>
-                        <Text style={styles.settingsSectionTitle}>{t('aboutApp')}</Text>
+                        <View style={styles.sectionTitleRow}><Ionicons name="information-circle-outline" size={14} color={colors.textSecondary} /><Text style={styles.settingsSectionTitle}>{t('aboutApp')}</Text></View>
                         <View style={styles.settingsItem}>
                           <Text style={styles.settingsItemLabel}>{t('version')}</Text>
                           <Text style={styles.settingsItemValue}>1.8.0</Text>
@@ -1231,15 +1160,15 @@ function AppContent() {
                       <View style={{alignItems: 'center', gap: 14}}>
                         <View style={{alignItems: 'center'}}>
                           <LockScreenCircularPreview />
-                          <Text style={{fontSize: 10, color: '#aaa', marginTop: 6}}>{t('widgetLockCircle')}</Text>
+                          <Text style={{fontSize: 10, color: colors.textTertiary, marginTop: 6}}>{t('widgetLockCircle')}</Text>
                         </View>
                         <View style={{alignItems: 'center'}}>
                           <LockScreenRectangularPreview />
-                          <Text style={{fontSize: 10, color: '#aaa', marginTop: 6}}>{t('widgetLockRect')}</Text>
+                          <Text style={{fontSize: 10, color: colors.textTertiary, marginTop: 6}}>{t('widgetLockRect')}</Text>
                         </View>
                         <View style={{alignItems: 'center'}}>
                           <LockScreenInlinePreview />
-                          <Text style={{fontSize: 10, color: '#aaa', marginTop: 6}}>{t('widgetLockInline')}</Text>
+                          <Text style={{fontSize: 10, color: colors.textTertiary, marginTop: 6}}>{t('widgetLockInline')}</Text>
                         </View>
                       </View>
                     </View>
@@ -1306,6 +1235,9 @@ function AppContent() {
           </View>
         </Modal>
 
+        {/* Stats Screen */}
+        <StatsScreen visible={showStats} onClose={() => setShowStats(false)} />
+
         {/* Sleep Setup Modal */}
         <SleepSetupModal
           visible={showSleepSetup}
@@ -1343,7 +1275,7 @@ function AppContent() {
                   {lang.code === 'auto' ? t('languageAuto') : lang.label}
                 </Text>
                 {selectedLanguage === lang.code && (
-                  <Text style={{fontSize: 18, color: '#007AFF'}}>✓</Text>
+                  <Text style={{fontSize: 18, color: colors.primary}}>✓</Text>
                 )}
               </TouchableOpacity>
             ))}
@@ -1546,11 +1478,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     marginBottom: 20,
   },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 8,
+  },
   settingsSectionTitle: {
     fontSize: 13,
     color: '#666',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
     textTransform: 'uppercase',
   },
   settingsItem: {
@@ -1934,55 +1872,6 @@ const styles = StyleSheet.create({
   sleepSetupCancelBtnText: {
     color: '#999',
     fontSize: 15,
-  },
-  skinGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    gap: 10,
-  },
-  skinItem: {
-    alignItems: 'center',
-    borderWidth: 1,
-    borderRadius: 10,
-    padding: 8,
-    width: 72,
-  },
-  skinSwatch: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    marginBottom: 4,
-  },
-  skinLabel: {
-    fontSize: 11,
-    textAlign: 'center',
-  },
-  skinLock: {
-    fontSize: 10,
-    position: 'absolute',
-    top: 4,
-    right: 4,
-  },
-  iconGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    gap: 10,
-  },
-  iconItem: {
-    alignItems: 'center',
-    borderWidth: 1,
-    borderRadius: 10,
-    padding: 8,
-    width: 72,
-  },
-  iconSwatch: {
-    width: 40,
-    height: 40,
-    marginBottom: 4,
   },
 });
 
