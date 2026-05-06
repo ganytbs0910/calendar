@@ -78,6 +78,20 @@ export const setEventColor = async (eventId: string, color: string): Promise<voi
   }
 };
 
+export const removeEventColor = async (eventId: string): Promise<void> => {
+  try {
+    const colorsJson = await AsyncStorage.getItem(EVENT_COLOR_STORAGE_KEY);
+    if (!colorsJson) return;
+    const colors = JSON.parse(colorsJson);
+    if (eventId in colors) {
+      delete colors[eventId];
+      await AsyncStorage.setItem(EVENT_COLOR_STORAGE_KEY, JSON.stringify(colors));
+    }
+  } catch (error) {
+    console.error('Error removing event color:', error);
+  }
+};
+
 export const getAllEventColors = async (): Promise<Record<string, string>> => {
   try {
     const colorsJson = await AsyncStorage.getItem(EVENT_COLOR_STORAGE_KEY);
@@ -249,7 +263,6 @@ const MonthDayPicker: React.FC<MonthDayPickerProps & {t: (key: string, opts?: an
 
 // Duration options (labels are i18n keys)
 const DURATION_OPTIONS = [
-  {label: 'duration15min', minutes: 15},
   {label: 'duration30min', minutes: 30},
   {label: 'duration45min', minutes: 45},
   {label: 'duration1h', minutes: 60},
@@ -519,8 +532,8 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
       finalEndDate.setHours(finalEndDate.getHours() + 1);
     }
 
-    // Auto-fix: ensure minimum 5 minutes duration
-    const minDuration = 5 * 60 * 1000;
+    // Auto-fix: ensure minimum 30 minutes duration (15-min events are not allowed)
+    const minDuration = 30 * 60 * 1000;
     if (finalEndDate.getTime() - startDate.getTime() < minDuration) {
       finalEndDate = new Date(startDate.getTime() + minDuration);
     }
@@ -882,7 +895,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         <ScrollView style={styles.form} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
           <View style={[styles.inputGroup, {backgroundColor: colors.surface}]}>
             <View style={{flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 8}}>
-              <Ionicons name="create-outline" size={14} color={colors.textSecondary} />
+              <View style={[styles.titleIconBox, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="create-outline" size={12} color={colors.textSecondary} /></View>
               <Text style={{fontSize: 12, color: colors.textSecondary, fontWeight: '500'}}>{t('eventTitle')}</Text>
             </View>
             <View style={styles.titleInputContainer}>
@@ -949,7 +962,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
 
           <View style={[styles.dateTimeSection, {backgroundColor: colors.surface}]}>
             <View style={{flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 8}}>
-              <Ionicons name="calendar-outline" size={14} color={colors.textSecondary} />
+              <View style={[styles.titleIconBox, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="calendar-outline" size={12} color={colors.textSecondary} /></View>
               <Text style={{fontSize: 12, color: colors.textSecondary, fontWeight: '500'}}>{t('dateTime')}</Text>
             </View>
             <View style={styles.dtRow}>
@@ -1008,7 +1021,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
             </View>
             <View style={styles.durationInline}>
               <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
-                <Ionicons name="time-outline" size={14} color={colors.textSecondary} />
+                <View style={[styles.titleIconBox, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="time-outline" size={12} color={colors.textSecondary} /></View>
                 <Text style={[styles.durationInlineLabel, {color: colors.textSecondary}]}>{t('duration')}</Text>
               </View>
               <Text style={[styles.durationInlineValue, {color: colors.primary}]}>
@@ -1046,7 +1059,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
 
           <View style={[styles.colorSection, {backgroundColor: colors.surface}]}>
             <View style={{flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 8}}>
-              <Ionicons name="color-fill-outline" size={14} color={colors.textSecondary} />
+              <View style={[styles.titleIconBox, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="color-fill-outline" size={12} color={colors.textSecondary} /></View>
               <Text style={{fontSize: 12, color: colors.textSecondary, fontWeight: '500'}}>{t('eventColor')}</Text>
             </View>
             <View style={styles.colorButtons}>
@@ -1093,7 +1106,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           <View style={[styles.reminderSection, {backgroundColor: colors.surface}]}>
             <View style={styles.optionRow}>
               <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
-                <Ionicons name="notifications-outline" size={14} color={colors.textSecondary} />
+                <View style={[styles.titleIconBox, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="notifications-outline" size={12} color={colors.textSecondary} /></View>
                 <Text style={[styles.optionRowLabel, {color: colors.textSecondary}]}>{t('reminder')}</Text>
               </View>
               <View style={styles.optionRowChips}>
@@ -1119,7 +1132,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
             </View>
             <View style={[styles.optionRow, {marginTop: 8}]}>
               <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
-                <Ionicons name="repeat-outline" size={14} color={colors.textSecondary} />
+                <View style={[styles.titleIconBox, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="repeat-outline" size={12} color={colors.textSecondary} /></View>
                 <Text style={[styles.optionRowLabel, {color: colors.textSecondary}]}>{t('repeat')}</Text>
               </View>
               <View style={styles.optionRowChips}>
@@ -1153,7 +1166,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                 const durationMinutes = Math.round(durationMs / (1000 * 60));
                 await addTemplate({
                   title: title.trim() || t('noTitle'),
-                  durationMinutes: Math.max(durationMinutes, 5),
+                  durationMinutes: Math.max(durationMinutes, 30),
                   color: selectedColor,
                   reminder,
                 });
@@ -1484,6 +1497,14 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 12,
     marginBottom: 10,
+  },
+  titleIconBox: {
+    width: 22,
+    height: 22,
+    borderRadius: 5,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   titleInputContainer: {
     flexDirection: 'row',

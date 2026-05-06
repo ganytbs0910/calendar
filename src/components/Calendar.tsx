@@ -43,7 +43,9 @@ interface CalendarProps {
   onDateDoubleSelect?: (date: Date) => void;
   onEventPress?: (event: CalendarEventReadable) => void;
   onDateRangeSelect?: (startDate: Date, endDate: Date) => void;
+  onMonthChange?: (date: Date) => void;
   hasPermission?: boolean;
+  fullscreenMode?: boolean;
 }
 
 export interface CalendarRef {
@@ -51,21 +53,33 @@ export interface CalendarRef {
   goToToday: () => void;
 }
 
-export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, onDateDoubleSelect, onEventPress, onDateRangeSelect, hasPermission: hasPermissionProp}, ref) => {
+// Wraps the month grid in a vertical ScrollView when fullscreen mode is on,
+// so days with many events can grow tall and the user can scroll.
+const ConditionalScroll: React.FC<{fullscreen: boolean; children: React.ReactNode}> = ({fullscreen, children}) =>
+  fullscreen
+    ? <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{paddingBottom: 80}} nestedScrollEnabled>{children}</ScrollView>
+    : <>{children}</>;
+
+export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, onDateDoubleSelect, onEventPress, onDateRangeSelect, onMonthChange, hasPermission: hasPermissionProp, fullscreenMode}, ref) => {
   const {colors} = useTheme();
   const {t} = useTranslation();
   const [today, setToday] = useState(() => new Date());
 
   // Update 'today' when the date changes (e.g. app stays open past midnight)
   useEffect(() => {
-    const now = new Date();
-    const msUntilMidnight =
-      new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime() - now.getTime();
-    const timer = setTimeout(() => {
-      setToday(new Date());
-    }, msUntilMidnight + 1000); // 1s after midnight
+    let timer: ReturnType<typeof setTimeout>;
+    const scheduleNext = () => {
+      const now = new Date();
+      const msUntilMidnight =
+        new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime() - now.getTime();
+      timer = setTimeout(() => {
+        setToday(new Date());
+        scheduleNext();
+      }, msUntilMidnight + 1000);
+    };
+    scheduleNext();
     return () => clearTimeout(timer);
-  }, [today]);
+  }, []);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [hasPermissionInternal, setHasPermissionInternal] = useState(false);
@@ -136,6 +150,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
   useEffect(() => { currentDateRef.current = currentDate; }, [currentDate]);
   useEffect(() => { onDateRangeSelectRef.current = onDateRangeSelect; }, [onDateRangeSelect]);
   useEffect(() => { dragEndDateRef.current = dragEndDate; }, [dragEndDate]);
+  useEffect(() => { onMonthChange?.(currentDate); }, [currentDate, onMonthChange]);
 
   // Get date from touch position (uses ref to avoid stale closure)
   const getDateFromPosition = useCallback((pageX: number, pageY: number): Date | null => {
@@ -565,10 +580,13 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       fetchEvents(true);
     },
     goToToday: () => {
-      setCurrentDate(new Date());
-      setSelectedDate(new Date());
+      const now = new Date();
+      setCurrentDate(now);
+      setSelectedDate(now);
+      const idx = MONTH_ANCHOR + (now.getFullYear() - baseDate.getFullYear()) * 12 + (now.getMonth() - baseDate.getMonth());
+      monthListRef.current?.scrollToIndex({index: idx, animated: true});
     },
-  }), [fetchEvents, clearCache]);
+  }), [fetchEvents, clearCache, baseDate]);
 
   const getDaysInMonth = useCallback((year: number, month: number) => {
     return new Date(year, month + 1, 0).getDate();
@@ -646,13 +664,16 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
     events.forEach(event => {
       if (!event.startDate || !event.endDate) return;
       const eventStart = new Date(event.startDate);
-      const eventEnd = new Date(event.endDate);
+      let eventEnd = new Date(event.endDate);
 
-      // Iterate through each day the event spans
-      const currentDate = new Date(eventStart);
-      currentDate.setHours(0, 0, 0, 0);
-      const endDate = new Date(eventEnd);
-      endDate.setHours(23, 59, 59, 999);
+      // All-day events from iCal/EventKit have endDate = next day 00:00.
+      // Subtract 1ms so the loop stops on the actual last day.
+      if (event.allDay && eventEnd.getHours() === 0 && eventEnd.getMinutes() === 0 && eventEnd.getSeconds() === 0) {
+        eventEnd = new Date(eventEnd.getTime() - 1);
+      }
+
+      const currentDate = new Date(eventStart.getFullYear(), eventStart.getMonth(), eventStart.getDate());
+      const endDate = new Date(eventEnd.getFullYear(), eventEnd.getMonth(), eventEnd.getDate());
 
       while (currentDate <= endDate) {
         const dateKey = `${currentDate.getFullYear()}-${currentDate.getMonth()}-${currentDate.getDate()}`;
@@ -1074,7 +1095,10 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
               return cached.filter(event => {
                 if (!event.startDate || !event.endDate) return false;
                 const s = new Date(event.startDate);
-                const e = new Date(event.endDate);
+                let e = new Date(event.endDate);
+                if (event.allDay && e.getHours() === 0 && e.getMinutes() === 0 && e.getSeconds() === 0) {
+                  e = new Date(e.getTime() - 1);
+                }
                 s.setHours(0, 0, 0, 0);
                 e.setHours(0, 0, 0, 0);
                 const dd = new Date(d);
@@ -1142,15 +1166,16 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                     gridLayoutRef.current = {x: pageX, y: pageY, width, height};
                   });
                 } : undefined}>
+                <ConditionalScroll fullscreen={!!fullscreenMode}>
                 <View style={[styles.calendarGrid, {borderColor: colors.border}]}>
                   {Array.from({length: pageWeeks}).map((_, weekIndex) => {
                     const weekDays = pageDays.slice(weekIndex * 7, (weekIndex + 1) * 7);
                     return (
-                      <View key={weekIndex} style={[styles.weekRow, {height: pageDayHeight, position: 'relative'}]}>
+                      <View key={weekIndex} style={[styles.weekRow, fullscreenMode ? {minHeight: pageDayHeight, position: 'relative'} : {height: pageDayHeight, position: 'relative'}]}>
                         {weekDays.map((item, dayIndex) => {
                           const globalIndex = weekIndex * 7 + dayIndex;
                           if (!item.date) {
-                            return <View key={`empty-${globalIndex}`} style={[styles.dayCell, {height: pageDayHeight, borderColor: colors.border}]} />;
+                            return <View key={`empty-${globalIndex}`} style={[styles.dayCell, fullscreenMode ? {minHeight: pageDayHeight, borderColor: colors.border} : {height: pageDayHeight, borderColor: colors.border}]} />;
                           }
 
                           const dayEvts = pageGetEventsForDate(item.date);
@@ -1184,9 +1209,13 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                               key={`${item.date.toISOString()}-${globalIndex}`}
                               style={[
                                 styles.dayCell,
-                                {height: pageDayHeight, borderColor: colors.border},
-                                isToday(item.date) && {backgroundColor: colors.today},
-                                isSelected(item.date) && {backgroundColor: colors.selected, borderColor: colors.primary},
+                                fullscreenMode ? {minHeight: pageDayHeight, borderColor: colors.border} : {height: pageDayHeight, borderColor: colors.border},
+                                isToday(item.date) && {
+                                  backgroundColor: colors.today,
+                                  borderWidth: 2,
+                                  borderColor: colors.primary,
+                                },
+                                isSelected(item.date) && {backgroundColor: colors.selected, borderColor: colors.primary, borderWidth: 3},
                                 inDragRange && {backgroundColor: colors.dragRange},
                                 isEventDragTarget && {backgroundColor: colors.dragRange},
                               ]}
@@ -1212,8 +1241,8 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                                 })()}
                               </View>
                               {singleDayEvents.length > 0 && (
-                                <View style={[styles.singleDayEventsContainer, totalEvents >= 2 ? {marginTop: 'auto', marginBottom: multiDayOffset > 0 ? multiDayOffset : 0} : {marginTop: 'auto', marginBottom: 'auto'}]}>
-                                  {singleDayEvents.slice(0, 2).map(event => {
+                                <View style={[styles.singleDayEventsContainer, fullscreenMode ? {marginTop: 4, marginBottom: multiDayOffset > 0 ? multiDayOffset : 0} : (totalEvents >= 2 ? {marginTop: 'auto', marginBottom: multiDayOffset > 0 ? multiDayOffset : 0} : {marginTop: 'auto', marginBottom: 'auto'})]}>
+                                  {(fullscreenMode ? singleDayEvents : singleDayEvents.slice(0, 2)).map(event => {
                                     const isDraggedEvent = isEventDragSource && draggingEvent?.event.id === event.id;
                                     return (
                                       <TouchableOpacity
@@ -1238,7 +1267,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                                       </TouchableOpacity>
                                     );
                                   })}
-                                  {totalEvents > 2 && (
+                                  {!fullscreenMode && totalEvents > 2 && (
                                     <Text style={[styles.cellEventMore, {color: colors.textSecondary}]}>{t('totalEvents', {count: totalEvents})}</Text>
                                   )}
                                 </View>
@@ -1289,6 +1318,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                     );
                   })}
                 </View>
+                </ConditionalScroll>
               </View>
             );
           }}

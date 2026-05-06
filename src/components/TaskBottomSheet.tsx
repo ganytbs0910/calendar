@@ -10,6 +10,7 @@ import {
   PanResponder,
   Dimensions,
   Keyboard,
+  Platform,
   TouchableWithoutFeedback,
   Alert,
 } from 'react-native';
@@ -295,6 +296,16 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
   const [taskDuration, setTaskDuration] = useState<number | null>(null);
   const [taskDurationCustom, setTaskDurationCustom] = useState(false);
   const [taskCustomMinutes, setTaskCustomMinutes] = useState('');
+
+  // Track keyboard height so overlay can lift the card above the keyboard
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, e => setKeyboardHeight(e.endCoordinates.height));
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
+    return () => { showSub.remove(); hideSub.remove(); };
+  }, []);
 
   const resetAddOverlay = () => {
     setTaskInputText('');
@@ -699,11 +710,15 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
       {/* Add Task overlay */}
       {addingTask && (
         <TouchableWithoutFeedback onPress={() => { Keyboard.dismiss(); resetAddOverlay(); }}>
-          <View style={[styles.addOverlay, {backgroundColor: 'rgba(0,0,0,0.5)'}]}>
-            <TouchableWithoutFeedback>
-              <View style={[styles.addCard, {backgroundColor: colors.surface}]}>
-                <Text style={[styles.addCardTitle, {color: colors.text}]}>{t('laterTasks')}</Text>
-                <TextInput
+          <View style={[styles.addOverlay, {backgroundColor: 'rgba(0,0,0,0.5)', paddingBottom: keyboardHeight}]}>
+            <View style={styles.addKeyboardWrap}>
+              <TouchableWithoutFeedback>
+                <View style={[styles.addCard, {backgroundColor: colors.surface}]}>
+                  <ScrollView
+                    keyboardShouldPersistTaps="handled"
+                    showsVerticalScrollIndicator={false}>
+                    <Text style={[styles.addCardTitle, {color: colors.text}]}>{t('laterTasks')}</Text>
+                    <TextInput
                   style={[
                     styles.addInput,
                     {
@@ -820,8 +835,10 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
                     <Text style={[styles.addActionText, {color: colors.onPrimary}]}>{t('add')}</Text>
                   </TouchableOpacity>
                 </View>
-              </View>
-            </TouchableWithoutFeedback>
+                  </ScrollView>
+                </View>
+              </TouchableWithoutFeedback>
+            </View>
           </View>
         </TouchableWithoutFeedback>
       )}
@@ -1077,8 +1094,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     zIndex: 300,
   },
+  addKeyboardWrap: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   addCard: {
     width: SCREEN_WIDTH - 48,
+    maxHeight: SCREEN_HEIGHT * 0.8,
     borderRadius: 16,
     padding: 20,
     shadowColor: '#000',

@@ -20,7 +20,13 @@ const SCREEN_WIDTH = Dimensions.get('window').width;
 interface StatsScreenProps {
   visible: boolean;
   onClose: () => void;
+  initialDate?: Date;
 }
+
+const monthOffsetFromDate = (date: Date): number => {
+  const today = new Date();
+  return (date.getFullYear() - today.getFullYear()) * 12 + (date.getMonth() - today.getMonth());
+};
 
 const formatDuration = (
   minutes: number,
@@ -34,7 +40,7 @@ const formatDuration = (
   return t('minutesFmt', {m});
 };
 
-const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose}) => {
+const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate}) => {
   const {t} = useTranslation();
   const {colors, isDark} = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -42,6 +48,14 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose}) => {
   const [loading, setLoading] = useState(false);
   const [bundle, setBundle] = useState<StatsBundle | null>(null);
   const [monthOffset, setMonthOffset] = useState(0); // 0 = current month, -1 previous
+
+  // Each time the modal opens, sync to the caller-provided month so the user
+  // sees stats for the month they were viewing on the calendar.
+  useEffect(() => {
+    if (visible) {
+      setMonthOffset(initialDate ? monthOffsetFromDate(initialDate) : 0);
+    }
+  }, [visible, initialDate]);
 
   const load = useCallback(async (offset: number) => {
     setLoading(true);
@@ -195,53 +209,6 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose}) => {
               </View>
             )}
 
-            {/* Busiest weekdays */}
-            {bundle.monthly.busiestWeekdays.length > 0 && (
-              <View style={styles.card}>
-                <View style={styles.sectionTitleRow}>
-                  <Ionicons name="flame-outline" size={16} color={colors.primary} />
-                  <Text style={styles.sectionTitle}>{t('statsBusiestDays')}</Text>
-                </View>
-                {bundle.monthly.busiestWeekdays.map((w, i) => {
-                  const max = bundle.monthly.busiestWeekdays[0].minutes || 1;
-                  const ratio = w.minutes / max;
-                  return (
-                    <View key={`bw-${i}`} style={styles.rankRow}>
-                      <Text style={styles.rankBadge}>{i + 1}</Text>
-                      <Text style={styles.rankLabel}>{weekdayLabels[w.weekday]}</Text>
-                      <View style={styles.rankBarTrack}>
-                        <View
-                          style={[
-                            styles.rankBarFill,
-                            {width: `${ratio * 100}%`, backgroundColor: colors.primary},
-                          ]}
-                        />
-                      </View>
-                      <Text style={styles.rankValue}>{formatDuration(w.minutes, t)}</Text>
-                    </View>
-                  );
-                })}
-              </View>
-            )}
-
-            {/* Heatmap */}
-            {bundle.monthly.totalMinutes > 0 && (
-              <View style={styles.card}>
-                <View style={styles.sectionTitleRow}>
-                  <Ionicons name="grid-outline" size={16} color={colors.primary} />
-                  <Text style={styles.sectionTitle}>{t('statsHeatmap')}</Text>
-                </View>
-                <Text style={styles.cardSub}>{t('statsHeatmapHint')}</Text>
-                <Heatmap
-                  matrix={bundle.monthly.heatmap}
-                  weekdayLabels={weekdayLabels}
-                  isDark={isDark}
-                  primary={colors.primary}
-                  textTertiary={colors.textTertiary}
-                />
-              </View>
-            )}
-
             {/* Task stats */}
             <View style={styles.card}>
               <View style={styles.sectionTitleRow}>
@@ -320,6 +287,53 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose}) => {
                     </Text>
                   </View>
                 ))}
+              </View>
+            )}
+
+            {/* Busiest weekdays */}
+            {bundle.monthly.busiestWeekdays.length > 0 && (
+              <View style={styles.card}>
+                <View style={styles.sectionTitleRow}>
+                  <Ionicons name="flame-outline" size={16} color={colors.primary} />
+                  <Text style={styles.sectionTitle}>{t('statsBusiestDays')}</Text>
+                </View>
+                {bundle.monthly.busiestWeekdays.map((w, i) => {
+                  const max = bundle.monthly.busiestWeekdays[0].minutes || 1;
+                  const ratio = w.minutes / max;
+                  return (
+                    <View key={`bw-${i}`} style={styles.rankRow}>
+                      <Text style={styles.rankBadge}>{i + 1}</Text>
+                      <Text style={styles.rankLabel}>{weekdayLabels[w.weekday]}</Text>
+                      <View style={styles.rankBarTrack}>
+                        <View
+                          style={[
+                            styles.rankBarFill,
+                            {width: `${ratio * 100}%`, backgroundColor: colors.primary},
+                          ]}
+                        />
+                      </View>
+                      <Text style={styles.rankValue}>{formatDuration(w.minutes, t)}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+
+            {/* Heatmap */}
+            {bundle.monthly.totalMinutes > 0 && (
+              <View style={styles.card}>
+                <View style={styles.sectionTitleRow}>
+                  <Ionicons name="grid-outline" size={16} color={colors.primary} />
+                  <Text style={styles.sectionTitle}>{t('statsHeatmap')}</Text>
+                </View>
+                <Text style={styles.cardSub}>{t('statsHeatmapHint')}</Text>
+                <Heatmap
+                  matrix={bundle.monthly.heatmap}
+                  weekdayLabels={weekdayLabels}
+                  isDark={isDark}
+                  primary={colors.primary}
+                  textTertiary={colors.textTertiary}
+                />
               </View>
             )}
 

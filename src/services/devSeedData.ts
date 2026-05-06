@@ -14,6 +14,7 @@ import RNCalendarEvents from 'react-native-calendar-events';
 import {setEventColor} from '../components/AddEventModal';
 
 const SEED_FLAG_KEY = '@dev_seeded_2026_04';
+const CLEANUP_FLAG_KEY = '@dev_cleaned_2026_04';
 
 const COLORS = {
   work: '#007AFF',     // blue — 仕事
@@ -114,4 +115,61 @@ export const seedDevEventsIfNeeded = async (): Promise<void> => {
 /** Reset the seed flag so the next app start will re-seed. */
 export const resetDevSeedFlag = async (): Promise<void> => {
   await AsyncStorage.removeItem(SEED_FLAG_KEY);
+};
+
+/**
+ * Remove previously-seeded April 2026 events from the device calendar.
+ *
+ * Matches events by (title + start timestamp) against the SEEDS list, so
+ * unrelated user events with similar titles are left untouched. Runs once
+ * (guarded by CLEANUP_FLAG_KEY); call resetDevCleanupFlag to re-run.
+ */
+export const clearDevSeedEvents = async (): Promise<number> => {
+  if (!__DEV__) return 0;
+  try {
+    const already = await AsyncStorage.getItem(CLEANUP_FLAG_KEY);
+    if (already === '1') return 0;
+
+    const seedKeys = new Set(
+      SEEDS.map(s => {
+        const ts = new Date(s.y, s.m - 1, s.d, s.startH, s.startMin, 0, 0).getTime();
+        return `${s.title}__${ts}`;
+      })
+    );
+
+    const rangeStart = new Date(2026, 3, 1, 0, 0, 0, 0).toISOString();
+    const rangeEnd = new Date(2026, 4, 0, 23, 59, 59, 999).toISOString();
+    const events = await RNCalendarEvents.fetchAllEvents(rangeStart, rangeEnd);
+
+    let deleted = 0;
+    for (const ev of events) {
+      if (!ev.id || !ev.title || !ev.startDate) continue;
+      const ts = new Date(ev.startDate).getTime();
+      const key = `${ev.title}__${ts}`;
+      if (seedKeys.has(key)) {
+        try {
+          await RNCalendarEvents.removeEvent(ev.id);
+          deleted += 1;
+        } catch (e) {
+          console.warn('[devSeedData] failed to remove event', ev.id, e);
+        }
+      }
+    }
+
+    await AsyncStorage.setItem(CLEANUP_FLAG_KEY, '1');
+    // Also clear the seed flag so the SEED_FLAG_KEY no longer reflects a populated calendar.
+    await AsyncStorage.removeItem(SEED_FLAG_KEY);
+    if (deleted > 0) {
+      console.log(`[devSeedData] removed ${deleted} seeded events from April 2026`);
+    }
+    return deleted;
+  } catch (e) {
+    console.warn('[devSeedData] cleanup failed:', e);
+    return 0;
+  }
+};
+
+/** Reset the cleanup flag so the next app start will re-clean. */
+export const resetDevCleanupFlag = async (): Promise<void> => {
+  await AsyncStorage.removeItem(CLEANUP_FLAG_KEY);
 };

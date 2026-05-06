@@ -12,12 +12,13 @@ import {
   FlatList,
   ScrollView,
   Platform,
+  AppState,
 } from 'react-native';
 import {SafeAreaProvider, SafeAreaView} from 'react-native-safe-area-context';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
 import Calendar, {CalendarRef} from './src/components/Calendar';
 import WeekView, {WeekViewRef} from './src/components/WeekView';
-import AddEventModal from './src/components/AddEventModal';
+import AddEventModal, {removeEventColor} from './src/components/AddEventModal';
 import EventDetailModal from './src/components/EventDetailModal';
 import {UndoToast, UndoAction} from './src/components/UndoToast';
 import {ThemeProvider, useTheme} from './src/theme/ThemeContext';
@@ -42,7 +43,17 @@ import {
   getDefaultSettings,
 } from './src/services/sleepSettingsService';
 import {EventTemplate, getTemplates, deleteTemplate} from './src/services/templateService';
-import {seedDevEventsIfNeeded} from './src/services/devSeedData';
+import {clearDevSeedEvents} from './src/services/devSeedData';
+import LockScreen, {PinSetupModal} from './src/components/LockScreen';
+import {
+  isPinSet,
+  setupPin,
+  clearLock,
+  isBiometricEnabled,
+  setBiometricEnabled,
+  getBiometricCapability,
+  authenticateBiometric,
+} from './src/services/lockService';
 import {useTranslation} from 'react-i18next';
 import './src/i18n/i18n';
 import {loadSavedLanguage, setAppLanguage, getSavedLanguageCode, LANGUAGES} from './src/i18n/i18n';
@@ -257,6 +268,18 @@ function AppContent() {
   const [templates, setTemplates] = useState<EventTemplate[]>([]);
   const [undoAction, setUndoAction] = useState<UndoAction | null>(null);
   const [initialColor, setInitialColor] = useState<string | undefined>(undefined);
+  // Lock-screen state. `lockReady` becomes true once we've checked AsyncStorage
+  // for an existing PIN; until then we keep the lock visible to avoid a flash
+  // of the calendar.
+  const [lockReady, setLockReady] = useState(false);
+  const [isLocked, setIsLocked] = useState(true);
+  const [lockEnabled, setLockEnabled] = useState(false);
+  const [biometricOn, setBiometricOn] = useState(false);
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [biometricLabel, setBiometricLabel] = useState<string>('');
+  const [pinSetupVisible, setPinSetupVisible] = useState(false);
+  const [pinSetupChange, setPinSetupChange] = useState(false);
+  const [fullscreenMonth, setFullscreenMonth] = useState(false);
   const calendarRef = useRef<CalendarRef>(null);
   const weekViewRef = useRef<WeekViewRef>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -266,6 +289,40 @@ function AppContent() {
     loadSavedLanguage();
     getSavedLanguageCode().then(code => setSelectedLanguage(code));
   }, []);
+
+  // Initial lock check on mount
+  const refreshLockStatus = useCallback(async () => {
+    const [pinSet, bioOn, cap] = await Promise.all([
+      isPinSet(),
+      isBiometricEnabled(),
+      getBiometricCapability(),
+    ]);
+    setLockEnabled(pinSet);
+    setBiometricOn(bioOn);
+    setBiometricAvailable(cap.available);
+    setBiometricLabel(
+      cap.type === 'FaceID' ? 'Face ID' : cap.type === 'TouchID' ? 'Touch ID' : cap.type ? 'Biometrics' : ''
+    );
+  }, []);
+
+  useEffect(() => {
+    isPinSet().then(set => {
+      setLockEnabled(set);
+      setIsLocked(set);
+      setLockReady(true);
+    });
+    refreshLockStatus();
+  }, [refreshLockStatus]);
+
+  // Re-lock the app when it goes to background (only if a PIN is set)
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', state => {
+      if (state === 'background' || state === 'inactive') {
+        if (lockEnabled) setIsLocked(true);
+      }
+    });
+    return () => sub.remove();
+  }, [lockEnabled]);
 
   // Load sleep settings on mount, show setup if not configured
   useEffect(() => {
@@ -384,13 +441,16 @@ function AppContent() {
     checkAndRequestPermission();
   }, []);
 
-  // Dev-only: seed April 2026 with sample events once so the UI has something to show
+  // Dev-only: one-shot cleanup of previously-seeded April 2026 sample events.
+  // Seeding is no longer performed; the seeder remains in source for reference.
   useEffect(() => {
     if (!__DEV__) return;
     if (!hasPermission) return;
-    seedDevEventsIfNeeded().then(() => {
-      calendarRef.current?.refreshEvents();
-      weekViewRef.current?.refreshEvents();
+    clearDevSeedEvents().then(removed => {
+      if (removed > 0) {
+        calendarRef.current?.refreshEvents();
+        weekViewRef.current?.refreshEvents();
+      }
     });
   }, [hasPermission]);
 
@@ -425,6 +485,61 @@ function AppContent() {
     setInitialEndDate(undefined);
     setEditingEvent(null);
     setInitialColor(undefined);
+  }, []);
+
+  // ── Lock handlers ───────────────────────────────────────────────────────
+  const handleEnableLock = useCallback(() => {
+    setPinSetupChange(false);
+    setPinSetupVisible(true);
+  }, []);
+
+  const handleChangePin = useCallback(() => {
+    setPinSetupChange(true);
+    setPinSetupVisible(true);
+  }, []);
+
+  const handlePinSetupComplete = useCallback(async (pin: string) => {
+    await setupPin(pin);
+    setPinSetupVisible(false);
+    setLockEnabled(true);
+    refreshLockStatus();
+  }, [refreshLockStatus]);
+
+  const handleDisableLock = useCallback(() => {
+    Alert.alert(
+      t('lockDisableTitle'),
+      t('lockDisableMessage'),
+      [
+        {text: t('cancel'), style: 'cancel'},
+        {
+          text: t('lockDisableConfirm'),
+          style: 'destructive',
+          onPress: async () => {
+            await clearLock();
+            setLockEnabled(false);
+            setBiometricOn(false);
+            setIsLocked(false);
+          },
+        },
+      ]
+    );
+  }, [t]);
+
+  const handleToggleBiometric = useCallback(async () => {
+    if (biometricOn) {
+      await setBiometricEnabled(false);
+      setBiometricOn(false);
+      return;
+    }
+    // Verify the device biometric works before flipping the flag on.
+    const ok = await authenticateBiometric(t('lockBiometricEnablePrompt'));
+    if (!ok) return;
+    await setBiometricEnabled(true);
+    setBiometricOn(true);
+  }, [biometricOn, t]);
+
+  const handleUnlocked = useCallback(() => {
+    setIsLocked(false);
   }, []);
 
   const handleEventAdded = useCallback(() => {
@@ -488,6 +603,10 @@ function AppContent() {
         await RNCalendarEvents.removeEvent(eventData.id, {futureEvents: true});
       } else {
         await RNCalendarEvents.removeEvent(eventData.id, {futureEvents: false});
+      }
+      // Clean up orphaned color setting (only for full deletes - single instance keeps its color for the series)
+      if (deleteType === 'all') {
+        removeEventColor(eventData.id).catch(() => {});
       }
       refreshAllViews();
 
@@ -652,6 +771,19 @@ function AppContent() {
               accessibilityRole="button">
               <Ionicons name="settings-outline" size={22} color={colors.primary} />
             </TouchableOpacity>
+            {viewMode === 'month' && (
+              <TouchableOpacity
+                style={styles.iconBtn}
+                onPress={() => setFullscreenMonth(prev => !prev)}
+                accessibilityLabel={t('fullscreenToggle')}
+                accessibilityRole="button">
+                <Ionicons
+                  name={fullscreenMonth ? 'contract-outline' : 'expand-outline'}
+                  size={20}
+                  color={colors.primary}
+                />
+              </TouchableOpacity>
+            )}
           </View>
           <View style={styles.headerRight}>
             <TouchableOpacity
@@ -678,6 +810,17 @@ function AppContent() {
           </View>
         </View>
 
+        {!hasPermission && (
+          <TouchableOpacity
+            style={[styles.permissionBanner, {backgroundColor: colors.error}]}
+            onPress={() => Linking.openSettings()}
+            accessibilityRole="button">
+            <Ionicons name="warning-outline" size={16} color="#fff" />
+            <Text style={styles.permissionBannerText}>{t('calendarAccessMessage')}</Text>
+            <Text style={styles.permissionBannerLink}>{t('openSettings')}</Text>
+          </TouchableOpacity>
+        )}
+
         {viewMode === 'month' ? (
             <Calendar
               ref={calendarRef}
@@ -685,7 +828,9 @@ function AppContent() {
               onDateDoubleSelect={handleDateDoubleSelect}
               onEventPress={handleEventPress}
               onDateRangeSelect={handleTimeRangeSelect}
+              onMonthChange={setCurrentDate}
               hasPermission={hasPermission}
+              fullscreenMode={fullscreenMonth}
             />
         ) : (
           <WeekView
@@ -897,7 +1042,7 @@ function AppContent() {
                     <>
                       {/* Theme Settings */}
                       <View style={styles.settingsSection}>
-                        <View style={styles.sectionTitleRow}><Ionicons name="color-palette-outline" size={14} color={colors.textSecondary} /><Text style={styles.settingsSectionTitle}>{t('appearance')}</Text></View>
+                        <View style={styles.sectionTitleRow}><View style={[styles.sectionTitleIcon, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="color-palette-outline" size={12} color={colors.textSecondary} /></View><Text style={styles.settingsSectionTitle}>{t('appearance')}</Text></View>
                         <View style={styles.settingsItem}>
                           <Text style={styles.settingsItemLabel}>{t('theme')}</Text>
                           <View style={styles.themeSelector}>
@@ -938,9 +1083,42 @@ function AppContent() {
                         </View>
                       </View>
 
+                      {/* App Lock */}
+                      <View style={styles.settingsSection}>
+                        <View style={styles.sectionTitleRow}><View style={[styles.sectionTitleIcon, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="lock-closed-outline" size={12} color={colors.textSecondary} /></View><Text style={styles.settingsSectionTitle}>{t('lockSection')}</Text></View>
+                        <TouchableOpacity
+                          style={styles.settingsItem}
+                          onPress={lockEnabled ? handleDisableLock : handleEnableLock}>
+                          <Text style={styles.settingsItemLabel}>{t('lockEnable')}</Text>
+                          <Text style={[styles.settingsItemLink, {color: lockEnabled ? colors.error : colors.primary}]}>
+                            {lockEnabled ? t('lockEnabledStatus') : t('lockDisabledStatus')}
+                          </Text>
+                        </TouchableOpacity>
+                        {lockEnabled && (
+                          <TouchableOpacity
+                            style={styles.settingsItem}
+                            onPress={handleChangePin}>
+                            <Text style={styles.settingsItemLabel}>{t('lockChangePin')}</Text>
+                            <Text style={styles.settingsItemLink}>{t('changeLink')}</Text>
+                          </TouchableOpacity>
+                        )}
+                        {lockEnabled && biometricAvailable && (
+                          <TouchableOpacity
+                            style={styles.settingsItem}
+                            onPress={handleToggleBiometric}>
+                            <Text style={styles.settingsItemLabel}>
+                              {biometricLabel || t('lockBiometric')}
+                            </Text>
+                            <Text style={[styles.settingsItemLink, {color: biometricOn ? colors.error : colors.primary}]}>
+                              {biometricOn ? t('lockEnabledStatus') : t('lockDisabledStatus')}
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+
                       {/* Sleep Settings */}
                       <View style={styles.settingsSection}>
-                        <View style={styles.sectionTitleRow}><Ionicons name="moon-outline" size={14} color={colors.textSecondary} /><Text style={styles.settingsSectionTitle}>{t('sleepRhythm')}</Text></View>
+                        <View style={styles.sectionTitleRow}><View style={[styles.sectionTitleIcon, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="moon-outline" size={12} color={colors.textSecondary} /></View><Text style={styles.settingsSectionTitle}>{t('sleepRhythm')}</Text></View>
                         <TouchableOpacity
                           style={styles.sleepSettingsItem}
                           onPress={() => {
@@ -969,7 +1147,7 @@ function AppContent() {
 
                       {/* Calendar Settings */}
                       <View style={styles.settingsSection}>
-                        <View style={styles.sectionTitleRow}><Ionicons name="calendar-outline" size={14} color={colors.textSecondary} /><Text style={styles.settingsSectionTitle}>{t('calendarSection')}</Text></View>
+                        <View style={styles.sectionTitleRow}><View style={[styles.sectionTitleIcon, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="calendar-outline" size={12} color={colors.textSecondary} /></View><Text style={styles.settingsSectionTitle}>{t('calendarSection')}</Text></View>
                         <TouchableOpacity
                           style={styles.settingsItem}
                           onPress={() => Linking.openSettings()}>
@@ -990,7 +1168,7 @@ function AppContent() {
 
                       {/* Premium */}
                       <View style={styles.settingsSection}>
-                        <View style={styles.sectionTitleRow}><Ionicons name="star-outline" size={14} color={colors.textSecondary} /><Text style={styles.settingsSectionTitle}>{t('premium')}</Text></View>
+                        <View style={styles.sectionTitleRow}><View style={[styles.sectionTitleIcon, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="star-outline" size={12} color={colors.textSecondary} /></View><Text style={styles.settingsSectionTitle}>{t('premium')}</Text></View>
                         {isPremium ? (
                           <View style={[styles.settingsItem, {backgroundColor: '#34C75910'}]}>
                             <Text style={[styles.settingsItemLabel, {color: '#34C759', fontWeight: '700'}]}>{t('premiumActive')}</Text>
@@ -1007,7 +1185,7 @@ function AppContent() {
 
                       {/* Notification Settings */}
                       <View style={styles.settingsSection}>
-                        <View style={styles.sectionTitleRow}><Ionicons name="notifications-outline" size={14} color={colors.textSecondary} /><Text style={styles.settingsSectionTitle}>{t('notification')}</Text></View>
+                        <View style={styles.sectionTitleRow}><View style={[styles.sectionTitleIcon, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="notifications-outline" size={12} color={colors.textSecondary} /></View><Text style={styles.settingsSectionTitle}>{t('notification')}</Text></View>
                         <TouchableOpacity
                           style={styles.settingsItem}
                           onPress={() => Linking.openSettings()}>
@@ -1018,7 +1196,7 @@ function AppContent() {
 
                       {/* Widget Guide */}
                       <View style={styles.settingsSection}>
-                        <View style={styles.sectionTitleRow}><Ionicons name="grid-outline" size={14} color={colors.textSecondary} /><Text style={styles.settingsSectionTitle}>{t('widget')}</Text></View>
+                        <View style={styles.sectionTitleRow}><View style={[styles.sectionTitleIcon, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="grid-outline" size={12} color={colors.textSecondary} /></View><Text style={styles.settingsSectionTitle}>{t('widget')}</Text></View>
                         <TouchableOpacity
                           style={styles.settingsItem}
                           onPress={() => setShowWidgetGuide(true)}>
@@ -1029,7 +1207,7 @@ function AppContent() {
 
                       {/* About */}
                       <View style={styles.settingsSection}>
-                        <View style={styles.sectionTitleRow}><Ionicons name="globe-outline" size={14} color={colors.textSecondary} /><Text style={styles.settingsSectionTitle}>{t('language')}</Text></View>
+                        <View style={styles.sectionTitleRow}><View style={[styles.sectionTitleIcon, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="globe-outline" size={12} color={colors.textSecondary} /></View><Text style={styles.settingsSectionTitle}>{t('language')}</Text></View>
                         <TouchableOpacity
                           style={styles.settingsItem}
                           onPress={() => setShowLanguageModal(true)}>
@@ -1041,7 +1219,7 @@ function AppContent() {
                       </View>
 
                       <View style={styles.settingsSection}>
-                        <View style={styles.sectionTitleRow}><Ionicons name="information-circle-outline" size={14} color={colors.textSecondary} /><Text style={styles.settingsSectionTitle}>{t('aboutApp')}</Text></View>
+                        <View style={styles.sectionTitleRow}><View style={[styles.sectionTitleIcon, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="information-circle-outline" size={12} color={colors.textSecondary} /></View><Text style={styles.settingsSectionTitle}>{t('aboutApp')}</Text></View>
                         <View style={styles.settingsItem}>
                           <Text style={styles.settingsItemLabel}>{t('version')}</Text>
                           <Text style={styles.settingsItemValue}>1.8.0</Text>
@@ -1236,7 +1414,16 @@ function AppContent() {
         </Modal>
 
         {/* Stats Screen */}
-        <StatsScreen visible={showStats} onClose={() => setShowStats(false)} />
+        <StatsScreen visible={showStats} onClose={() => setShowStats(false)} initialDate={currentDate} />
+
+        {/* App Lock — render last so it sits on top of everything */}
+        <LockScreen visible={lockReady && lockEnabled && isLocked} onUnlocked={handleUnlocked} />
+        <PinSetupModal
+          visible={pinSetupVisible}
+          onClose={() => setPinSetupVisible(false)}
+          onComplete={handlePinSetupComplete}
+          requireCurrent={pinSetupChange}
+        />
 
         {/* Sleep Setup Modal */}
         <SleepSetupModal
@@ -1312,6 +1499,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+  },
+  permissionBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 8,
+  },
+  permissionBannerText: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  permissionBannerLink: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '700',
+    textDecorationLine: 'underline',
   },
   todayBtn: {
     paddingHorizontal: 14,
@@ -1485,6 +1691,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 10,
     paddingBottom: 8,
+  },
+  sectionTitleIcon: {
+    width: 22,
+    height: 22,
+    borderRadius: 5,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   settingsSectionTitle: {
     fontSize: 13,

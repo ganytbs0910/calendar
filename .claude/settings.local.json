@@ -67,7 +67,10 @@
       "Bash(sort -u grep -o \"styles\\\\.[a-zA-Z_][a-zA-Z0-9_]*\" /Users/gan/Desktop/calendar/src/components/WeekView.tsx)",
       "Bash(pod install:*)",
       "Bash(npm info:*)",
-      "Bash(npx patch-package:*)"
+      "Bash(npx patch-package:*)",
+      "Bash(awk 'NR>=540 && NR<=580' /Users/gan/Desktop/calendar/src/components/WeekView.tsx)",
+      "Bash(awk 'NR<=130' /Users/gan/Desktop/calendar/src/components/WeekView.tsx)",
+      "Bash(python3 -c \"from PIL import Image; print\\('ok'\\)\")"
     ]
   }
 }
