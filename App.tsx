@@ -14,6 +14,7 @@ import {
   Platform,
   AppState,
   Switch,
+  Share,
 } from 'react-native';
 import {SafeAreaProvider, SafeAreaView} from 'react-native-safe-area-context';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
@@ -34,6 +35,7 @@ import {ThemeProvider, useTheme} from './src/theme/ThemeContext';
 import {PremiumProvider, usePremium} from './src/context/PremiumContext';
 import {PaywallScreen} from './src/components/PaywallScreen';
 import StatsScreen from './src/components/StatsScreen';
+import JobsManagerModal from './src/components/JobsManagerModal';
 import {
   SmallWidgetPreview,
   MediumWidgetPreview,
@@ -280,6 +282,7 @@ function AppContent() {
   const [selectedLanguage, setSelectedLanguage] = useState('auto');
   const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showJobsManager, setShowJobsManager] = useState(false);
   const [showPaywall, setShowPaywall] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEventReadable | null>(null);
@@ -327,7 +330,6 @@ function AppContent() {
   const [showCalendarCreate, setShowCalendarCreate] = useState(false);
   const [newCalendarName, setNewCalendarName] = useState('');
   const [newCalendarColor, setNewCalendarColor] = useState('#007AFF');
-  const [newCalendarWage, setNewCalendarWage] = useState('');
   // When editing, holds the id of the calendar being edited; null = create mode.
   const [editingCalendarId, setEditingCalendarId] = useState<string | null>(null);
   const calendarRef = useRef<CalendarRef>(null);
@@ -393,6 +395,44 @@ function AppContent() {
       return;
     }
     await sendTestNotification();
+  }, [t]);
+
+  // Share the next 60 days of events as a standard .ics file (no backend —
+  // recipients import into any calendar app). Not real-time, but interoperable.
+  const handleShareCalendarIcs = useCallback(async () => {
+    try {
+      const now = new Date();
+      const end = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
+      const events = await RNCalendarEvents.fetchAllEvents(now.toISOString(), end.toISOString());
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const fmt = (iso: string, allDay?: boolean) => {
+        const d = new Date(iso);
+        const date = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
+        return allDay ? date : `${date}T${pad(d.getHours())}${pad(d.getMinutes())}00`;
+      };
+      const esc = (s?: string) => (s || '').replace(/([,;\\])/g, '\\$1').replace(/\n/g, '\\n');
+      const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//CalendarApp//JP', 'CALSCALE:GREGORIAN'];
+      events.forEach((e, i) => {
+        if (!e.startDate) return;
+        lines.push('BEGIN:VEVENT');
+        lines.push(`UID:${e.id || `evt-${i}`}@calendarapp`);
+        if (e.allDay) {
+          lines.push(`DTSTART;VALUE=DATE:${fmt(e.startDate, true)}`);
+          if (e.endDate) lines.push(`DTEND;VALUE=DATE:${fmt(e.endDate, true)}`);
+        } else {
+          lines.push(`DTSTART:${fmt(e.startDate)}`);
+          if (e.endDate) lines.push(`DTEND:${fmt(e.endDate)}`);
+        }
+        lines.push(`SUMMARY:${esc(e.title) || esc(t('noTitle'))}`);
+        if (e.location) lines.push(`LOCATION:${esc(e.location)}`);
+        if (e.notes) lines.push(`DESCRIPTION:${esc(e.notes)}`);
+        lines.push('END:VEVENT');
+      });
+      lines.push('END:VCALENDAR');
+      await Share.share({message: lines.join('\r\n')});
+    } catch (err) {
+      console.warn('[ics share] failed', err);
+    }
   }, [t]);
 
   // App-store version check (optional update prompt).
@@ -1057,7 +1097,6 @@ function AppContent() {
                 setEditingCalendarId(uc.id);
                 setNewCalendarName(resolveCalendarName(uc, t));
                 setNewCalendarColor(uc.color);
-                setNewCalendarWage(uc.hourlyWage ? String(uc.hourlyWage) : '');
                 setShowCalendarCreate(true);
               };
               const confirmDelete = () => {
@@ -1117,7 +1156,6 @@ function AppContent() {
                 setEditingCalendarId(null);
                 setNewCalendarName('');
                 setNewCalendarColor('#007AFF');
-                setNewCalendarWage('');
                 setShowCalendarCreate(true);
               }}>
               <Ionicons name="add" size={18} color={colors.textSecondary} />
@@ -1529,6 +1567,26 @@ function AppContent() {
                         </TouchableOpacity>
                       </View>
 
+                      {/* Jobs & payroll */}
+                      <View style={styles.settingsSection}>
+                        <View style={styles.sectionTitleRow}><View style={[styles.sectionTitleIcon, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="briefcase-outline" size={12} color={colors.textSecondary} /></View><Text style={styles.settingsSectionTitle}>{t('jobsTitle')}</Text></View>
+                        <TouchableOpacity
+                          style={styles.settingsItem}
+                          onPress={() => { setShowSettingsModal(false); setShowJobsManager(true); }}>
+                          <Text style={styles.settingsItemLabel}>{t('openJobs')}</Text>
+                          <Text style={styles.settingsItemLink}>{t('showMore')}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.settingsItem}
+                          onPress={handleShareCalendarIcs}>
+                          <View>
+                            <Text style={styles.settingsItemLabel}>{t('shareCalendarIcs')}</Text>
+                            <Text style={[styles.settingsItemLink, {textAlign: 'left'}]}>{t('shareCalendarRange')}</Text>
+                          </View>
+                          <Ionicons name="share-outline" size={18} color={colors.primary} />
+                        </TouchableOpacity>
+                      </View>
+
                       {/* Premium */}
                       <View style={styles.settingsSection}>
                         <View style={styles.sectionTitleRow}><View style={[styles.sectionTitleIcon, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="star-outline" size={12} color={colors.textSecondary} /></View><Text style={styles.settingsSectionTitle}>{t('premium')}</Text></View>
@@ -1797,6 +1855,8 @@ function AppContent() {
         {/* Stats Screen */}
         <StatsScreen visible={showStats} onClose={() => setShowStats(false)} initialDate={currentDate} />
 
+        <JobsManagerModal visible={showJobsManager} onClose={() => setShowJobsManager(false)} />
+
         {/* New User-Calendar modal */}
         <Modal
           visible={showCalendarCreate}
@@ -1835,21 +1895,6 @@ function AppContent() {
                     />
                   ))}
                 </View>
-                {editingCalendarId === 'default-work' && (
-                  <>
-                    <Text style={[styles.calCreateLabel, {color: colors.textSecondary}]}>{t('calCreateWage')}</Text>
-                    <TextInput
-                      style={[styles.calCreateInput, {color: colors.text, backgroundColor: colors.inputBackground, marginBottom: 4}]}
-                      value={newCalendarWage}
-                      onChangeText={txt => setNewCalendarWage(txt.replace(/[^0-9]/g, ''))}
-                      placeholder={t('calCreateWagePlaceholder')}
-                      placeholderTextColor={colors.textTertiary}
-                      keyboardType="number-pad"
-                      maxLength={7}
-                    />
-                    <Text style={[styles.calCreateHint, {color: colors.textTertiary}]}>{t('calCreateWageHint')}</Text>
-                  </>
-                )}
                 <View style={styles.calCreateActions}>
                   <TouchableOpacity
                     style={[styles.calCreateBtn, {backgroundColor: colors.inputBackground}]}
@@ -1860,16 +1905,13 @@ function AppContent() {
                     style={[styles.calCreateBtn, {backgroundColor: colors.primary, opacity: newCalendarName.trim() ? 1 : 0.4}]}
                     disabled={!newCalendarName.trim()}
                     onPress={async () => {
-                      const wageNum = parseInt(newCalendarWage, 10);
-                      const wage = Number.isFinite(wageNum) && wageNum > 0 ? wageNum : undefined;
                       if (editingCalendarId) {
                         await updateUserCalendar(editingCalendarId, {
                           name: newCalendarName,
                           color: newCalendarColor,
-                          hourlyWage: wage ?? 0, // 0 to clear
                         });
                       } else {
-                        const created = await addUserCalendar(newCalendarName, newCalendarColor, wage);
+                        const created = await addUserCalendar(newCalendarName, newCalendarColor);
                         setSelectedCalendarId(created.id);
                       }
                       const list = await getUserCalendars();

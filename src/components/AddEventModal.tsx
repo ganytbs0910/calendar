@@ -23,7 +23,10 @@ import {usePremium} from '../context/PremiumContext';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {addTemplate} from '../services/templateService';
 import {recordEventCreation} from '../services/eventHistoryService';
-import {getEventWage, setEventWage, removeEventWage, getRecentWages, addRecentWage, removeRecentWage} from '../services/eventWageService';
+import {getEventWage, setEventWage, removeEventWage, getRecentWages, addRecentWage, removeRecentWage, getEventJob, setEventJob, removeEventJob} from '../services/eventWageService';
+import {getJobs, Job} from '../services/jobService';
+import {computeShiftPay} from '../services/statisticsService';
+import JobsManagerModal from './JobsManagerModal';
 import {
   cancelEventNotification,
   isNotificationsEnabled,
@@ -343,6 +346,14 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   const [recentWages, setRecentWages] = useState<number[]>([]);
   const [wageSuggestions, setWageSuggestions] = useState<number[]>([]);
   const [showWageSuggestions, setShowWageSuggestions] = useState(false);
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null); // null = manual wage
+  const [showJobsManager, setShowJobsManager] = useState(false);
+  const selectedJob = useMemo(() => jobs.find(j => j.id === selectedJobId) || null, [jobs, selectedJobId]);
+  const payPreview = useMemo(
+    () => (selectedJob ? computeShiftPay(startDate, endDate, selectedJob) : null),
+    [selectedJob, startDate, endDate],
+  );
   const [colorOptions, setColorOptions] = useState<ColorOption[]>(DEFAULT_EVENT_COLORS);
   const [editingLabelColor, setEditingLabelColor] = useState<string | null>(null);
   const [editingLabelText, setEditingLabelText] = useState('');
@@ -398,6 +409,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   useEffect(() => {
     if (visible) {
       getRecentWages().then(setRecentWages);
+      getJobs().then(setJobs);
       const isCopying = editingEvent && !editingEvent.id;
 
       if (editingEvent && !isCopying) {
@@ -428,8 +440,10 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           getEventWage(editingEvent.id).then(wage => {
             setHourlyWage(wage ? String(wage) : '');
           });
+          getEventJob(editingEvent.id).then(jobId => setSelectedJobId(jobId));
         } else {
           setHourlyWage('');
+          setSelectedJobId(null);
         }
       } else if (isCopying && initialDate && initialEndDate) {
         // Copy mode - use title from event but dates from initialDate/initialEndDate
@@ -455,9 +469,11 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           getEventWage(editingEvent.id).then(wage => {
             setHourlyWage(wage ? String(wage) : '');
           });
+          getEventJob(editingEvent.id).then(jobId => setSelectedJobId(jobId));
         } else {
           setSelectedColor(DEFAULT_EVENT_COLORS[0].color);
           setHourlyWage('');
+          setSelectedJobId(null);
         }
       } else if (initialDate) {
         if (initialEndDate) {
@@ -501,6 +517,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         setReminder(null);
         setSelectedColor(initialColor || DEFAULT_EVENT_COLORS[0].color);
         setHourlyWage('');
+        setSelectedJobId(null);
       } else {
         // No initialDate - use today with smart start time
         const today = new Date();
@@ -539,6 +556,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         setReminder(null);
         setSelectedColor(initialColor || DEFAULT_EVENT_COLORS[0].color);
         setHourlyWage('');
+        setSelectedJobId(null);
       }
     }
   }, [visible, initialDate, initialEndDate, editingEvent, initialColor, initialTitle]);
@@ -581,10 +599,56 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
       finalEndDate = new Date(startDate.getTime() + minDuration);
     }
 
-    // Per-event hourly wage only applies to work-colored events.
+    // Per-event wage / job link only apply to work-colored events. A job link
+    // takes precedence over a manual wage (they are mutually exclusive).
+    const jobToSave = isWorkColor(selectedColor) ? selectedJobId : null;
     const parsedWage = parseFloat(hourlyWage);
     const wageToSave =
-      isWorkColor(selectedColor) && !isNaN(parsedWage) && parsedWage > 0 ? parsedWage : null;
+      isWorkColor(selectedColor) && !jobToSave && !isNaN(parsedWage) && parsedWage > 0 ? parsedWage : null;
+    const persistPayroll = async (eventId: string) => {
+      if (jobToSave) {
+        await setEventJob(eventId, jobToSave);
+        await removeEventWage(eventId);
+      } else {
+        await removeEventJob(eventId);
+        if (wageToSave !== null) {
+          await setEventWage(eventId, wageToSave);
+        } else {
+          await removeEventWage(eventId);
+        }
+      }
+    };
+
+    // Local conflict detection (no AI/API): warn on overlapping events.
+    try {
+      const dayStart = new Date(startDate); dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(startDate); dayEnd.setHours(23, 59, 59, 999);
+      const dayEvents = await RNCalendarEvents.fetchAllEvents(dayStart.toISOString(), dayEnd.toISOString());
+      const s = startDate.getTime();
+      const e = finalEndDate.getTime();
+      const clash = dayEvents.find(ev => {
+        if (ev.allDay || !ev.startDate || !ev.endDate) return false;
+        if (isEditing && editingEvent?.id && ev.id === editingEvent.id) return false;
+        const es = new Date(ev.startDate).getTime();
+        const ee = new Date(ev.endDate).getTime();
+        return s < ee && es < e;
+      });
+      if (clash) {
+        const proceed = await new Promise<boolean>(resolve => {
+          Alert.alert(
+            t('conflictTitle'),
+            t('conflictMessage', {title: clash.title || t('noTitle')}),
+            [
+              {text: t('cancel'), style: 'cancel', onPress: () => resolve(false)},
+              {text: t('saveAnyway'), onPress: () => resolve(true)},
+            ],
+          );
+        });
+        if (!proceed) return;
+      }
+    } catch {
+      /* conflict check is best-effort */
+    }
 
     try {
       // When in-app notifications are on we own the delivery, so don't ask the
@@ -604,12 +668,8 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         });
         // Save custom color
         await setEventColor(editingEvent.id, selectedColor);
-        // Save (or clear) per-event hourly wage
-        if (wageToSave !== null) {
-          await setEventWage(editingEvent.id, wageToSave);
-        } else {
-          await removeEventWage(editingEvent.id);
-        }
+        // Save (or clear) per-event wage / job link
+        await persistPayroll(editingEvent.id);
 
         await cancelEventNotification(editingEvent.id);
         if (inAppOn && reminder !== null) {
@@ -647,11 +707,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         const eventId = await RNCalendarEvents.saveEvent(eventTitle, eventConfig);
         if (eventId) {
           await setEventColor(eventId, selectedColor);
-          if (wageToSave !== null) {
-            await setEventWage(eventId, wageToSave);
-          } else {
-            await removeEventWage(eventId);
-          }
+          await persistPayroll(eventId);
           if (inAppOn && reminder !== null) {
             const fireDate = new Date(startDate.getTime() + reminder * 60_000);
             await scheduleEventNotification({
@@ -685,7 +741,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
       console.error('Error saving event:', error);
       Alert.alert(t('error'), isEditing ? t('updateFailed') : t('saveFailed'));
     }
-  }, [title, startDate, endDate, handleClose, onEventAdded, isEditing, editingEvent, selectedColor, hourlyWage, reminder, recurrence, t]);
+  }, [title, startDate, endDate, handleClose, onEventAdded, isEditing, editingEvent, selectedColor, hourlyWage, selectedJobId, reminder, recurrence, t]);
 
   const formatDate = (date: Date) => {
     return `${date.getMonth() + 1}/${date.getDate()}(${WEEKDAYS[date.getDay()]})`;
@@ -817,10 +873,12 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           allDay: false,
           alarms: osAlarms,
         });
-        // Save custom color (and per-event wage) for copied event
+        // Save custom color (and per-event wage / job link) for copied event
         if (eventId) {
           await setEventColor(eventId, selectedColor);
-          if (copyWage !== null) {
+          if (isWorkColor(selectedColor) && selectedJobId) {
+            await setEventJob(eventId, selectedJobId);
+          } else if (copyWage !== null) {
             await setEventWage(eventId, copyWage);
           }
           if (inAppOn && reminder !== null) {
@@ -846,7 +904,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
       console.error('Error copying event:', error);
       Alert.alert(t('error'), t('copyFailed'));
     }
-  }, [title, startDate, endDate, selectedCopyDates, onEventAdded, reminder, selectedColor, hourlyWage, t]);
+  }, [title, startDate, endDate, selectedCopyDates, onEventAdded, reminder, selectedColor, hourlyWage, selectedJobId, t]);
 
   // Label editing functions
   const handleLabelPress = useCallback((color: string) => {
@@ -1229,66 +1287,108 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
             <View style={[styles.colorSection, {backgroundColor: colors.surface}]}>
               <View style={{flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 8}}>
                 <View style={[styles.titleIconBox, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="cash-outline" size={12} color={colors.textSecondary} /></View>
-                <Text style={{fontSize: 12, color: colors.textSecondary, fontWeight: '500'}}>{t('hourlyWage')}</Text>
+                <Text style={{fontSize: 12, color: colors.textSecondary, fontWeight: '500'}}>{t('payrollLabel')}</Text>
               </View>
-              <View style={styles.wageInputRow}>
-                <Text style={[styles.wageCurrency, {color: colors.textSecondary}]}>{t('currencySymbol')}</Text>
-                <TextInput
-                  style={[styles.wageInput, {color: colors.text, borderColor: colors.border, backgroundColor: colors.inputBackground}]}
-                  value={hourlyWage}
-                  onChangeText={(text) => {
-                    const cleaned = text.replace(/[^0-9.]/g, '');
-                    setHourlyWage(cleaned);
-                    if (recentWages.length > 0) {
-                      const filtered = cleaned.length > 0
-                        ? recentWages.filter(w => String(w).includes(cleaned) && String(w) !== cleaned)
-                        : recentWages;
-                      setWageSuggestions(filtered.slice(0, 5));
-                      setShowWageSuggestions(filtered.length > 0);
-                    } else {
-                      setShowWageSuggestions(false);
-                    }
-                  }}
-                  onFocus={() => {
-                    if (recentWages.length > 0) {
-                      const filtered = hourlyWage.length > 0
-                        ? recentWages.filter(w => String(w).includes(hourlyWage) && String(w) !== hourlyWage)
-                        : recentWages;
-                      setWageSuggestions(filtered.slice(0, 5));
-                      setShowWageSuggestions(filtered.length > 0);
-                    }
-                  }}
-                  onBlur={() => {
-                    setTimeout(() => setShowWageSuggestions(false), 200);
-                  }}
-                  keyboardType="numeric"
-                  placeholder={t('hourlyWagePlaceholder')}
-                  placeholderTextColor={colors.textTertiary}
-                  returnKeyType="done"
-                />
+
+              {/* Job picker: manual wage, each job, or add a job */}
+              <View style={styles.durationChipRow}>
+                <TouchableOpacity
+                  style={[styles.durationChipSmall, {backgroundColor: selectedJobId === null ? colors.primary : colors.inputBackground}]}
+                  onPress={() => setSelectedJobId(null)}>
+                  <Text style={[styles.durationChipSmallText, {color: selectedJobId === null ? '#fff' : colors.textSecondary}]}>{t('manualWage')}</Text>
+                </TouchableOpacity>
+                {jobs.map(j => (
+                  <TouchableOpacity
+                    key={j.id}
+                    style={[styles.durationChipSmall, {backgroundColor: selectedJobId === j.id ? j.color : colors.inputBackground}]}
+                    onPress={() => setSelectedJobId(j.id)}>
+                    <Text style={[styles.durationChipSmallText, {color: selectedJobId === j.id ? '#fff' : colors.textSecondary}]} numberOfLines={1}>{j.name}</Text>
+                  </TouchableOpacity>
+                ))}
+                <TouchableOpacity
+                  style={[styles.durationChipSmall, {flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: colors.inputBackground}]}
+                  onPress={() => setShowJobsManager(true)}>
+                  <Ionicons name="add" size={13} color={colors.textSecondary} />
+                  <Text style={[styles.durationChipSmallText, {color: colors.textSecondary}]}>{t('addJob')}</Text>
+                </TouchableOpacity>
               </View>
-              {showWageSuggestions && wageSuggestions.length > 0 && (
-                <View style={[styles.suggestionsContainer, {backgroundColor: colors.inputBackground, marginTop: 8}]}>
-                  {wageSuggestions.map((w, i) => (
-                    <TouchableOpacity
-                      key={`wage-${w}`}
-                      style={[styles.suggestionItem, i > 0 && {borderTopWidth: 1, borderTopColor: colors.borderLight}]}
-                      onPress={() => {
-                        setHourlyWage(String(w));
-                        setShowWageSuggestions(false);
+
+              {selectedJobId === null ? (
+                <>
+                  <View style={[styles.wageInputRow, {marginTop: 10}]}>
+                    <Text style={[styles.wageCurrency, {color: colors.textSecondary}]}>{t('currencySymbol')}</Text>
+                    <TextInput
+                      style={[styles.wageInput, {color: colors.text, borderColor: colors.border, backgroundColor: colors.inputBackground}]}
+                      value={hourlyWage}
+                      onChangeText={(text) => {
+                        const cleaned = text.replace(/[^0-9.]/g, '');
+                        setHourlyWage(cleaned);
+                        if (recentWages.length > 0) {
+                          const filtered = cleaned.length > 0
+                            ? recentWages.filter(w => String(w).includes(cleaned) && String(w) !== cleaned)
+                            : recentWages;
+                          setWageSuggestions(filtered.slice(0, 5));
+                          setShowWageSuggestions(filtered.length > 0);
+                        } else {
+                          setShowWageSuggestions(false);
+                        }
                       }}
-                      onLongPress={() => {
-                        removeRecentWage(w);
-                        setRecentWages(prev => prev.filter(x => x !== w));
-                        setWageSuggestions(prev => prev.filter(x => x !== w));
-                      }}>
-                      <Text style={[styles.suggestionText, {color: colors.text}]} numberOfLines={1}>
-                        {t('currencySymbol')}{w.toLocaleString()}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+                      onFocus={() => {
+                        if (recentWages.length > 0) {
+                          const filtered = hourlyWage.length > 0
+                            ? recentWages.filter(w => String(w).includes(hourlyWage) && String(w) !== hourlyWage)
+                            : recentWages;
+                          setWageSuggestions(filtered.slice(0, 5));
+                          setShowWageSuggestions(filtered.length > 0);
+                        }
+                      }}
+                      onBlur={() => {
+                        setTimeout(() => setShowWageSuggestions(false), 200);
+                      }}
+                      keyboardType="numeric"
+                      placeholder={t('hourlyWagePlaceholder')}
+                      placeholderTextColor={colors.textTertiary}
+                      returnKeyType="done"
+                    />
+                  </View>
+                  {showWageSuggestions && wageSuggestions.length > 0 && (
+                    <View style={[styles.suggestionsContainer, {backgroundColor: colors.inputBackground, marginTop: 8}]}>
+                      {wageSuggestions.map((w, i) => (
+                        <TouchableOpacity
+                          key={`wage-${w}`}
+                          style={[styles.suggestionItem, i > 0 && {borderTopWidth: 1, borderTopColor: colors.borderLight}]}
+                          onPress={() => {
+                            setHourlyWage(String(w));
+                            setShowWageSuggestions(false);
+                          }}
+                          onLongPress={() => {
+                            removeRecentWage(w);
+                            setRecentWages(prev => prev.filter(x => x !== w));
+                            setWageSuggestions(prev => prev.filter(x => x !== w));
+                          }}>
+                          <Text style={[styles.suggestionText, {color: colors.text}]} numberOfLines={1}>
+                            {t('currencySymbol')}{w.toLocaleString()}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                </>
+              ) : payPreview ? (
+                <View style={[styles.payPreview, {borderTopColor: colors.borderLight}]}>
+                  <View style={styles.payPreviewRow}>
+                    <Text style={[styles.payPreviewLabel, {color: colors.textSecondary}]}>{t('estimatedPay')}</Text>
+                    <Text style={[styles.payPreviewTotal, {color: colors.primary}]}>{t('currencySymbol')}{Math.round(payPreview.total).toLocaleString()}</Text>
+                  </View>
+                  <Text style={[styles.payPreviewSub, {color: colors.textTertiary}]} numberOfLines={2}>
+                    {t('base')} {t('currencySymbol')}{Math.round(payPreview.base).toLocaleString()}
+                    {payPreview.nightPremium > 0 ? `  ・${t('nightPremiumShort')} +${t('currencySymbol')}${Math.round(payPreview.nightPremium).toLocaleString()}` : ''}
+                    {payPreview.overtimePremium > 0 ? `  ・${t('overtimeShort')} +${t('currencySymbol')}${Math.round(payPreview.overtimePremium).toLocaleString()}` : ''}
+                    {payPreview.holidayPremium > 0 ? `  ・${t('holidayShort')} +${t('currencySymbol')}${Math.round(payPreview.holidayPremium).toLocaleString()}` : ''}
+                    {payPreview.transport > 0 ? `  ・${t('transportShort')} +${t('currencySymbol')}${Math.round(payPreview.transport).toLocaleString()}` : ''}
+                  </Text>
                 </View>
-              )}
+              ) : null}
             </View>
           )}
 
@@ -1645,6 +1745,11 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           </View>
         )}
       </KeyboardAvoidingView>
+      <JobsManagerModal
+        visible={showJobsManager}
+        onClose={() => { setShowJobsManager(false); getJobs().then(setJobs); }}
+        onChange={() => getJobs().then(setJobs)}
+      />
     </Modal>
   );
 };
@@ -1823,6 +1928,29 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     fontVariant: ['tabular-nums'],
+  },
+  payPreview: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+  },
+  payPreviewRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  payPreviewLabel: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  payPreviewTotal: {
+    fontSize: 20,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+  },
+  payPreviewSub: {
+    fontSize: 11,
+    marginTop: 4,
   },
   colorHeader: {
     flexDirection: 'row',

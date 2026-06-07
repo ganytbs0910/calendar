@@ -162,6 +162,10 @@ export const PaywallScreen: React.FC<PaywallScreenProps> = ({visible, onClose}) 
 
         <View style={styles.features}>
           {[
+            t('featureMultipleJobs'),
+            t('featureShiftPremiums'),
+            t('featureIncomeWall'),
+            t('featureExportCsv'),
             t('featureNoAds'),
             t('featureCustomColors'),
           ].map((f, i) => (

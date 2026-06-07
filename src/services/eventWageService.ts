@@ -62,6 +62,59 @@ export const getAllEventWages = async (): Promise<Record<string, number>> => {
   }
 };
 
+// --- Event ↔ Job link ---------------------------------------------------
+// Maps an EventKit event id to a Job id (@jobs). An event is either linked to
+// a job (payroll rules apply) OR carries a manual per-event wage (@event_wages),
+// never both — the AddEventModal clears one when the other is set.
+export const EVENT_JOB_STORAGE_KEY = '@event_jobs';
+
+export const getEventJob = async (eventId: string): Promise<string | null> => {
+  try {
+    const json = await AsyncStorage.getItem(EVENT_JOB_STORAGE_KEY);
+    if (!json) return null;
+    const map = JSON.parse(json);
+    return typeof map[eventId] === 'string' ? map[eventId] : null;
+  } catch {
+    return null;
+  }
+};
+
+export const setEventJob = async (eventId: string, jobId: string): Promise<void> =>
+  withEventWageLock(async () => {
+    try {
+      const json = await AsyncStorage.getItem(EVENT_JOB_STORAGE_KEY);
+      const map = json ? JSON.parse(json) : {};
+      map[eventId] = jobId;
+      await AsyncStorage.setItem(EVENT_JOB_STORAGE_KEY, JSON.stringify(map));
+    } catch (error) {
+      console.error('Error saving event job:', error);
+    }
+  });
+
+export const removeEventJob = async (eventId: string): Promise<void> =>
+  withEventWageLock(async () => {
+    try {
+      const json = await AsyncStorage.getItem(EVENT_JOB_STORAGE_KEY);
+      if (!json) return;
+      const map = JSON.parse(json);
+      if (eventId in map) {
+        delete map[eventId];
+        await AsyncStorage.setItem(EVENT_JOB_STORAGE_KEY, JSON.stringify(map));
+      }
+    } catch (error) {
+      console.error('Error removing event job:', error);
+    }
+  });
+
+export const getAllEventJobs = async (): Promise<Record<string, string>> => {
+  try {
+    const json = await AsyncStorage.getItem(EVENT_JOB_STORAGE_KEY);
+    return json ? JSON.parse(json) : {};
+  } catch {
+    return {};
+  }
+};
+
 // Recently used wage values, for one-tap re-entry. Most recent first.
 export const RECENT_WAGES_STORAGE_KEY = '@recent_wages';
 const MAX_RECENT_WAGES = 6;

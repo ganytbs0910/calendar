@@ -1,4 +1,4 @@
-import React, {useCallback, memo, useState, useMemo} from 'react';
+import React, {useCallback, memo, useState, useMemo, useEffect} from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,9 @@ import {
 import {CalendarEventReadable} from 'react-native-calendar-events';
 import RNCalendarEvents from 'react-native-calendar-events';
 import {getEventColor, setEventColor} from './AddEventModal';
+import {getEventJob, getEventWage} from '../services/eventWageService';
+import {getJob} from '../services/jobService';
+import {computeShiftPay} from '../services/statisticsService';
 import {useTheme} from '../theme/ThemeContext';
 import {useTranslation} from 'react-i18next';
 
@@ -40,6 +43,34 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
   const [showCopyCalendar, setShowCopyCalendar] = useState(false);
   const [copyCalendarDate, setCopyCalendarDate] = useState(new Date());
   const [selectedDates, setSelectedDates] = useState<Date[]>([]);
+  const [payInfo, setPayInfo] = useState<{total: number; label: string} | null>(null);
+
+  // Compute this event's pay (job-rule shift pay, or manual wage × hours).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!event?.id || !event.startDate || !event.endDate || event.allDay) { setPayInfo(null); return; }
+      const start = new Date(event.startDate);
+      const end = new Date(event.endDate);
+      const jobId = await getEventJob(event.id);
+      if (jobId) {
+        const job = await getJob(jobId);
+        if (job) {
+          const bd = computeShiftPay(start, end, job);
+          if (!cancelled) setPayInfo({total: Math.round(bd.total), label: job.name});
+          return;
+        }
+      }
+      const wage = await getEventWage(event.id);
+      if (wage && wage > 0) {
+        const hours = (end.getTime() - start.getTime()) / 3600000;
+        if (!cancelled) setPayInfo({total: Math.round(hours * wage), label: ''});
+        return;
+      }
+      if (!cancelled) setPayInfo(null);
+    })();
+    return () => { cancelled = true; };
+  }, [event]);
   const {colors} = useTheme();
   const {t} = useTranslation();
   const WEEKDAYS = t('weekdaysSingle', {returnObjects: true}) as string[];
@@ -336,6 +367,20 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
                 <Text style={[styles.infoDuration, {color: colors.text}]}>
                   {formatDuration(event.startDate, event.endDate)}
                 </Text>
+              </View>
+            )}
+
+            {payInfo && payInfo.total > 0 && (
+              <View style={[styles.infoRow, {borderBottomColor: colors.borderLight}]}>
+                <Text style={[styles.infoLabel, {color: colors.textSecondary}]}>{t('payrollLabel')}</Text>
+                <View style={styles.infoValue}>
+                  <Text style={[styles.infoTime, {color: colors.primary, fontWeight: '700'}]}>
+                    {t('currencySymbol')}{payInfo.total.toLocaleString()}
+                  </Text>
+                  {payInfo.label ? (
+                    <Text style={[styles.infoDate, {color: colors.textSecondary}]}>{payInfo.label}</Text>
+                  ) : null}
+                </View>
               </View>
             )}
 

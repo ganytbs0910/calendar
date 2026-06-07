@@ -1,8 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
 import {Task} from './taskService';
-import {getUserCalendars, UserCalendar} from './userCalendarService';
-import {getAllEventWages} from './eventWageService';
+import {getAllEventWages, getAllEventJobs} from './eventWageService';
+import {getJobs, Job} from './jobService';
 
 // The "work" category color. Per-event wages only apply to work-colored events.
 export const WORK_COLOR = '#007AFF';
@@ -68,39 +68,75 @@ export interface TaskStats {
   averageDuration: number; // minutes
 }
 
-export interface EarningsEntry {
-  calendar: UserCalendar;
-  minutes: number;
-  amount: number;
-}
-
-export interface EarningsSummary {
+// --- Shift / payroll engine --------------------------------------------
+// Per-shift pay broken into base + premiums, the way JP wage apps present it.
+export interface ShiftPayBreakdown {
+  paidMinutes: number;
+  nightMinutes: number;
+  overtimeMinutes: number;
+  isHoliday: boolean;
+  base: number;
+  nightPremium: number;
+  overtimePremium: number;
+  holidayPremium: number;
+  transport: number;
   total: number;
-  totalMinutes: number;
-  byCalendar: EarningsEntry[];
 }
 
-// Per-event earnings: each work-colored event carries its own hourly wage,
-// entered when the event is created. Amount = wage × hours.
-export interface EventEarningEntry {
-  title: string;
+export interface JobEarning {
+  jobId: string | null; // null = manual per-event wages bucket
+  name: string;
   color: string;
+  shiftCount: number;
   minutes: number;
-  hourlyWage: number;
-  amount: number;
+  base: number;
+  nightPremium: number;
+  overtimePremium: number;
+  holidayPremium: number;
+  transport: number;
+  total: number;
+  monthlyTarget?: number;
 }
 
-export interface EventEarningsSummary {
+export interface ShiftRow {
+  jobId: string | null;
+  jobName: string; // '' for the manual-wage bucket; UI localizes
+  startISO: string;
+  endISO: string;
+  minutes: number;
+  total: number;
+}
+
+export interface PayrollSummary {
   total: number;
   totalMinutes: number;
-  entries: EventEarningEntry[];
+  base: number;
+  nightPremium: number;
+  overtimePremium: number;
+  holidayPremium: number;
+  transport: number;
+  byJob: JobEarning[];
+  shifts: ShiftRow[];
+}
+
+export interface IncomeThresholdStat {
+  amount: number;
+  reached: boolean;
+  remaining: number; // yen until this wall (0 if passed)
+}
+
+export interface IncomeWallSummary {
+  yearTotal: number;     // total income across the whole displayed year (incl. future-entered shifts)
+  year: number;
+  thresholds: IncomeThresholdStat[];
+  nextWall: IncomeThresholdStat | null;
 }
 
 export interface StatsBundle {
   monthly: MonthlySummary;
   tasks: TaskStats;
-  earnings: EarningsSummary;
-  eventEarnings: EventEarningsSummary;
+  payroll: PayrollSummary;
+  incomeWall: IncomeWallSummary;
   rangeStart: Date;
   rangeEnd: Date;
 }
@@ -302,80 +338,225 @@ export const computeTaskStats = (tasks: Task[], rangeStart: Date, rangeEnd: Date
   };
 };
 
-export const computeEarnings = (
-  events: CalendarEventReadable[],
-  eventColors: Record<string, string>,
-  userCalendars: UserCalendar[],
-): EarningsSummary => {
-  // Index wage-bearing calendars by their normalized color so we can
-  // attribute event minutes to the right calendar in O(1).
-  const wageByColor = new Map<string, UserCalendar>();
-  for (const cal of userCalendars) {
-    if (cal.hourlyWage && cal.hourlyWage > 0) {
-      wageByColor.set(normalizeColor(cal.color), cal);
+const parseHM = (s?: string): number | null => {
+  if (!s) return null;
+  const parts = s.split(':');
+  const h = Number(parts[0]);
+  const m = Number(parts[1]);
+  if (isNaN(h) || isNaN(m)) return null;
+  return h * 60 + m;
+};
+
+// Minutes of [start,end] that fall inside the (possibly midnight-wrapping)
+// night window defined by minutes-from-midnight nightStart/nightEnd.
+const nightOverlapMinutes = (
+  start: Date,
+  end: Date,
+  nightStart: number,
+  nightEnd: number,
+): number => {
+  const dayMs = 86_400_000;
+  const startMs = start.getTime();
+  const endMs = end.getTime();
+  const atMinutes = (base: Date, mins: number): number => {
+    const x = new Date(base);
+    x.setHours(0, 0, 0, 0);
+    return x.getTime() + mins * 60_000;
+  };
+  let total = 0;
+  // Start one day early so a window opened the previous night is counted.
+  let cursor = new Date(start);
+  cursor.setHours(0, 0, 0, 0);
+  cursor = new Date(cursor.getTime() - dayMs);
+  const lastDay = new Date(end);
+  lastDay.setHours(0, 0, 0, 0);
+  let guard = 0;
+  while (cursor.getTime() <= lastDay.getTime() && guard < 400) {
+    const ns = atMinutes(cursor, nightStart);
+    // If the window ends at/before it starts it wraps into the next day.
+    const ne = nightEnd <= nightStart
+      ? atMinutes(new Date(cursor.getTime() + dayMs), nightEnd)
+      : atMinutes(cursor, nightEnd);
+    const lo = Math.max(ns, startMs);
+    const hi = Math.min(ne, endMs);
+    if (hi > lo) total += (hi - lo) / 60_000;
+    cursor = new Date(cursor.getTime() + dayMs);
+    guard += 1;
+  }
+  return total;
+};
+
+// Compute one shift's pay from a job's wage rules. Exported so the event
+// editor can show a live pay preview using the same logic as the stats.
+export const computeShiftPay = (start: Date, end: Date, job: Job): ShiftPayBreakdown => {
+  const empty: ShiftPayBreakdown = {
+    paidMinutes: 0, nightMinutes: 0, overtimeMinutes: 0, isHoliday: false,
+    base: 0, nightPremium: 0, overtimePremium: 0, holidayPremium: 0, transport: 0, total: 0,
+  };
+  const grossMin = Math.max(0, Math.round((end.getTime() - start.getTime()) / 60_000));
+  if (grossMin <= 0 || !job.hourlyWage || job.hourlyWage <= 0) return empty;
+
+  const breakMin = Math.max(0, job.unpaidBreakMin || 0);
+  const paidMin = Math.max(0, grossMin - breakMin);
+  const wage = job.hourlyWage;
+  const base = (paidMin / 60) * wage;
+
+  let nightMin = 0;
+  let nightPremium = 0;
+  if (job.nightEnabled) {
+    const ns = parseHM(job.nightStart) ?? parseHM(DEFAULT_NIGHT_START_LOCAL);
+    const ne = parseHM(job.nightEnd) ?? parseHM(DEFAULT_NIGHT_END_LOCAL);
+    if (ns !== null && ne !== null) {
+      nightMin = Math.min(paidMin, Math.round(nightOverlapMinutes(start, end, ns, ne)));
+      const rate = (job.nightRate || 1.25) - 1;
+      nightPremium = (nightMin / 60) * wage * rate;
     }
   }
 
-  if (wageByColor.size === 0) {
-    return {total: 0, totalMinutes: 0, byCalendar: []};
+  let overtimeMin = 0;
+  let overtimePremium = 0;
+  if (job.overtimeEnabled) {
+    const threshold = job.overtimeThresholdMin || 480;
+    overtimeMin = Math.max(0, paidMin - threshold);
+    const rate = (job.overtimeRate || 1.25) - 1;
+    overtimePremium = (overtimeMin / 60) * wage * rate;
   }
 
-  const minutesByCalendarId = new Map<string, number>();
-  for (const event of events) {
-    const dur = eventDurationMinutes(event);
-    if (dur <= 0) continue;
-    const color = normalizeColor(eventColors[event.id || ''] || (event as any).color);
-    const cal = wageByColor.get(color);
-    if (!cal) continue;
-    minutesByCalendarId.set(cal.id, (minutesByCalendarId.get(cal.id) || 0) + dur);
+  let isHoliday = false;
+  let holidayPremium = 0;
+  if (job.holidayEnabled) {
+    const days = job.holidayWeekdays && job.holidayWeekdays.length > 0 ? job.holidayWeekdays : [0, 6];
+    isHoliday = days.includes(start.getDay());
+    if (isHoliday) {
+      const rate = (job.holidayRate || 1.35) - 1;
+      holidayPremium = (paidMin / 60) * wage * rate;
+    }
   }
 
-  let totalMinutes = 0;
-  let total = 0;
-  const byCalendar: EarningsEntry[] = [];
-  for (const cal of userCalendars) {
-    const minutes = minutesByCalendarId.get(cal.id) || 0;
-    if (minutes <= 0 || !cal.hourlyWage) continue;
-    const amount = (minutes / 60) * cal.hourlyWage;
-    byCalendar.push({calendar: cal, minutes, amount});
-    totalMinutes += minutes;
-    total += amount;
-  }
-  byCalendar.sort((a, b) => b.amount - a.amount);
-  return {total, totalMinutes, byCalendar};
+  const transport = Math.max(0, job.transportPerShift || 0);
+  const total = base + nightPremium + overtimePremium + holidayPremium + transport;
+  return {
+    paidMinutes: paidMin, nightMinutes: nightMin, overtimeMinutes: overtimeMin, isHoliday,
+    base, nightPremium, overtimePremium, holidayPremium, transport, total,
+  };
 };
 
-// Monthly revenue from per-event wages. Each event with a stored wage (>0)
-// contributes wage × its duration in hours. Recurring events expand into one
-// instance per occurrence (all sharing the event id / wage), so each counts.
-export const computeEventEarnings = (
+// Local copies so computeShiftPay doesn't need the jobService import for constants.
+const DEFAULT_NIGHT_START_LOCAL = '22:00';
+const DEFAULT_NIGHT_END_LOCAL = '05:00';
+
+// Aggregate a set of events into per-job earnings + premium totals. Events
+// linked to a job use the full wage-rule engine; events with only a manual
+// per-event wage fall into a single "manual" bucket.
+// Manual-wage events (no job) collect under this sentinel bucket; the UI
+// renders a localized label when jobId === null.
+export const computePayroll = (
   events: CalendarEventReadable[],
-  eventColors: Record<string, string>,
   eventWages: Record<string, number>,
-): EventEarningsSummary => {
-  let total = 0;
-  let totalMinutes = 0;
-  const entries: EventEarningEntry[] = [];
+  eventJobs: Record<string, string>,
+  jobs: Job[],
+): PayrollSummary => {
+  const jobMap = new Map(jobs.map(j => [j.id, j]));
+  const buckets = new Map<string, JobEarning>();
+  const shifts: ShiftRow[] = [];
+  const bucketFor = (key: string, init: () => JobEarning): JobEarning => {
+    let b = buckets.get(key);
+    if (!b) { b = init(); buckets.set(key, b); }
+    return b;
+  };
+
   for (const event of events) {
     const id = event.id || '';
-    const wage = eventWages[id];
-    if (!wage || wage <= 0) continue;
-    const dur = eventDurationMinutes(event);
-    if (dur <= 0) continue;
-    const color = normalizeColor(eventColors[id] || (event as any).color);
-    const amount = (dur / 60) * wage;
-    entries.push({
-      title: (event.title || '').trim(),
-      color,
-      minutes: dur,
-      hourlyWage: wage,
-      amount,
-    });
-    total += amount;
-    totalMinutes += dur;
+    if (!event.startDate || !event.endDate || event.allDay) continue;
+    const start = new Date(event.startDate);
+    const end = new Date(event.endDate);
+    const jobId = eventJobs[id];
+    const job = jobId ? jobMap.get(jobId) : undefined;
+
+    if (job) {
+      const bd = computeShiftPay(start, end, job);
+      if (bd.total <= 0 && bd.paidMinutes <= 0) continue;
+      const b = bucketFor(job.id, () => ({
+        jobId: job.id, name: job.name, color: job.color, shiftCount: 0, minutes: 0,
+        base: 0, nightPremium: 0, overtimePremium: 0, holidayPremium: 0, transport: 0, total: 0,
+        monthlyTarget: job.monthlyTarget,
+      }));
+      b.shiftCount += 1;
+      b.minutes += bd.paidMinutes;
+      b.base += bd.base;
+      b.nightPremium += bd.nightPremium;
+      b.overtimePremium += bd.overtimePremium;
+      b.holidayPremium += bd.holidayPremium;
+      b.transport += bd.transport;
+      b.total += bd.total;
+      shifts.push({jobId: job.id, jobName: job.name, startISO: event.startDate, endISO: event.endDate, minutes: bd.paidMinutes, total: bd.total});
+    } else {
+      const wage = eventWages[id];
+      if (!wage || wage <= 0) continue;
+      const dur = eventDurationMinutes(event);
+      if (dur <= 0) continue;
+      const amount = (dur / 60) * wage;
+      const b = bucketFor('__manual__', () => ({
+        jobId: null, name: '', color: WORK_COLOR, shiftCount: 0, minutes: 0,
+        base: 0, nightPremium: 0, overtimePremium: 0, holidayPremium: 0, transport: 0, total: 0,
+      }));
+      b.shiftCount += 1;
+      b.minutes += dur;
+      b.base += amount;
+      b.total += amount;
+      shifts.push({jobId: null, jobName: '', startISO: event.startDate, endISO: event.endDate, minutes: dur, total: amount});
+    }
   }
-  entries.sort((a, b) => b.amount - a.amount);
-  return {total, totalMinutes, entries};
+
+  shifts.sort((a, b) => a.startISO.localeCompare(b.startISO));
+  const byJob = Array.from(buckets.values()).sort((a, b) => b.total - a.total);
+  const sum = (sel: (j: JobEarning) => number) => byJob.reduce((acc, j) => acc + sel(j), 0);
+  return {
+    total: sum(j => j.total),
+    totalMinutes: sum(j => j.minutes),
+    base: sum(j => j.base),
+    nightPremium: sum(j => j.nightPremium),
+    overtimePremium: sum(j => j.overtimePremium),
+    holidayPremium: sum(j => j.holidayPremium),
+    transport: sum(j => j.transport),
+    byJob,
+    shifts,
+  };
+};
+
+// --- 年収の壁 (income thresholds) --------------------------------------
+const INCOME_THRESHOLDS_KEY = '@income_thresholds';
+// JP dependent/tax/social-insurance walls. Configurable because the 2025/2026
+// tax reform is actively changing these — never hardcode as final truth.
+export const DEFAULT_INCOME_THRESHOLDS = [1030000, 1060000, 1300000, 1500000];
+
+export const getIncomeThresholds = async (): Promise<number[]> => {
+  try {
+    const raw = await AsyncStorage.getItem(INCOME_THRESHOLDS_KEY);
+    if (!raw) return [...DEFAULT_INCOME_THRESHOLDS];
+    const arr = JSON.parse(raw);
+    if (Array.isArray(arr) && arr.every(n => typeof n === 'number')) {
+      return [...arr].sort((a, b) => a - b);
+    }
+    return [...DEFAULT_INCOME_THRESHOLDS];
+  } catch {
+    return [...DEFAULT_INCOME_THRESHOLDS];
+  }
+};
+
+export const setIncomeThresholds = async (list: number[]): Promise<void> => {
+  const clean = list.filter(n => typeof n === 'number' && n > 0).sort((a, b) => a - b);
+  await AsyncStorage.setItem(INCOME_THRESHOLDS_KEY, JSON.stringify(clean));
+};
+
+const computeIncomeWall = (yearTotal: number, year: number, thresholds: number[]): IncomeWallSummary => {
+  const stats: IncomeThresholdStat[] = thresholds.map(amount => ({
+    amount,
+    reached: yearTotal >= amount,
+    remaining: Math.max(0, amount - yearTotal),
+  }));
+  const nextWall = stats.find(s => !s.reached) || null;
+  return {yearTotal, year, thresholds: stats, nextWall};
 };
 
 export const fetchStats = async (rangeStart: Date, rangeEnd: Date): Promise<StatsBundle> => {
@@ -395,17 +576,31 @@ export const fetchStats = async (rangeStart: Date, rangeEnd: Date): Promise<Stat
   const tasks = await loadAllTasks();
   const taskStats = computeTaskStats(tasks, rangeStart, rangeEnd);
 
-  const userCalendars = await getUserCalendars();
-  const earnings = computeEarnings(events, eventColors, userCalendars);
-
+  // Shift/payroll: month buckets per job, plus full-year income for 年収の壁.
   const eventWages = await getAllEventWages();
-  const eventEarnings = computeEventEarnings(events, eventColors, eventWages);
+  const eventJobs = await getAllEventJobs();
+  const jobs = await getJobs();
+  const payroll = computePayroll(events, eventWages, eventJobs, jobs);
+
+  const year = rangeStart.getFullYear();
+  let yearEvents: CalendarEventReadable[] = [];
+  try {
+    yearEvents = await RNCalendarEvents.fetchAllEvents(
+      new Date(year, 0, 1, 0, 0, 0).toISOString(),
+      new Date(year, 11, 31, 23, 59, 59).toISOString(),
+    );
+  } catch {
+    yearEvents = [];
+  }
+  const yearPayroll = computePayroll(yearEvents, eventWages, eventJobs, jobs);
+  const thresholds = await getIncomeThresholds();
+  const incomeWall = computeIncomeWall(yearPayroll.total, year, thresholds);
 
   return {
     monthly,
     tasks: taskStats,
-    earnings,
-    eventEarnings,
+    payroll,
+    incomeWall,
     rangeStart,
     rangeEnd,
   };

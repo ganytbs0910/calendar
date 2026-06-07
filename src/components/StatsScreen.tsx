@@ -8,12 +8,16 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Dimensions,
+  Share,
+  TextInput,
 } from 'react-native';
 import {useTranslation} from 'react-i18next';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {useTheme} from '../theme/ThemeContext';
 import {ThemeColors} from '../theme/colors';
-import {fetchStats, getMonthRange, StatsBundle} from '../services/statisticsService';
+import {usePremium} from '../context/PremiumContext';
+import {PaywallScreen} from './PaywallScreen';
+import {fetchStats, getMonthRange, StatsBundle, getIncomeThresholds, setIncomeThresholds} from '../services/statisticsService';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
@@ -43,11 +47,15 @@ const formatDuration = (
 const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate}) => {
   const {t} = useTranslation();
   const {colors, isDark} = useTheme();
+  const {isPremium} = usePremium();
+  const [showPaywall, setShowPaywall] = useState(false);
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [loading, setLoading] = useState(false);
   const [bundle, setBundle] = useState<StatsBundle | null>(null);
   const [monthOffset, setMonthOffset] = useState(0); // 0 = current month, -1 previous
+  const [showThresholdEditor, setShowThresholdEditor] = useState(false);
+  const [thresholdDrafts, setThresholdDrafts] = useState<string[]>([]);
 
   // Each time the modal opens, sync to the caller-provided month so the user
   // sees stats for the month they were viewing on the calendar.
@@ -86,6 +94,47 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate}
     const d = bundle.rangeStart;
     return t('yearMonthFormat', {year: d.getFullYear(), month: t('monthFormat', {month: d.getMonth() + 1})});
   }, [bundle, t]);
+
+  const handleExportCsv = useCallback(async () => {
+    if (!bundle) return;
+    if (!isPremium) { setShowPaywall(true); return; }
+    const cur = t('currencySymbol');
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const fmtDate = (iso: string) => { const d = new Date(iso); return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())}`; };
+    const fmtTime = (iso: string) => { const d = new Date(iso); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+    // Per-shift detail rows (what payroll users actually want to verify).
+    const header = [t('csvDate'), t('jobName'), t('startTime'), t('endTime'), t('csvHours'), t('csvTotal')].join(',');
+    const rows = bundle.payroll.shifts.map(s => [
+      fmtDate(s.startISO),
+      (s.jobId === null ? t('manualWage') : s.jobName).replace(/,/g, ' '),
+      fmtTime(s.startISO),
+      fmtTime(s.endISO),
+      (s.minutes / 60).toFixed(2),
+      Math.round(s.total),
+    ].join(','));
+    const totalRow = ['', t('csvTotal'), '', '', (bundle.payroll.totalMinutes / 60).toFixed(2), Math.round(bundle.payroll.total)].join(',');
+    const csv = [`${monthLabel} (${cur})`, header, ...rows, totalRow].join('\n');
+    try {
+      await Share.share({message: csv});
+    } catch {
+      /* user cancelled */
+    }
+  }, [bundle, monthLabel, t, isPremium]);
+
+  const openThresholdEditor = useCallback(async () => {
+    const list = await getIncomeThresholds();
+    setThresholdDrafts(list.map(String));
+    setShowThresholdEditor(true);
+  }, []);
+
+  const saveThresholds = useCallback(async () => {
+    const nums = thresholdDrafts
+      .map(s => parseInt(s.replace(/[^0-9]/g, ''), 10))
+      .filter(n => !isNaN(n) && n > 0);
+    await setIncomeThresholds(nums);
+    setShowThresholdEditor(false);
+    load(monthOffset);
+  }, [thresholdDrafts, load, monthOffset]);
 
   return (
     <Modal
@@ -166,67 +215,115 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate}
               )}
             </View>
 
-            {/* Monthly revenue from per-event wages (work-colored events) */}
-            {bundle.eventEarnings.entries.length > 0 && (
+            {/* Monthly revenue / payroll (per job, with premiums & targets) */}
+            {bundle.payroll.byJob.length > 0 && (
               <View style={styles.card}>
                 <View style={styles.sectionTitleRow}>
                   <Ionicons name="cash-outline" size={16} color={colors.primary} />
                   <Text style={styles.sectionTitle}>{t('statsMonthlyRevenue')}</Text>
+                  <TouchableOpacity onPress={handleExportCsv} style={styles.csvBtn} accessibilityLabel={t('exportCsv')}>
+                    <Ionicons name="share-outline" size={16} color={colors.primary} />
+                  </TouchableOpacity>
                 </View>
                 <View style={styles.earningsTotalRow}>
                   <Text style={styles.earningsTotal}>
-                    {t('currencySymbol')}{Math.round(bundle.eventEarnings.total).toLocaleString()}
+                    {t('currencySymbol')}{Math.round(bundle.payroll.total).toLocaleString()}
                   </Text>
                 </View>
                 <Text style={[styles.cardSub, {marginBottom: 8, textAlign: 'center'}]}>
-                  {formatDuration(bundle.eventEarnings.totalMinutes, t)}
+                  {formatDuration(bundle.payroll.totalMinutes, t)}
                 </Text>
-                {bundle.eventEarnings.entries.map((entry, i) => (
-                  <View key={`evearn-${i}`} style={styles.earningsRow}>
-                    <View style={[styles.legendDot, {backgroundColor: entry.color}]} />
-                    <Text style={[styles.earningsLabel, {color: colors.text}]} numberOfLines={1}>
-                      {entry.title || t('noTitle')}
-                    </Text>
-                    <Text style={[styles.earningsTime, {color: colors.textSecondary}]}>
-                      {formatDuration(entry.minutes, t)} × {entry.hourlyWage.toLocaleString()}
-                    </Text>
-                    <Text style={[styles.earningsAmount, {color: colors.text}]}>
-                      {t('currencySymbol')}{Math.round(entry.amount).toLocaleString()}
-                    </Text>
+
+                {/* Premium breakdown (only nonzero) */}
+                {(bundle.payroll.nightPremium > 0 || bundle.payroll.overtimePremium > 0 || bundle.payroll.holidayPremium > 0 || bundle.payroll.transport > 0) && (
+                  <View style={styles.premiumLine}>
+                    {bundle.payroll.nightPremium > 0 && (
+                      <Text style={[styles.premiumChip, {color: colors.textSecondary}]}>{t('nightPremiumShort')} +{t('currencySymbol')}{Math.round(bundle.payroll.nightPremium).toLocaleString()}</Text>
+                    )}
+                    {bundle.payroll.overtimePremium > 0 && (
+                      <Text style={[styles.premiumChip, {color: colors.textSecondary}]}>{t('overtimeShort')} +{t('currencySymbol')}{Math.round(bundle.payroll.overtimePremium).toLocaleString()}</Text>
+                    )}
+                    {bundle.payroll.holidayPremium > 0 && (
+                      <Text style={[styles.premiumChip, {color: colors.textSecondary}]}>{t('holidayShort')} +{t('currencySymbol')}{Math.round(bundle.payroll.holidayPremium).toLocaleString()}</Text>
+                    )}
+                    {bundle.payroll.transport > 0 && (
+                      <Text style={[styles.premiumChip, {color: colors.textSecondary}]}>{t('transportShort')} +{t('currencySymbol')}{Math.round(bundle.payroll.transport).toLocaleString()}</Text>
+                    )}
                   </View>
-                ))}
+                )}
+
+                {bundle.payroll.byJob.map((entry, i) => {
+                  const pct = entry.monthlyTarget && entry.monthlyTarget > 0
+                    ? Math.min(1, entry.total / entry.monthlyTarget)
+                    : null;
+                  return (
+                    <View key={`job-${i}`} style={styles.jobEarnBlock}>
+                      <View style={styles.earningsRow}>
+                        <View style={[styles.legendDot, {backgroundColor: entry.color}]} />
+                        <Text style={[styles.earningsLabel, {color: colors.text}]} numberOfLines={1}>
+                          {entry.jobId === null ? t('manualWage') : entry.name}
+                        </Text>
+                        <Text style={[styles.earningsTime, {color: colors.textSecondary}]}>
+                          {formatDuration(entry.minutes, t)}
+                        </Text>
+                        <Text style={[styles.earningsAmount, {color: colors.text}]}>
+                          {t('currencySymbol')}{Math.round(entry.total).toLocaleString()}
+                        </Text>
+                      </View>
+                      {pct !== null && (
+                        <View style={styles.targetWrap}>
+                          <View style={styles.targetBarBg}>
+                            <View style={[styles.targetBarFill, {width: `${pct * 100}%`, backgroundColor: entry.color}]} />
+                          </View>
+                          <Text style={[styles.targetText, {color: colors.textTertiary}]}>
+                            {t('targetProgress', {pct: Math.round(pct * 100), target: `${t('currencySymbol')}${entry.monthlyTarget!.toLocaleString()}`})}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
               </View>
             )}
 
-            {/* Earnings */}
-            {bundle.earnings.byCalendar.length > 0 && (
+            {/* 年収の壁 (income thresholds) */}
+            {bundle.incomeWall.yearTotal > 0 && (
               <View style={styles.card}>
                 <View style={styles.sectionTitleRow}>
-                  <Ionicons name="cash-outline" size={16} color={colors.primary} />
-                  <Text style={styles.sectionTitle}>{t('statsEarnings')}</Text>
+                  <Ionicons name="trending-up-outline" size={16} color={colors.primary} />
+                  <Text style={styles.sectionTitle}>{t('statsIncomeWall', {year: bundle.incomeWall.year})}</Text>
+                  <TouchableOpacity onPress={openThresholdEditor} style={styles.csvBtn} accessibilityLabel={t('editThresholds')}>
+                    <Ionicons name="create-outline" size={16} color={colors.primary} />
+                  </TouchableOpacity>
                 </View>
                 <View style={styles.earningsTotalRow}>
                   <Text style={styles.earningsTotal}>
-                    {Math.round(bundle.earnings.total).toLocaleString()}
+                    {t('currencySymbol')}{Math.round(bundle.incomeWall.yearTotal).toLocaleString()}
                   </Text>
                 </View>
-                <Text style={[styles.cardSub, {marginBottom: 8, textAlign: 'center'}]}>
-                  {formatDuration(bundle.earnings.totalMinutes, t)}
+                <Text style={[styles.cardSub, {marginBottom: 10, textAlign: 'center'}]}>
+                  {t('incomeWallYearTotal')}
                 </Text>
-                {bundle.earnings.byCalendar.map((entry, i) => (
-                  <View key={`earn-${i}`} style={styles.earningsRow}>
-                    <View style={[styles.legendDot, {backgroundColor: entry.calendar.color}]} />
-                    <Text style={[styles.earningsLabel, {color: colors.text}]} numberOfLines={1}>
-                      {entry.calendar.name || (entry.calendar.nameKey ? t(entry.calendar.nameKey) : '')}
-                    </Text>
-                    <Text style={[styles.earningsTime, {color: colors.textSecondary}]}>
-                      {formatDuration(entry.minutes, t)} × {entry.calendar.hourlyWage?.toLocaleString()}
-                    </Text>
-                    <Text style={[styles.earningsAmount, {color: colors.text}]}>
-                      {Math.round(entry.amount).toLocaleString()}
-                    </Text>
-                  </View>
-                ))}
+                {bundle.incomeWall.nextWall && (
+                  <Text style={[styles.cardSub, {marginBottom: 10, textAlign: 'center', color: colors.primary}]}>
+                    {t('incomeWallNext', {amount: `${t('currencySymbol')}${bundle.incomeWall.nextWall.amount.toLocaleString()}`, remaining: `${t('currencySymbol')}${Math.round(bundle.incomeWall.nextWall.remaining).toLocaleString()}`})}
+                  </Text>
+                )}
+                {bundle.incomeWall.thresholds.map((th, i) => {
+                  const pct = Math.min(1, bundle.incomeWall.yearTotal / th.amount);
+                  return (
+                    <View key={`wall-${i}`} style={styles.wallRow}>
+                      <Text style={[styles.wallLabel, {color: colors.text}]}>
+                        {th.reached ? '⚠️ ' : ''}{t('currencySymbol')}{th.amount.toLocaleString()}
+                      </Text>
+                      <View style={styles.wallBarBg}>
+                        <View style={[styles.wallBarFill, {width: `${pct * 100}%`, backgroundColor: th.reached ? '#FF3B30' : colors.primary}]} />
+                      </View>
+                      <Text style={[styles.wallPct, {color: colors.textSecondary}]}>{Math.round(pct * 100)}%</Text>
+                    </View>
+                  );
+                })}
+                <Text style={[styles.wallNote, {color: colors.textTertiary}]}>{t('incomeWallNote')}</Text>
               </View>
             )}
 
@@ -409,6 +506,49 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate}
           </ScrollView>
         )}
       </View>
+
+      <PaywallScreen visible={showPaywall} onClose={() => setShowPaywall(false)} />
+
+      {/* 年収の壁 threshold editor */}
+      <Modal visible={showThresholdEditor} animationType="fade" transparent onRequestClose={() => setShowThresholdEditor(false)}>
+        <View style={styles.editorOverlay}>
+          <View style={styles.editorCard}>
+            <Text style={styles.editorTitle}>{t('editThresholds')}</Text>
+            <Text style={styles.editorNote}>{t('incomeWallNote')}</Text>
+            <ScrollView style={{maxHeight: 280}}>
+              {thresholdDrafts.map((v, i) => (
+                <View key={`th-${i}`} style={styles.editorRow}>
+                  <Text style={styles.editorCurrency}>{t('currencySymbol')}</Text>
+                  <TextInput
+                    style={styles.editorInput}
+                    value={v}
+                    onChangeText={(txt) => setThresholdDrafts(prev => prev.map((x, idx) => idx === i ? txt.replace(/[^0-9]/g, '') : x))}
+                    keyboardType="numeric"
+                    placeholder="1030000"
+                    placeholderTextColor={colors.textTertiary}
+                    returnKeyType="done"
+                  />
+                  <TouchableOpacity onPress={() => setThresholdDrafts(prev => prev.filter((_, idx) => idx !== i))}>
+                    <Ionicons name="remove-circle-outline" size={22} color="#FF3B30" />
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </ScrollView>
+            <TouchableOpacity style={styles.editorAddRow} onPress={() => setThresholdDrafts(prev => [...prev, ''])}>
+              <Ionicons name="add-circle-outline" size={20} color={colors.primary} />
+              <Text style={{color: colors.primary, fontSize: 14}}>{t('addThreshold')}</Text>
+            </TouchableOpacity>
+            <View style={styles.editorBtnRow}>
+              <TouchableOpacity style={styles.editorBtn} onPress={() => setShowThresholdEditor(false)}>
+                <Text style={{color: colors.textSecondary, fontSize: 15}}>{t('cancel')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.editorBtn, {backgroundColor: colors.primary, borderRadius: 8}]} onPress={saveThresholds}>
+                <Text style={{color: '#fff', fontSize: 15, fontWeight: '700'}}>{t('save')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </Modal>
   );
 };
@@ -628,6 +768,135 @@ const makeStyles = (colors: ThemeColors) =>
       fontWeight: '600',
       minWidth: 70,
       textAlign: 'right',
+    },
+    csvBtn: {
+      marginLeft: 'auto',
+      padding: 4,
+    },
+    premiumLine: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+      justifyContent: 'center',
+      marginBottom: 8,
+    },
+    premiumChip: {
+      fontSize: 11,
+      fontWeight: '600',
+    },
+    jobEarnBlock: {
+      marginBottom: 2,
+    },
+    targetWrap: {
+      paddingLeft: 16,
+      paddingBottom: 6,
+    },
+    targetBarBg: {
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: colors.inputBackground,
+      overflow: 'hidden',
+    },
+    targetBarFill: {
+      height: 6,
+      borderRadius: 3,
+    },
+    targetText: {
+      fontSize: 10,
+      marginTop: 3,
+    },
+    wallRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 5,
+    },
+    wallLabel: {
+      fontSize: 12,
+      fontWeight: '600',
+      width: 90,
+    },
+    wallBarBg: {
+      flex: 1,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: colors.inputBackground,
+      overflow: 'hidden',
+    },
+    wallBarFill: {
+      height: 8,
+      borderRadius: 4,
+    },
+    wallPct: {
+      fontSize: 11,
+      width: 38,
+      textAlign: 'right',
+    },
+    wallNote: {
+      fontSize: 10,
+      marginTop: 8,
+      textAlign: 'center',
+    },
+    editorOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.4)',
+      justifyContent: 'center',
+      padding: 24,
+    },
+    editorCard: {
+      backgroundColor: colors.surface,
+      borderRadius: 16,
+      padding: 20,
+    },
+    editorTitle: {
+      fontSize: 16,
+      fontWeight: '700',
+      color: colors.text,
+      marginBottom: 4,
+    },
+    editorNote: {
+      fontSize: 11,
+      color: colors.textTertiary,
+      marginBottom: 12,
+    },
+    editorRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginBottom: 8,
+    },
+    editorCurrency: {
+      fontSize: 16,
+      fontWeight: '700',
+      color: colors.textSecondary,
+    },
+    editorInput: {
+      flex: 1,
+      height: 42,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      fontSize: 16,
+      color: colors.text,
+      backgroundColor: colors.inputBackground,
+      fontVariant: ['tabular-nums'],
+    },
+    editorAddRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingVertical: 8,
+    },
+    editorBtnRow: {
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      gap: 8,
+      marginTop: 8,
+    },
+    editorBtn: {
+      paddingHorizontal: 18,
+      paddingVertical: 10,
     },
     stackBar: {
       flexDirection: 'row',

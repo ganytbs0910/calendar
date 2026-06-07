@@ -10,8 +10,6 @@ export interface UserCalendar {
   /** Literal name for user-added or renamed calendars. Wins over nameKey when present. */
   name?: string;
   color: string;
-  /** Hourly wage in user's currency. Only set for income-bearing calendars (e.g. work). */
-  hourlyWage?: number;
 }
 
 /**
@@ -62,14 +60,12 @@ export const ensureDefaultsSeeded = async (): Promise<UserCalendar[]> => {
 export const addUserCalendar = async (
   name: string,
   color: string,
-  hourlyWage?: number,
 ): Promise<UserCalendar> => {
   const list = await getUserCalendars();
   const newCal: UserCalendar = {
     id: generateId(),
     name: name.trim(),
     color,
-    ...(hourlyWage && hourlyWage > 0 ? {hourlyWage} : {}),
   };
   list.push(newCal);
   await writeAll(list);
@@ -78,7 +74,7 @@ export const addUserCalendar = async (
 
 export const updateUserCalendar = async (
   id: string,
-  patch: Partial<Pick<UserCalendar, 'name' | 'color' | 'hourlyWage'>>,
+  patch: Partial<Pick<UserCalendar, 'name' | 'color'>>,
 ): Promise<void> => {
   const list = await getUserCalendars();
   const idx = list.findIndex(c => c.id === id);
@@ -89,9 +85,6 @@ export const updateUserCalendar = async (
   }
   if (patch.color !== undefined) {
     list[idx] = {...list[idx], color: patch.color};
-  }
-  if (patch.hourlyWage !== undefined) {
-    list[idx] = {...list[idx], hourlyWage: patch.hourlyWage > 0 ? patch.hourlyWage : undefined};
   }
   await writeAll(list);
 };
