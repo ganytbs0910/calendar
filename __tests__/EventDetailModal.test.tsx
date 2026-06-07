@@ -15,6 +15,7 @@ describe('EventDetailModal', () => {
   const mockOnClose = jest.fn();
   const mockOnEdit = jest.fn();
   const mockOnDeleted = jest.fn();
+  const mockOnCopied = jest.fn();
 
   const mockEvent = {
     id: '1',
@@ -45,6 +46,7 @@ describe('EventDetailModal', () => {
           onClose={mockOnClose}
           onEdit={mockOnEdit}
           onDeleted={mockOnDeleted}
+          onCopied={mockOnCopied}
         />
       );
     });
@@ -61,6 +63,7 @@ describe('EventDetailModal', () => {
           onClose={mockOnClose}
           onEdit={mockOnEdit}
           onDeleted={mockOnDeleted}
+          onCopied={mockOnCopied}
         />
       );
     });
@@ -78,6 +81,7 @@ describe('EventDetailModal', () => {
           onClose={mockOnClose}
           onEdit={mockOnEdit}
           onDeleted={mockOnDeleted}
+          onCopied={mockOnCopied}
         />
       );
     });
@@ -96,6 +100,7 @@ describe('EventDetailModal', () => {
           onClose={mockOnClose}
           onEdit={mockOnEdit}
           onDeleted={mockOnDeleted}
+          onCopied={mockOnCopied}
         />
       );
     });
@@ -114,6 +119,7 @@ describe('EventDetailModal', () => {
           onClose={mockOnClose}
           onEdit={mockOnEdit}
           onDeleted={mockOnDeleted}
+          onCopied={mockOnCopied}
         />
       );
     });
@@ -132,6 +138,7 @@ describe('EventDetailModal', () => {
           onClose={mockOnClose}
           onEdit={mockOnEdit}
           onDeleted={mockOnDeleted}
+          onCopied={mockOnCopied}
         />
       );
     });
@@ -150,6 +157,7 @@ describe('EventDetailModal', () => {
           onClose={mockOnClose}
           onEdit={mockOnEdit}
           onDeleted={mockOnDeleted}
+          onCopied={mockOnCopied}
         />
       );
     });

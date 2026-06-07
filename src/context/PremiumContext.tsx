@@ -23,12 +23,16 @@ export const PremiumProvider: React.FC<{children: React.ReactNode}> = ({children
       if (val === 'true') {
         setIsPremium(true);
       }
-    }).catch(() => {});
+    }).catch(err => {
+      console.warn('[PremiumContext] failed to read cached premium flag:', err);
+    });
   }, []);
 
   const setPremium = useCallback((value: boolean) => {
     setIsPremium(value);
-    AsyncStorage.setItem(PREMIUM_KEY, value ? 'true' : 'false').catch(() => {});
+    AsyncStorage.setItem(PREMIUM_KEY, value ? 'true' : 'false').catch(err => {
+      console.warn('[PremiumContext] failed to persist premium flag:', err);
+    });
   }, []);
 
   return (

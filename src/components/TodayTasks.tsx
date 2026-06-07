@@ -121,7 +121,8 @@ const TodayTasks: React.FC = () => {
   }, [inputText]);
 
   const handleToggle = useCallback(async (id: string) => {
-    const updated = await toggleTask(id);
+    await toggleTask(id);
+    const updated = await getTodayTasks();
     setTasks(updated);
   }, []);
 

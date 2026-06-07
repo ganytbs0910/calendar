@@ -74,18 +74,30 @@ export const fetchProducts = async (): Promise<{
 };
 
 export const buySubscription = async (sku: string): Promise<void> => {
-  if (Platform.OS === 'ios') {
-    await requestSubscription({sku});
-  } else {
-    await requestSubscription({
-      sku,
-      subscriptionOffers: [{sku, offerToken: ''}],
-    });
+  try {
+    if (Platform.OS === 'ios') {
+      await requestSubscription({sku});
+    } else {
+      await requestSubscription({
+        sku,
+        subscriptionOffers: [{sku, offerToken: ''}],
+      });
+    }
+  } catch (e) {
+    // Surface the error to the caller so the UI can show an alert. The native
+    // module sometimes rejects with strings, so normalize to Error.
+    if (e instanceof Error) throw e;
+    throw new Error(typeof e === 'string' ? e : 'Subscription request failed');
   }
 };
 
 export const buyProduct = async (sku: string): Promise<void> => {
-  await requestPurchase({sku});
+  try {
+    await requestPurchase({sku});
+  } catch (e) {
+    if (e instanceof Error) throw e;
+    throw new Error(typeof e === 'string' ? e : 'Purchase request failed');
+  }
 };
 
 export const restorePurchases = async (): Promise<boolean> => {

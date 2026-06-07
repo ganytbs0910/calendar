@@ -1,6 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
 import {Task} from './taskService';
+import {getUserCalendars, UserCalendar} from './userCalendarService';
+import {getAllEventWages} from './eventWageService';
+
+// The "work" category color. Per-event wages only apply to work-colored events.
+export const WORK_COLOR = '#007AFF';
 
 const TASKS_STORAGE_KEY = '@today_tasks';
 const EVENT_COLOR_STORAGE_KEY = '@event_colors';
@@ -63,9 +68,39 @@ export interface TaskStats {
   averageDuration: number; // minutes
 }
 
+export interface EarningsEntry {
+  calendar: UserCalendar;
+  minutes: number;
+  amount: number;
+}
+
+export interface EarningsSummary {
+  total: number;
+  totalMinutes: number;
+  byCalendar: EarningsEntry[];
+}
+
+// Per-event earnings: each work-colored event carries its own hourly wage,
+// entered when the event is created. Amount = wage × hours.
+export interface EventEarningEntry {
+  title: string;
+  color: string;
+  minutes: number;
+  hourlyWage: number;
+  amount: number;
+}
+
+export interface EventEarningsSummary {
+  total: number;
+  totalMinutes: number;
+  entries: EventEarningEntry[];
+}
+
 export interface StatsBundle {
   monthly: MonthlySummary;
   tasks: TaskStats;
+  earnings: EarningsSummary;
+  eventEarnings: EventEarningsSummary;
   rangeStart: Date;
   rangeEnd: Date;
 }
@@ -140,21 +175,29 @@ export const computeMonthlySummary = (
     weekdayArr[wd].minutes += dur;
     weekdayArr[wd].count += 1;
 
-    // Distribute duration across hour buckets
-    const startMs = start.getTime();
+    // Distribute duration across hour buckets.
+    // We advance one minute at a time and re-read the local hour to stay
+    // correct across DST transitions (where "next hour" can be 0 or 2 hours away).
     const endMs = new Date(event.endDate!).getTime();
-    let cursor = startMs;
-    while (cursor < endMs) {
+    let cursor = start.getTime();
+    let guard = 0;
+    while (cursor < endMs && guard < 60 * 24 * 31) {
       const cur = new Date(cursor);
       const hour = cur.getHours();
-      const nextHourMs = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate(), hour + 1, 0, 0, 0).getTime();
-      const sliceEnd = Math.min(endMs, nextHourMs);
+      // Step to the start of the next local clock-hour. Using setHours respects
+      // the timezone's DST rules instead of assuming exactly 3600s per hour.
+      const nextBoundary = new Date(cur);
+      nextBoundary.setMinutes(0, 0, 0);
+      nextBoundary.setHours(nextBoundary.getHours() + 1);
+      const sliceEnd = Math.min(endMs, nextBoundary.getTime());
+      if (sliceEnd <= cursor) break; // defensive: prevent infinite loop
       const sliceMin = Math.round((sliceEnd - cursor) / 60000);
       if (sliceMin > 0) {
         hourArr[hour].minutes += sliceMin;
         heatmap[cur.getDay()][hour] += sliceMin;
       }
       cursor = sliceEnd;
+      guard += 1;
     }
 
     const titleKey = (event.title || '').trim();
@@ -259,6 +302,82 @@ export const computeTaskStats = (tasks: Task[], rangeStart: Date, rangeEnd: Date
   };
 };
 
+export const computeEarnings = (
+  events: CalendarEventReadable[],
+  eventColors: Record<string, string>,
+  userCalendars: UserCalendar[],
+): EarningsSummary => {
+  // Index wage-bearing calendars by their normalized color so we can
+  // attribute event minutes to the right calendar in O(1).
+  const wageByColor = new Map<string, UserCalendar>();
+  for (const cal of userCalendars) {
+    if (cal.hourlyWage && cal.hourlyWage > 0) {
+      wageByColor.set(normalizeColor(cal.color), cal);
+    }
+  }
+
+  if (wageByColor.size === 0) {
+    return {total: 0, totalMinutes: 0, byCalendar: []};
+  }
+
+  const minutesByCalendarId = new Map<string, number>();
+  for (const event of events) {
+    const dur = eventDurationMinutes(event);
+    if (dur <= 0) continue;
+    const color = normalizeColor(eventColors[event.id || ''] || (event as any).color);
+    const cal = wageByColor.get(color);
+    if (!cal) continue;
+    minutesByCalendarId.set(cal.id, (minutesByCalendarId.get(cal.id) || 0) + dur);
+  }
+
+  let totalMinutes = 0;
+  let total = 0;
+  const byCalendar: EarningsEntry[] = [];
+  for (const cal of userCalendars) {
+    const minutes = minutesByCalendarId.get(cal.id) || 0;
+    if (minutes <= 0 || !cal.hourlyWage) continue;
+    const amount = (minutes / 60) * cal.hourlyWage;
+    byCalendar.push({calendar: cal, minutes, amount});
+    totalMinutes += minutes;
+    total += amount;
+  }
+  byCalendar.sort((a, b) => b.amount - a.amount);
+  return {total, totalMinutes, byCalendar};
+};
+
+// Monthly revenue from per-event wages. Each event with a stored wage (>0)
+// contributes wage × its duration in hours. Recurring events expand into one
+// instance per occurrence (all sharing the event id / wage), so each counts.
+export const computeEventEarnings = (
+  events: CalendarEventReadable[],
+  eventColors: Record<string, string>,
+  eventWages: Record<string, number>,
+): EventEarningsSummary => {
+  let total = 0;
+  let totalMinutes = 0;
+  const entries: EventEarningEntry[] = [];
+  for (const event of events) {
+    const id = event.id || '';
+    const wage = eventWages[id];
+    if (!wage || wage <= 0) continue;
+    const dur = eventDurationMinutes(event);
+    if (dur <= 0) continue;
+    const color = normalizeColor(eventColors[id] || (event as any).color);
+    const amount = (dur / 60) * wage;
+    entries.push({
+      title: (event.title || '').trim(),
+      color,
+      minutes: dur,
+      hourlyWage: wage,
+      amount,
+    });
+    total += amount;
+    totalMinutes += dur;
+  }
+  entries.sort((a, b) => b.amount - a.amount);
+  return {total, totalMinutes, entries};
+};
+
 export const fetchStats = async (rangeStart: Date, rangeEnd: Date): Promise<StatsBundle> => {
   const startISO = rangeStart.toISOString();
   const endISO = rangeEnd.toISOString();
@@ -276,9 +395,17 @@ export const fetchStats = async (rangeStart: Date, rangeEnd: Date): Promise<Stat
   const tasks = await loadAllTasks();
   const taskStats = computeTaskStats(tasks, rangeStart, rangeEnd);
 
+  const userCalendars = await getUserCalendars();
+  const earnings = computeEarnings(events, eventColors, userCalendars);
+
+  const eventWages = await getAllEventWages();
+  const eventEarnings = computeEventEarnings(events, eventColors, eventWages);
+
   return {
     monthly,
     tasks: taskStats,
+    earnings,
+    eventEarnings,
     rangeStart,
     rangeEnd,
   };

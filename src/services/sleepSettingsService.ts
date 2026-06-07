@@ -5,7 +5,7 @@ const STORAGE_KEY = '@sleep_settings';
 export interface DayTimeSetting {
   wakeUpHour: number;   // 0-23
   wakeUpMinute: number;  // 0-59
-  sleepHour: number;     // 0-23
+  sleepHour: number;     // 0-24 (24 = midnight, end of day)
   sleepMinute: number;   // 0-59
 }
 

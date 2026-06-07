@@ -166,6 +166,70 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate}
               )}
             </View>
 
+            {/* Monthly revenue from per-event wages (work-colored events) */}
+            {bundle.eventEarnings.entries.length > 0 && (
+              <View style={styles.card}>
+                <View style={styles.sectionTitleRow}>
+                  <Ionicons name="cash-outline" size={16} color={colors.primary} />
+                  <Text style={styles.sectionTitle}>{t('statsMonthlyRevenue')}</Text>
+                </View>
+                <View style={styles.earningsTotalRow}>
+                  <Text style={styles.earningsTotal}>
+                    {t('currencySymbol')}{Math.round(bundle.eventEarnings.total).toLocaleString()}
+                  </Text>
+                </View>
+                <Text style={[styles.cardSub, {marginBottom: 8, textAlign: 'center'}]}>
+                  {formatDuration(bundle.eventEarnings.totalMinutes, t)}
+                </Text>
+                {bundle.eventEarnings.entries.map((entry, i) => (
+                  <View key={`evearn-${i}`} style={styles.earningsRow}>
+                    <View style={[styles.legendDot, {backgroundColor: entry.color}]} />
+                    <Text style={[styles.earningsLabel, {color: colors.text}]} numberOfLines={1}>
+                      {entry.title || t('noTitle')}
+                    </Text>
+                    <Text style={[styles.earningsTime, {color: colors.textSecondary}]}>
+                      {formatDuration(entry.minutes, t)} × {entry.hourlyWage.toLocaleString()}
+                    </Text>
+                    <Text style={[styles.earningsAmount, {color: colors.text}]}>
+                      {t('currencySymbol')}{Math.round(entry.amount).toLocaleString()}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {/* Earnings */}
+            {bundle.earnings.byCalendar.length > 0 && (
+              <View style={styles.card}>
+                <View style={styles.sectionTitleRow}>
+                  <Ionicons name="cash-outline" size={16} color={colors.primary} />
+                  <Text style={styles.sectionTitle}>{t('statsEarnings')}</Text>
+                </View>
+                <View style={styles.earningsTotalRow}>
+                  <Text style={styles.earningsTotal}>
+                    {Math.round(bundle.earnings.total).toLocaleString()}
+                  </Text>
+                </View>
+                <Text style={[styles.cardSub, {marginBottom: 8, textAlign: 'center'}]}>
+                  {formatDuration(bundle.earnings.totalMinutes, t)}
+                </Text>
+                {bundle.earnings.byCalendar.map((entry, i) => (
+                  <View key={`earn-${i}`} style={styles.earningsRow}>
+                    <View style={[styles.legendDot, {backgroundColor: entry.calendar.color}]} />
+                    <Text style={[styles.earningsLabel, {color: colors.text}]} numberOfLines={1}>
+                      {entry.calendar.name || (entry.calendar.nameKey ? t(entry.calendar.nameKey) : '')}
+                    </Text>
+                    <Text style={[styles.earningsTime, {color: colors.textSecondary}]}>
+                      {formatDuration(entry.minutes, t)} × {entry.calendar.hourlyWage?.toLocaleString()}
+                    </Text>
+                    <Text style={[styles.earningsAmount, {color: colors.text}]}>
+                      {Math.round(entry.amount).toLocaleString()}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
             {/* Category pie/bar */}
             {bundle.monthly.byCategory.length > 0 && (
               <View style={styles.card}>
@@ -536,6 +600,34 @@ const makeStyles = (colors: ThemeColors) =>
     chronoText: {
       fontSize: 13,
       color: colors.textSecondary,
+    },
+    earningsTotalRow: {
+      alignItems: 'center',
+      marginTop: 4,
+    },
+    earningsTotal: {
+      fontSize: 32,
+      fontWeight: '700',
+      color: colors.primary,
+    },
+    earningsRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 6,
+      gap: 8,
+    },
+    earningsLabel: {
+      fontSize: 13,
+      flex: 1,
+    },
+    earningsTime: {
+      fontSize: 11,
+    },
+    earningsAmount: {
+      fontSize: 14,
+      fontWeight: '600',
+      minWidth: 70,
+      textAlign: 'right',
     },
     stackBar: {
       flexDirection: 'row',

@@ -49,6 +49,8 @@ interface WeekViewProps {
   sleepSettings?: SleepSettings | null;
   onOpenSleepSettings?: () => void;
   onJumpToToday?: () => void;
+  /** When set, only events whose resolved color matches are rendered. */
+  filterColor?: string | null;
 }
 
 const dayKey = (d: Date): string =>
@@ -74,6 +76,7 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
   sleepSettings,
   onOpenSleepSettings,
   onJumpToToday,
+  filterColor,
 }, ref) => {
   const {colors, isDark} = useTheme();
   const {t} = useTranslation();
@@ -341,10 +344,17 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
   }, [displayStartHour]);
 
   // ── Event lookups: group by day key once, reuse across columns. ──
+  const matchesFilter = useCallback((event: CalendarEventReadable): boolean => {
+    if (!filterColor) return true;
+    const resolved = (event.id && eventColors[event.id]) || event.calendar?.color;
+    return resolved?.toUpperCase() === filterColor.toUpperCase();
+  }, [filterColor, eventColors]);
+
   const timedEventsByKey = useMemo(() => {
     const map = new Map<string, CalendarEventReadable[]>();
     events.forEach(event => {
       if (!event.startDate || !event.endDate || event.allDay) return;
+      if (!matchesFilter(event)) return;
       const start = new Date(event.startDate);
       const end = new Date(event.endDate);
 
@@ -360,12 +370,13 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
       }
     });
     return map;
-  }, [events]);
+  }, [events, matchesFilter]);
 
   const allDayEventsByKey = useMemo(() => {
     const map = new Map<string, CalendarEventReadable[]>();
     events.forEach(event => {
       if (!event.allDay || !event.startDate) return;
+      if (!matchesFilter(event)) return;
       const start = new Date(event.startDate);
       const key = dayKey(start);
       if (!map.has(key)) map.set(key, []);

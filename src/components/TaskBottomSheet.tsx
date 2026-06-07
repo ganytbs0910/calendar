@@ -13,8 +13,10 @@ import {
   Platform,
   TouchableWithoutFeedback,
   Alert,
+  Modal,
 } from 'react-native';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import {useTheme} from '../theme/ThemeContext';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {useTranslation} from 'react-i18next';
@@ -27,6 +29,7 @@ import {
   deleteTask,
   updateTask,
 } from '../services/taskService';
+import {getPinnedEventIds, togglePinnedEvent} from '../services/pinnedEventService';
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -120,10 +123,15 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
 
   // ── Data ──
   const [dayTasks, setDayTasks] = useState<Task[]>([]);
+  const [pinnedEventSet, setPinnedEventSet] = useState<Set<string>>(new Set());
 
   const fetchTasks = useCallback(async () => {
-    const tasks = await getTasksForDate(dateKey);
+    const [tasks, pinned] = await Promise.all([
+      getTasksForDate(dateKey),
+      getPinnedEventIds(),
+    ]);
     setDayTasks(tasks);
+    setPinnedEventSet(new Set(pinned));
   }, [dateKey]);
 
   useEffect(() => { fetchTasks(); }, [fetchTasks]);
@@ -133,7 +141,12 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
   const todoTasks = useMemo(() =>
     dayTasks
       .filter(t => t.taskType === 'todo' || (!t.taskType && !t.time))
-      .sort((a, b) => Number(a.completed) - Number(b.completed)),
+      .sort((a, b) => {
+        // Completed sink to bottom, pinned float to top within each group.
+        if (a.completed !== b.completed) return Number(a.completed) - Number(b.completed);
+        if (!!a.pinned !== !!b.pinned) return Number(!!b.pinned) - Number(!!a.pinned);
+        return 0;
+      }),
   [dayTasks]);
 
   const scheduleTasks = useMemo(() =>
@@ -184,9 +197,15 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
       });
     });
 
-    items.sort((a, b) => a.sortMinutes - b.sortMinutes);
+    // Pinned items float to the top regardless of time.
+    items.sort((a, b) => {
+      const aPinned = a.isEvent ? pinnedEventSet.has(a.id) : !!a.task?.pinned;
+      const bPinned = b.isEvent ? pinnedEventSet.has(b.id) : !!b.task?.pinned;
+      if (aPinned !== bPinned) return aPinned ? -1 : 1;
+      return a.sortMinutes - b.sortMinutes;
+    });
     return items;
-  }, [events, eventColors, scheduleTasks, t]);
+  }, [events, eventColors, scheduleTasks, t, pinnedEventSet]);
 
   // ── Sheet height animation ──
   const sheetAnim = useRef(new Animated.Value(BOTTOM_SHEET_MIN)).current;
@@ -227,42 +246,61 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
     }
   }, []);
 
-  const makeSwipeResponder = useCallback((itemId: string) => PanResponder.create({
+  const makeSwipeResponder = useCallback((itemId: string, onPin?: () => void) => PanResponder.create({
     onStartShouldSetPanResponder: () => false,
     onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dx) > 8 && Math.abs(gs.dx) > Math.abs(gs.dy),
     onMoveShouldSetPanResponderCapture: (_, gs) => Math.abs(gs.dx) > 8 && Math.abs(gs.dx) > Math.abs(gs.dy),
     onPanResponderMove: (_, gs) => {
       const anim = getSwipeAnim(itemId);
-      anim.setValue(Math.min(0, Math.max(-72, gs.dx)));
+      anim.setValue(Math.min(80, Math.max(-72, gs.dx)));
     },
     onPanResponderRelease: (_, gs) => {
       const anim = getSwipeAnim(itemId);
       if (gs.dx < -36) {
+        // Reveal delete tray on the right.
         const prev = swipedItemIdRef.current;
         if (prev && prev !== itemId) resetSwipe(prev);
         swipedItemIdRef.current = itemId;
         Animated.spring(anim, {toValue: -72, useNativeDriver: true}).start();
+      } else if (gs.dx > 50 && onPin) {
+        // Trigger pin toggle and snap back.
+        onPin();
+        Animated.spring(anim, {toValue: 0, useNativeDriver: true}).start();
       } else {
         resetSwipe(itemId);
       }
     },
   }), [getSwipeAnim, resetSwipe]);
 
+  const handleTogglePinTask = useCallback(async (task: Task) => {
+    await updateTask(task.id, {pinned: !task.pinned});
+    fetchTasks();
+  }, [fetchTasks]);
+
+  const handleTogglePinEvent = useCallback(async (eventId: string) => {
+    await togglePinnedEvent(eventId);
+    const next = await getPinnedEventIds();
+    setPinnedEventSet(new Set(next));
+  }, []);
+
   const taskPanResponders = useMemo(() => {
     const responders: Record<string, ReturnType<typeof PanResponder.create>> = {};
     for (const task of todoTasks) {
-      responders[task.id] = makeSwipeResponder(task.id);
+      responders[task.id] = makeSwipeResponder(task.id, () => handleTogglePinTask(task));
     }
     return responders;
-  }, [todoTasks, makeSwipeResponder]);
+  }, [todoTasks, makeSwipeResponder, handleTogglePinTask]);
 
   const schedulePanResponders = useMemo(() => {
     const responders: Record<string, ReturnType<typeof PanResponder.create>> = {};
     for (const item of sheetScheduleItems) {
-      responders[item.id] = makeSwipeResponder(item.id);
+      responders[item.id] = makeSwipeResponder(item.id, () => {
+        if (item.isEvent) handleTogglePinEvent(item.id);
+        else if (item.task) handleTogglePinTask(item.task);
+      });
     }
     return responders;
-  }, [sheetScheduleItems, makeSwipeResponder]);
+  }, [sheetScheduleItems, makeSwipeResponder, handleTogglePinEvent, handleTogglePinTask]);
 
   // ── Task handlers ──
   const handleToggleTask = useCallback(async (taskId: string) => {
@@ -340,6 +378,25 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
   const [editTaskTimeMinute, setEditTaskTimeMinute] = useState('');
   const [editDeadline, setEditDeadline] = useState<string | null>(null);
   const [addDeadline, setAddDeadline] = useState<string | null>(null);
+  const [deadlinePickerTarget, setDeadlinePickerTarget] = useState<'add' | 'edit' | null>(null);
+  const [deadlinePickerDate, setDeadlinePickerDate] = useState<Date>(new Date());
+
+  const openDeadlinePicker = useCallback((target: 'add' | 'edit', current: string | null) => {
+    if (current) {
+      const [y, m, d] = current.split('-').map(Number);
+      setDeadlinePickerDate(new Date(y, m - 1, d));
+    } else {
+      setDeadlinePickerDate(new Date());
+    }
+    setDeadlinePickerTarget(target);
+  }, []);
+
+  const commitDeadlinePicker = useCallback((picked: Date) => {
+    const key = `${picked.getFullYear()}-${String(picked.getMonth() + 1).padStart(2, '0')}-${String(picked.getDate()).padStart(2, '0')}`;
+    if (deadlinePickerTarget === 'add') setAddDeadline(key);
+    else if (deadlinePickerTarget === 'edit') setEditDeadline(key);
+    setDeadlinePickerTarget(null);
+  }, [deadlinePickerTarget]);
 
   const handleExpandTask = useCallback((task: Task) => {
     if (expandedTaskId === task.id) {
@@ -434,6 +491,9 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
             ) : (
               todoTasks.map(task => (
                 <View key={task.id} style={styles.swipeRow}>
+                  <View style={styles.swipePinBg}>
+                    <Ionicons name={task.pinned ? 'bookmark' : 'bookmark-outline'} size={18} color="#fff" />
+                  </View>
                   <TouchableOpacity
                     style={styles.swipeDeleteBtn}
                     onPress={() => { resetSwipe(task.id); handleDeleteTask(task.id); }}>
@@ -464,13 +524,18 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
                         if (swipedItemIdRef.current) { resetSwipe(swipedItemIdRef.current); return; }
                         handleExpandTask(task);
                       }}>
-                      <Text
-                        style={[
-                          styles.sheetEventTitle,
-                          {color: colors.text},
-                          task.completed && {textDecorationLine: 'line-through', color: colors.textTertiary},
-                        ]}
-                        numberOfLines={1}>{task.title}</Text>
+                      <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
+                        {task.pinned && (
+                          <Ionicons name="bookmark" size={12} color="#FF9500" />
+                        )}
+                        <Text
+                          style={[
+                            styles.sheetEventTitle,
+                            {color: colors.text, flex: 1},
+                            task.completed && {textDecorationLine: 'line-through', color: colors.textTertiary},
+                          ]}
+                          numberOfLines={1}>{task.title}</Text>
+                      </View>
                       <View style={{flexDirection: 'row', gap: 6}}>
                         {task.duration ? (
                           <Text style={[styles.sheetEventTime, {color: colors.textSecondary}]}>
@@ -585,33 +650,55 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
                   )}
                   <View style={{flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 10}}><Ionicons name="flag-outline" size={13} color={colors.textSecondary} /><Text style={[styles.taskEditLabel, {color: colors.textSecondary}]}>{t('taskDeadline')}</Text></View>
                   <View style={styles.durationOptions}>
-                    {[
-                      {label: t('deadlineToday'), value: getDeadlineKey(0)},
-                      {label: t('deadlineTomorrow'), value: getDeadlineKey(1)},
-                      {label: t('deadlineNextWeek'), value: getDeadlineKey(7)},
-                    ].map(opt => (
-                      <TouchableOpacity
-                        key={opt.value}
-                        style={[
-                          styles.durationChip,
-                          {borderColor: colors.border},
-                          editDeadline === opt.value && {backgroundColor: colors.primary, borderColor: colors.primary},
-                        ]}
-                        onPress={() => setEditDeadline(editDeadline === opt.value ? null : opt.value)}>
-                        <Text style={[
-                          styles.durationChipText,
-                          {color: colors.textSecondary},
-                          editDeadline === opt.value && {color: colors.onPrimary},
-                        ]}>{opt.label}</Text>
-                      </TouchableOpacity>
-                    ))}
-                    {editDeadline && (
-                      <TouchableOpacity
-                        style={[styles.durationChip, {borderColor: colors.error}]}
-                        onPress={() => setEditDeadline(null)}>
-                        <Text style={[styles.durationChipText, {color: colors.error}]}>✕</Text>
-                      </TouchableOpacity>
-                    )}
+                    {(() => {
+                      const presetValues = [getDeadlineKey(0), getDeadlineKey(1), getDeadlineKey(7)];
+                      const isCustom = !!editDeadline && !presetValues.includes(editDeadline);
+                      return (
+                        <>
+                          {[
+                            {label: t('deadlineToday'), value: presetValues[0]},
+                            {label: t('deadlineTomorrow'), value: presetValues[1]},
+                            {label: t('deadlineNextWeek'), value: presetValues[2]},
+                          ].map(opt => (
+                            <TouchableOpacity
+                              key={opt.value}
+                              style={[
+                                styles.durationChip,
+                                {borderColor: colors.border},
+                                editDeadline === opt.value && {backgroundColor: colors.primary, borderColor: colors.primary},
+                              ]}
+                              onPress={() => setEditDeadline(editDeadline === opt.value ? null : opt.value)}>
+                              <Text style={[
+                                styles.durationChipText,
+                                {color: colors.textSecondary},
+                                editDeadline === opt.value && {color: colors.onPrimary},
+                              ]}>{opt.label}</Text>
+                            </TouchableOpacity>
+                          ))}
+                          <TouchableOpacity
+                            style={[
+                              styles.durationChip,
+                              {borderColor: colors.border, flexDirection: 'row', alignItems: 'center', gap: 4},
+                              isCustom && {backgroundColor: colors.primary, borderColor: colors.primary},
+                            ]}
+                            onPress={() => openDeadlinePicker('edit', editDeadline)}>
+                            <Ionicons name="calendar-outline" size={13} color={isCustom ? colors.onPrimary : colors.textSecondary} />
+                            <Text style={[
+                              styles.durationChipText,
+                              {color: colors.textSecondary},
+                              isCustom && {color: colors.onPrimary},
+                            ]}>{isCustom && editDeadline ? formatDeadline(editDeadline, t) : t('deadlinePickDate')}</Text>
+                          </TouchableOpacity>
+                          {editDeadline && (
+                            <TouchableOpacity
+                              style={[styles.durationChip, {borderColor: colors.error}]}
+                              onPress={() => setEditDeadline(null)}>
+                              <Text style={[styles.durationChipText, {color: colors.error}]}>✕</Text>
+                            </TouchableOpacity>
+                          )}
+                        </>
+                      );
+                    })()}
                   </View>
                   <View style={{flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 10}}><Ionicons name="time-outline" size={13} color={colors.textSecondary} /><Text style={[styles.taskEditLabel, {color: colors.textSecondary}]}>{t('taskTimezone')}</Text></View>
                   <View style={styles.taskEditTimeRow}>
@@ -661,8 +748,15 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
             {sheetScheduleItems.length === 0 ? (
               <Text style={[styles.sheetEmpty, {color: colors.textTertiary}]}>{t('noSchedule')}</Text>
             ) : (
-              sheetScheduleItems.map(item => (
+              sheetScheduleItems.map(item => {
+                const itemPinned = item.isEvent
+                  ? pinnedEventSet.has(item.id)
+                  : !!item.task?.pinned;
+                return (
                 <View key={item.id} style={styles.swipeRow}>
+                  <View style={styles.swipePinBg}>
+                    <Ionicons name={itemPinned ? 'bookmark' : 'bookmark-outline'} size={18} color="#fff" />
+                  </View>
                   <TouchableOpacity
                     style={styles.swipeDeleteBtn}
                     onPress={() => { resetSwipe(item.id); handleDeleteScheduleItem(item); }}>
@@ -687,13 +781,18 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
                       }}>
                       <View style={[styles.sheetEventDot, {backgroundColor: item.color}]} />
                       <View style={styles.sheetEventInfo}>
-                        <Text
-                          style={[
-                            styles.sheetEventTitle,
-                            {color: colors.text},
-                            item.completed && {textDecorationLine: 'line-through', color: colors.textTertiary},
-                          ]}
-                          numberOfLines={1}>{item.title}</Text>
+                        <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
+                          {itemPinned && (
+                            <Ionicons name="bookmark" size={12} color="#FF9500" />
+                          )}
+                          <Text
+                            style={[
+                              styles.sheetEventTitle,
+                              {color: colors.text, flex: 1},
+                              item.completed && {textDecorationLine: 'line-through', color: colors.textTertiary},
+                            ]}
+                            numberOfLines={1}>{item.title}</Text>
+                        </View>
                         <Text style={[styles.sheetEventTime, {color: colors.textSecondary}]}>
                           {item.timeLabel}
                         </Text>
@@ -701,7 +800,8 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
                     </TouchableOpacity>
                   </Animated.View>
                 </View>
-              ))
+                );
+              })
             )}
           </ScrollView>
         </View>
@@ -795,33 +895,55 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
                 )}
                 <View style={{flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 12}}><Ionicons name="flag-outline" size={13} color={colors.textSecondary} /><Text style={[styles.taskEditLabel, {color: colors.textSecondary}]}>{t('taskDeadline')}</Text></View>
                 <View style={styles.durationOptions}>
-                  {[
-                    {label: t('deadlineToday'), value: getDeadlineKey(0)},
-                    {label: t('deadlineTomorrow'), value: getDeadlineKey(1)},
-                    {label: t('deadlineNextWeek'), value: getDeadlineKey(7)},
-                  ].map(opt => (
-                    <TouchableOpacity
-                      key={opt.value}
-                      style={[
-                        styles.durationChip,
-                        {borderColor: colors.border},
-                        addDeadline === opt.value && {backgroundColor: colors.primary, borderColor: colors.primary},
-                      ]}
-                      onPress={() => setAddDeadline(addDeadline === opt.value ? null : opt.value)}>
-                      <Text style={[
-                        styles.durationChipText,
-                        {color: colors.textSecondary},
-                        addDeadline === opt.value && {color: colors.onPrimary},
-                      ]}>{opt.label}</Text>
-                    </TouchableOpacity>
-                  ))}
-                  {addDeadline && (
-                    <TouchableOpacity
-                      style={[styles.durationChip, {borderColor: colors.error}]}
-                      onPress={() => setAddDeadline(null)}>
-                      <Text style={[styles.durationChipText, {color: colors.error}]}>✕</Text>
-                    </TouchableOpacity>
-                  )}
+                  {(() => {
+                    const presetValues = [getDeadlineKey(0), getDeadlineKey(1), getDeadlineKey(7)];
+                    const isCustom = !!addDeadline && !presetValues.includes(addDeadline);
+                    return (
+                      <>
+                        {[
+                          {label: t('deadlineToday'), value: presetValues[0]},
+                          {label: t('deadlineTomorrow'), value: presetValues[1]},
+                          {label: t('deadlineNextWeek'), value: presetValues[2]},
+                        ].map(opt => (
+                          <TouchableOpacity
+                            key={opt.value}
+                            style={[
+                              styles.durationChip,
+                              {borderColor: colors.border},
+                              addDeadline === opt.value && {backgroundColor: colors.primary, borderColor: colors.primary},
+                            ]}
+                            onPress={() => setAddDeadline(addDeadline === opt.value ? null : opt.value)}>
+                            <Text style={[
+                              styles.durationChipText,
+                              {color: colors.textSecondary},
+                              addDeadline === opt.value && {color: colors.onPrimary},
+                            ]}>{opt.label}</Text>
+                          </TouchableOpacity>
+                        ))}
+                        <TouchableOpacity
+                          style={[
+                            styles.durationChip,
+                            {borderColor: colors.border, flexDirection: 'row', alignItems: 'center', gap: 4},
+                            isCustom && {backgroundColor: colors.primary, borderColor: colors.primary},
+                          ]}
+                          onPress={() => openDeadlinePicker('add', addDeadline)}>
+                          <Ionicons name="calendar-outline" size={13} color={isCustom ? colors.onPrimary : colors.textSecondary} />
+                          <Text style={[
+                            styles.durationChipText,
+                            {color: colors.textSecondary},
+                            isCustom && {color: colors.onPrimary},
+                          ]}>{isCustom && addDeadline ? formatDeadline(addDeadline, t) : t('deadlinePickDate')}</Text>
+                        </TouchableOpacity>
+                        {addDeadline && (
+                          <TouchableOpacity
+                            style={[styles.durationChip, {borderColor: colors.error}]}
+                            onPress={() => setAddDeadline(null)}>
+                            <Text style={[styles.durationChipText, {color: colors.error}]}>✕</Text>
+                          </TouchableOpacity>
+                        )}
+                      </>
+                    );
+                  })()}
                 </View>
                 <View style={styles.addActions}>
                   <TouchableOpacity
@@ -842,11 +964,75 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
           </View>
         </TouchableWithoutFeedback>
       )}
+      {deadlinePickerTarget !== null && Platform.OS === 'ios' && (
+        <Modal
+          transparent
+          visible
+          animationType="fade"
+          onRequestClose={() => setDeadlinePickerTarget(null)}>
+          <TouchableWithoutFeedback onPress={() => setDeadlinePickerTarget(null)}>
+            <View style={styles.pickerOverlay}>
+              <TouchableWithoutFeedback>
+                <View style={[styles.pickerSheet, {backgroundColor: colors.surface}]}>
+                  <View style={[styles.pickerHeader, {borderBottomColor: colors.border}]}>
+                    <TouchableOpacity onPress={() => setDeadlinePickerTarget(null)}>
+                      <Text style={{color: colors.textTertiary, fontSize: 16}}>{t('cancel')}</Text>
+                    </TouchableOpacity>
+                    <Text style={{color: colors.text, fontSize: 16, fontWeight: '600'}}>{t('taskDeadline')}</Text>
+                    <TouchableOpacity onPress={() => commitDeadlinePicker(deadlinePickerDate)}>
+                      <Text style={{color: colors.primary, fontSize: 16, fontWeight: '600'}}>OK</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <DateTimePicker
+                    value={deadlinePickerDate}
+                    mode="date"
+                    display="inline"
+                    themeVariant={isDark ? 'dark' : 'light'}
+                    onChange={(_, picked) => { if (picked) setDeadlinePickerDate(picked); }}
+                  />
+                </View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
+      )}
+      {deadlinePickerTarget !== null && Platform.OS === 'android' && (
+        <DateTimePicker
+          value={deadlinePickerDate}
+          mode="date"
+          display="default"
+          onChange={(event, picked) => {
+            if (event.type === 'set' && picked) {
+              commitDeadlinePicker(picked);
+            } else {
+              setDeadlinePickerTarget(null);
+            }
+          }}
+        />
+      )}
     </>
   );
 });
 
 const styles = StyleSheet.create({
+  pickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  pickerSheet: {
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingBottom: 24,
+  },
+  pickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
   bottomSheet: {
     position: 'absolute',
     left: 0,
@@ -939,6 +1125,20 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 13,
     fontWeight: '600',
+  },
+  swipePinBg: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 80,
+    backgroundColor: '#FF9500',
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+    paddingLeft: 18,
+  },
+  pinnedGlyph: {
+    marginLeft: 4,
   },
   sheetEventItem: {
     flexDirection: 'row',

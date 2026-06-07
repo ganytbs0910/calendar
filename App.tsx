@@ -13,6 +13,7 @@ import {
   ScrollView,
   Platform,
   AppState,
+  Switch,
 } from 'react-native';
 import {SafeAreaProvider, SafeAreaView} from 'react-native-safe-area-context';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
@@ -21,6 +22,14 @@ import WeekView, {WeekViewRef} from './src/components/WeekView';
 import AddEventModal, {removeEventColor} from './src/components/AddEventModal';
 import EventDetailModal from './src/components/EventDetailModal';
 import {UndoToast, UndoAction} from './src/components/UndoToast';
+import UpdateAvailableModal from './src/components/UpdateAvailableModal';
+import DeviceInfo from 'react-native-device-info';
+import {
+  checkForUpdate,
+  dismissUpdatePrompt,
+  openStore,
+  UpdateCheckResult,
+} from './src/services/versionCheckService';
 import {ThemeProvider, useTheme} from './src/theme/ThemeContext';
 import {PremiumProvider, usePremium} from './src/context/PremiumContext';
 import {PaywallScreen} from './src/components/PaywallScreen';
@@ -43,8 +52,31 @@ import {
   getDefaultSettings,
 } from './src/services/sleepSettingsService';
 import {EventTemplate, getTemplates, deleteTemplate} from './src/services/templateService';
+import {EventHistoryEntry} from './src/services/eventHistoryService';
+import EventHistoryList from './src/components/EventHistoryList';
+import {
+  cancelEventNotification,
+  isNotificationsEnabled,
+  setNotificationsEnabled,
+  isSoundEnabled,
+  setSoundEnabled,
+  requestNotificationPermission,
+  sendTestNotification,
+  cleanupExpiredEventNotifications,
+} from './src/services/notificationService';
 import {clearDevSeedEvents} from './src/services/devSeedData';
 import LockScreen, {PinSetupModal} from './src/components/LockScreen';
+import NLEventInput from './src/components/NLEventInput';
+import {ParsedEvent} from './src/utils/eventParser';
+import {
+  UserCalendar,
+  ensureDefaultsSeeded,
+  getUserCalendars,
+  addUserCalendar,
+  updateUserCalendar,
+  deleteUserCalendar,
+  resolveCalendarName,
+} from './src/services/userCalendarService';
 import {
   isPinSet,
   setupPin,
@@ -53,6 +85,8 @@ import {
   setBiometricEnabled,
   getBiometricCapability,
   authenticateBiometric,
+  getLockExpiry,
+  setLockExpiry,
 } from './src/services/lockService';
 import {useTranslation} from 'react-i18next';
 import './src/i18n/i18n';
@@ -266,6 +300,10 @@ function AppContent() {
   const [sleepSettings, setSleepSettings] = useState<SleepSettings | null>(null);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [templates, setTemplates] = useState<EventTemplate[]>([]);
+  const [templateTab, setTemplateTab] = useState<'template' | 'history'>('template');
+  const [showHistoryScreen, setShowHistoryScreen] = useState(false);
+  const [notificationsOn, setNotificationsOn] = useState(true);
+  const [notificationSound, setNotificationSound] = useState(true);
   const [undoAction, setUndoAction] = useState<UndoAction | null>(null);
   const [initialColor, setInitialColor] = useState<string | undefined>(undefined);
   // Lock-screen state. `lockReady` becomes true once we've checked AsyncStorage
@@ -279,23 +317,110 @@ function AppContent() {
   const [biometricLabel, setBiometricLabel] = useState<string>('');
   const [pinSetupVisible, setPinSetupVisible] = useState(false);
   const [pinSetupChange, setPinSetupChange] = useState(false);
+  const [lockExpiryAt, setLockExpiryAt] = useState<number | null>(null);
   const [fullscreenMonth, setFullscreenMonth] = useState(false);
+  const [showNLInput, setShowNLInput] = useState(false);
+  const [initialTitle, setInitialTitle] = useState<string | undefined>(undefined);
+  // User-defined calendars (categories) and the active tab.
+  const [userCalendars, setUserCalendars] = useState<UserCalendar[]>([]);
+  const [selectedCalendarId, setSelectedCalendarId] = useState<string | null>(null);
+  const [showCalendarCreate, setShowCalendarCreate] = useState(false);
+  const [newCalendarName, setNewCalendarName] = useState('');
+  const [newCalendarColor, setNewCalendarColor] = useState('#007AFF');
+  const [newCalendarWage, setNewCalendarWage] = useState('');
+  // When editing, holds the id of the calendar being edited; null = create mode.
+  const [editingCalendarId, setEditingCalendarId] = useState<string | null>(null);
   const calendarRef = useRef<CalendarRef>(null);
   const weekViewRef = useRef<WeekViewRef>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load saved language on mount
   useEffect(() => {
-    loadSavedLanguage();
-    getSavedLanguageCode().then(code => setSelectedLanguage(code));
+    let cancelled = false;
+    (async () => {
+      await loadSavedLanguage();
+      const code = await getSavedLanguageCode();
+      if (!cancelled) setSelectedLanguage(code);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Request notification permission once on first launch (no-op if granted).
+  useEffect(() => {
+    (async () => {
+      const [enabled, sound] = await Promise.all([
+        isNotificationsEnabled(),
+        isSoundEnabled(),
+      ]);
+      setNotificationsOn(enabled);
+      setNotificationSound(sound);
+      if (enabled) {
+        requestNotificationPermission().catch(() => {});
+      }
+      // Sweep out any one-shot notifications whose fire time already passed —
+      // e.g. left over after the system clock jumped forward or a delivery
+      // failed silently. Repeating reminders are preserved.
+      cleanupExpiredEventNotifications().catch(() => {});
+    })();
+  }, []);
+
+  const handleToggleNotifications = useCallback(async (next: boolean) => {
+    setNotificationsOn(next);
+    await setNotificationsEnabled(next);
+    if (next) {
+      const granted = await requestNotificationPermission();
+      if (!granted) {
+        Alert.alert(t('notification'), t('notificationsPermissionDenied'), [
+          {text: t('cancel'), style: 'cancel'},
+          {text: t('openSettings'), onPress: () => Linking.openSettings()},
+        ]);
+      }
+    }
+  }, [t]);
+
+  const handleToggleNotificationSound = useCallback(async (next: boolean) => {
+    setNotificationSound(next);
+    await setSoundEnabled(next);
+  }, []);
+
+  const handleSendTestNotification = useCallback(async () => {
+    const granted = await requestNotificationPermission();
+    if (!granted) {
+      Alert.alert(t('notification'), t('notificationsPermissionDenied'), [
+        {text: t('cancel'), style: 'cancel'},
+        {text: t('openSettings'), onPress: () => Linking.openSettings()},
+      ]);
+      return;
+    }
+    await sendTestNotification();
+  }, [t]);
+
+  // App-store version check (optional update prompt).
+  const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    // Skip in dev — the binary version doesn't match the published one.
+    if (__DEV__) return;
+    const timer = setTimeout(() => {
+      checkForUpdate().then(result => {
+        if (!cancelled && result.updateAvailable) {
+          setUpdateInfo(result);
+        }
+      });
+    }, 2000);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, []);
 
   // Initial lock check on mount
   const refreshLockStatus = useCallback(async () => {
-    const [pinSet, bioOn, cap] = await Promise.all([
+    const [pinSet, bioOn, cap, expiry] = await Promise.all([
       isPinSet(),
       isBiometricEnabled(),
       getBiometricCapability(),
+      getLockExpiry(),
     ]);
     setLockEnabled(pinSet);
     setBiometricOn(bioOn);
@@ -303,6 +428,7 @@ function AppContent() {
     setBiometricLabel(
       cap.type === 'FaceID' ? 'Face ID' : cap.type === 'TouchID' ? 'Touch ID' : cap.type ? 'Biometrics' : ''
     );
+    setLockExpiryAt(expiry);
   }, []);
 
   useEffect(() => {
@@ -313,6 +439,11 @@ function AppContent() {
     });
     refreshLockStatus();
   }, [refreshLockStatus]);
+
+  // Load user calendars (seed defaults on first run)
+  useEffect(() => {
+    ensureDefaultsSeeded().then(setUserCalendars);
+  }, []);
 
   // Re-lock the app when it goes to background (only if a PIN is set)
   useEffect(() => {
@@ -377,6 +508,26 @@ function AppContent() {
     // Don't set id so it creates a new event (copy mode behavior)
     setEditingEvent(templateEvent);
     setInitialColor(template.color);
+    setShowAddModal(true);
+  }, [selectedDate]);
+
+  const handleUseHistoryEntry = useCallback((entry: EventHistoryEntry) => {
+    setShowTemplateModal(false);
+    setShowHistoryScreen(false);
+    const start = new Date(selectedDate || new Date());
+    start.setHours(new Date().getHours() + 1, 0, 0, 0);
+    const end = new Date(start.getTime() + entry.durationMinutes * 60 * 1000);
+    setInitialStartDate(start);
+    setInitialEndDate(end);
+    const historyEvent = {
+      title: entry.title,
+      startDate: start.toISOString(),
+      endDate: end.toISOString(),
+      alarms: entry.reminder !== null ? [{date: entry.reminder}] : [],
+    } as any;
+    setEditingEvent(historyEvent);
+    setInitialColor(entry.color);
+    setInitialTitle(entry.title);
     setShowAddModal(true);
   }, [selectedDate]);
 
@@ -463,8 +614,12 @@ function AppContent() {
   const handleAddEvent = useCallback(() => {
     setInitialStartDate(selectedDate || undefined);
     setInitialEndDate(undefined);
+    // When viewing a specific user-calendar tab, pre-select its color so the
+    // new event lands in that category by default.
+    const active = userCalendars.find(c => c.id === selectedCalendarId);
+    setInitialColor(active?.color);
     setShowAddModal(true);
-  }, [selectedDate]);
+  }, [selectedDate, userCalendars, selectedCalendarId]);
 
   const handleDateDoubleSelect = useCallback((date: Date) => {
     setSelectedDate(date);
@@ -485,6 +640,7 @@ function AppContent() {
     setInitialEndDate(undefined);
     setEditingEvent(null);
     setInitialColor(undefined);
+    setInitialTitle(undefined);
   }, []);
 
   // ── Lock handlers ───────────────────────────────────────────────────────
@@ -498,12 +654,50 @@ function AppContent() {
     setPinSetupVisible(true);
   }, []);
 
+  const askLockDuration = useCallback(() => {
+    const DAY = 24 * 60 * 60 * 1000;
+    Alert.alert(
+      t('lockDurationTitle'),
+      t('lockDurationMessage'),
+      [
+        {
+          text: t('lockDuration3Days'),
+          onPress: async () => {
+            await setLockExpiry(Date.now() + 3 * DAY);
+            refreshLockStatus();
+          },
+        },
+        {
+          text: t('lockDuration1Week'),
+          onPress: async () => {
+            await setLockExpiry(Date.now() + 7 * DAY);
+            refreshLockStatus();
+          },
+        },
+        {
+          text: t('lockDurationForever'),
+          onPress: async () => {
+            await setLockExpiry(null);
+            refreshLockStatus();
+          },
+        },
+      ],
+      {cancelable: false}
+    );
+  }, [t, refreshLockStatus]);
+
   const handlePinSetupComplete = useCallback(async (pin: string) => {
+    const wasNew = !pinSetupChange;
     await setupPin(pin);
     setPinSetupVisible(false);
     setLockEnabled(true);
     refreshLockStatus();
-  }, [refreshLockStatus]);
+    // First-time setup: ask the user how long the lock should stay active.
+    // Changing an existing PIN keeps the previous expiry intact.
+    if (wasNew) {
+      askLockDuration();
+    }
+  }, [pinSetupChange, refreshLockStatus, askLockDuration]);
 
   const handleDisableLock = useCallback(() => {
     Alert.alert(
@@ -541,6 +735,16 @@ function AppContent() {
   const handleUnlocked = useCallback(() => {
     setIsLocked(false);
   }, []);
+
+  const handleNLParsed = useCallback((parsed: ParsedEvent) => {
+    setShowNLInput(false);
+    setInitialStartDate(parsed.startDate);
+    setInitialEndDate(parsed.endDate);
+    setInitialTitle(parsed.title || undefined);
+    const active = userCalendars.find(c => c.id === selectedCalendarId);
+    setInitialColor(active?.color);
+    setShowAddModal(true);
+  }, [userCalendars, selectedCalendarId]);
 
   const handleEventAdded = useCallback(() => {
     calendarRef.current?.refreshEvents();
@@ -608,6 +812,7 @@ function AppContent() {
       if (deleteType === 'all') {
         removeEventColor(eventData.id).catch(() => {});
       }
+      cancelEventNotification(eventData.id).catch(() => {});
       refreshAllViews();
 
       // Set up undo action
@@ -784,6 +989,13 @@ function AppContent() {
                 />
               </TouchableOpacity>
             )}
+            <TouchableOpacity
+              style={styles.iconBtn}
+              onPress={() => setShowNLInput(true)}
+              accessibilityLabel={t('nlEventTitle')}
+              accessibilityRole="button">
+              <Ionicons name="chatbubble-ellipses-outline" size={20} color={colors.primary} />
+            </TouchableOpacity>
           </View>
           <View style={styles.headerRight}>
             <TouchableOpacity
@@ -821,6 +1033,98 @@ function AppContent() {
           </TouchableOpacity>
         )}
 
+        {/* User calendar tab bar */}
+        <View style={[styles.calTabsContainer, {backgroundColor: colors.surface, borderBottomColor: colors.border}]}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.calTabsContent}>
+            {(() => {
+              const activeAll = selectedCalendarId === null;
+              return (
+                <TouchableOpacity
+                  style={[
+                    styles.calTab,
+                    {borderColor: activeAll ? colors.primary : colors.border, backgroundColor: activeAll ? colors.primary : 'transparent'},
+                  ]}
+                  onPress={() => setSelectedCalendarId(null)}>
+                  <Text style={[styles.calTabText, {color: activeAll ? colors.onPrimary : colors.text}]}>
+                    {t('calAll')}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })()}
+            {userCalendars.map(uc => {
+              const active = selectedCalendarId === uc.id;
+              const openEdit = () => {
+                setEditingCalendarId(uc.id);
+                setNewCalendarName(resolveCalendarName(uc, t));
+                setNewCalendarColor(uc.color);
+                setNewCalendarWage(uc.hourlyWage ? String(uc.hourlyWage) : '');
+                setShowCalendarCreate(true);
+              };
+              const confirmDelete = () => {
+                Alert.alert(
+                  resolveCalendarName(uc, t),
+                  t('calDeleteConfirmMessage'),
+                  [
+                    {text: t('cancel'), style: 'cancel'},
+                    {
+                      text: t('delete'),
+                      style: 'destructive',
+                      onPress: async () => {
+                        await deleteUserCalendar(uc.id);
+                        const list = await getUserCalendars();
+                        setUserCalendars(list);
+                        if (selectedCalendarId === uc.id) setSelectedCalendarId(null);
+                      },
+                    },
+                  ]
+                );
+              };
+              return (
+                <TouchableOpacity
+                  key={uc.id}
+                  style={[
+                    styles.calTab,
+                    {borderColor: active ? uc.color : colors.border, backgroundColor: active ? uc.color : 'transparent'},
+                  ]}
+                  delayLongPress={300}
+                  onPress={() => setSelectedCalendarId(active ? null : uc.id)}
+                  onLongPress={() => {
+                    Alert.alert(resolveCalendarName(uc, t), undefined, [
+                      {text: t('edit'), onPress: openEdit},
+                      {text: t('delete'), style: 'destructive', onPress: confirmDelete},
+                      {text: t('cancel'), style: 'cancel'},
+                    ]);
+                  }}>
+                  {!active && (
+                    <View style={[styles.calTabDot, {backgroundColor: uc.color}]} />
+                  )}
+                  <Text style={[styles.calTabText, {color: active ? colors.onPrimary : colors.text}]}>
+                    {resolveCalendarName(uc, t)}
+                  </Text>
+                  {active && (
+                    <TouchableOpacity
+                      hitSlop={{top: 10, bottom: 10, left: 6, right: 6}}
+                      onPress={openEdit}>
+                      <Ionicons name="create-outline" size={14} color={colors.onPrimary} />
+                    </TouchableOpacity>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+            <TouchableOpacity
+              style={[styles.calTabAdd, {borderColor: colors.border}]}
+              onPress={() => {
+                setEditingCalendarId(null);
+                setNewCalendarName('');
+                setNewCalendarColor('#007AFF');
+                setNewCalendarWage('');
+                setShowCalendarCreate(true);
+              }}>
+              <Ionicons name="add" size={18} color={colors.textSecondary} />
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+
         {viewMode === 'month' ? (
             <Calendar
               ref={calendarRef}
@@ -831,6 +1135,7 @@ function AppContent() {
               onMonthChange={setCurrentDate}
               hasPermission={hasPermission}
               fullscreenMode={fullscreenMonth}
+              filterColor={userCalendars.find(c => c.id === selectedCalendarId)?.color ?? null}
             />
         ) : (
           <WeekView
@@ -843,6 +1148,7 @@ function AppContent() {
             sleepSettings={sleepSettings}
             onOpenSleepSettings={openSleepSettings}
             onJumpToToday={goToToday}
+            filterColor={userCalendars.find(c => c.id === selectedCalendarId)?.color ?? null}
           />
         )}
 
@@ -855,6 +1161,7 @@ function AppContent() {
           initialEndDate={initialEndDate}
           editingEvent={editingEvent}
           initialColor={initialColor}
+          initialTitle={initialTitle}
         />
 
         <EventDetailModal
@@ -876,55 +1183,93 @@ function AppContent() {
           <View style={styles.templateOverlay}>
             <View style={styles.templateContainer}>
               <View style={styles.templateHeader}>
-                <Text style={styles.templateTitle}>{t('template')}</Text>
+                <Text style={styles.templateTitle}>{templateTab === 'template' ? t('template') : t('eventHistory')}</Text>
                 <TouchableOpacity onPress={() => setShowTemplateModal(false)}>
                   <Text style={styles.templateCloseBtn}>{t('close')}</Text>
                 </TouchableOpacity>
               </View>
-              {templates.length === 0 ? (
-                <View style={styles.templateEmpty}>
-                  <Text style={styles.templateEmptyText}>{t('noTemplates')}</Text>
-                  <Text style={styles.templateEmptyHint}>{t('templateHint')}</Text>
-                </View>
+              <View style={styles.templateTabRow}>
+                <TouchableOpacity
+                  style={[styles.templateTab, templateTab === 'template' && styles.templateTabActive]}
+                  onPress={() => setTemplateTab('template')}>
+                  <Text style={[styles.templateTabText, templateTab === 'template' && styles.templateTabTextActive]}>{t('template')}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.templateTab, templateTab === 'history' && styles.templateTabActive]}
+                  onPress={() => setTemplateTab('history')}>
+                  <Text style={[styles.templateTabText, templateTab === 'history' && styles.templateTabTextActive]}>{t('eventHistory')}</Text>
+                </TouchableOpacity>
+              </View>
+              {templateTab === 'template' ? (
+                <>
+                  {templates.length === 0 ? (
+                    <View style={styles.templateEmpty}>
+                      <Text style={styles.templateEmptyText}>{t('noTemplates')}</Text>
+                      <Text style={styles.templateEmptyHint}>{t('templateHint')}</Text>
+                    </View>
+                  ) : (
+                    <FlatList
+                      data={templates}
+                      keyExtractor={(item) => item.id}
+                      style={styles.templateList}
+                      renderItem={({item}) => {
+                        const hours = Math.floor(item.durationMinutes / 60);
+                        const mins = item.durationMinutes % 60;
+                        const durationStr = hours > 0 && mins > 0 ? t('hoursMinutesFmt', {h: hours, m: mins}) : hours > 0 ? t('hoursFmt', {h: hours}) : t('minutesFmt', {m: mins});
+                        return (
+                          <TouchableOpacity
+                            style={styles.templateItem}
+                            onPress={() => handleUseTemplate(item)}
+                            onLongPress={() => {
+                              Alert.alert(t('deleteTemplate'), t('deleteTemplateConfirm', {title: item.title}), [
+                                {text: t('cancel'), style: 'cancel'},
+                                {text: t('delete'), style: 'destructive', onPress: () => handleDeleteTemplate(item.id)},
+                              ]);
+                            }}>
+                            <View style={[styles.templateItemColor, {backgroundColor: item.color}]} />
+                            <View style={styles.templateItemContent}>
+                              <Text style={styles.templateItemTitle}>{item.title}</Text>
+                              <Text style={styles.templateItemDuration}>{durationStr}</Text>
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      }}
+                    />
+                  )}
+                  <TouchableOpacity
+                    style={styles.templateNewBtn}
+                    onPress={() => {
+                      setShowTemplateModal(false);
+                      handleAddEvent();
+                    }}>
+                    <Text style={styles.templateNewBtnText}>{t('newTemplate')}</Text>
+                  </TouchableOpacity>
+                </>
               ) : (
-                <FlatList
-                  data={templates}
-                  keyExtractor={(item) => item.id}
-                  style={styles.templateList}
-                  renderItem={({item}) => {
-                    const hours = Math.floor(item.durationMinutes / 60);
-                    const mins = item.durationMinutes % 60;
-                    const durationStr = hours > 0 && mins > 0 ? t('hoursMinutesFmt', {h: hours, m: mins}) : hours > 0 ? t('hoursFmt', {h: hours}) : t('minutesFmt', {m: mins});
-                    return (
-                      <TouchableOpacity
-                        style={styles.templateItem}
-                        onPress={() => handleUseTemplate(item)}
-                        onLongPress={() => {
-                          Alert.alert(t('deleteTemplate'), t('deleteTemplateConfirm', {title: item.title}), [
-                            {text: t('cancel'), style: 'cancel'},
-                            {text: t('delete'), style: 'destructive', onPress: () => handleDeleteTemplate(item.id)},
-                          ]);
-                        }}>
-                        <View style={[styles.templateItemColor, {backgroundColor: item.color}]} />
-                        <View style={styles.templateItemContent}>
-                          <Text style={styles.templateItemTitle}>{item.title}</Text>
-                          <Text style={styles.templateItemDuration}>{durationStr}</Text>
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  }}
-                />
+                <View style={styles.templateList}>
+                  <EventHistoryList onPick={handleUseHistoryEntry} refreshKey={showTemplateModal ? 1 : 0} />
+                </View>
               )}
-              <TouchableOpacity
-                style={styles.templateNewBtn}
-                onPress={() => {
-                  setShowTemplateModal(false);
-                  handleAddEvent();
-                }}>
-                <Text style={styles.templateNewBtnText}>{t('newTemplate')}</Text>
-              </TouchableOpacity>
             </View>
           </View>
+        </Modal>
+
+        {/* Event History Modal (from settings) */}
+        <Modal
+          visible={showHistoryScreen}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={() => setShowHistoryScreen(false)}>
+          <SafeAreaView style={[styles.searchModalContainer, {backgroundColor: colors.background}]}>
+            <View style={[styles.searchHeader, {borderBottomColor: colors.border}]}>
+              <TouchableOpacity onPress={() => setShowHistoryScreen(false)}>
+                <Text style={[styles.searchCancelBtn, {color: colors.primary}]}>{t('close')}</Text>
+              </TouchableOpacity>
+              <Text style={[styles.searchTitle, {color: colors.text}]}>{t('eventHistory')}</Text>
+              <View style={{width: 80}} />
+            </View>
+            <EventHistoryList onPick={handleUseHistoryEntry} refreshKey={showHistoryScreen ? 1 : 0} />
+          </SafeAreaView>
         </Modal>
 
         {/* Search Modal */}
@@ -1102,6 +1447,18 @@ function AppContent() {
                             <Text style={styles.settingsItemLink}>{t('changeLink')}</Text>
                           </TouchableOpacity>
                         )}
+                        {lockEnabled && (
+                          <TouchableOpacity
+                            style={styles.settingsItem}
+                            onPress={askLockDuration}>
+                            <Text style={styles.settingsItemLabel}>{t('lockDuration')}</Text>
+                            <Text style={styles.settingsItemLink}>
+                              {lockExpiryAt === null
+                                ? t('lockDurationForever')
+                                : t('lockDurationRemaining', {days: Math.max(0, Math.ceil((lockExpiryAt - Date.now()) / (24 * 60 * 60 * 1000)))})}
+                            </Text>
+                          </TouchableOpacity>
+                        )}
                         {lockEnabled && biometricAvailable && (
                           <TouchableOpacity
                             style={styles.settingsItem}
@@ -1164,6 +1521,12 @@ function AppContent() {
                           <Text style={styles.settingsItemLabel}>{t('refreshCalendar')}</Text>
                           <Text style={styles.settingsItemLink}>{t('refreshNow')}</Text>
                         </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.settingsItem}
+                          onPress={() => { setShowSettingsModal(false); setShowHistoryScreen(true); }}>
+                          <Text style={styles.settingsItemLabel}>{t('eventHistory')}</Text>
+                          <Text style={styles.settingsItemLink}>{t('showMore')}</Text>
+                        </TouchableOpacity>
                       </View>
 
                       {/* Premium */}
@@ -1186,6 +1549,24 @@ function AppContent() {
                       {/* Notification Settings */}
                       <View style={styles.settingsSection}>
                         <View style={styles.sectionTitleRow}><View style={[styles.sectionTitleIcon, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="notifications-outline" size={12} color={colors.textSecondary} /></View><Text style={styles.settingsSectionTitle}>{t('notification')}</Text></View>
+                        <View style={styles.settingsItem}>
+                          <Text style={styles.settingsItemLabel}>{t('notificationsInApp')}</Text>
+                          <Switch value={notificationsOn} onValueChange={handleToggleNotifications} />
+                        </View>
+                        {notificationsOn && (
+                          <View style={styles.settingsItem}>
+                            <Text style={styles.settingsItemLabel}>{t('notificationsSound')}</Text>
+                            <Switch value={notificationSound} onValueChange={handleToggleNotificationSound} />
+                          </View>
+                        )}
+                        {notificationsOn && (
+                          <TouchableOpacity
+                            style={styles.settingsItem}
+                            onPress={handleSendTestNotification}>
+                            <Text style={styles.settingsItemLabel}>{t('notificationsTest')}</Text>
+                            <Text style={styles.settingsItemLink}>{t('notificationsTestAction')}</Text>
+                          </TouchableOpacity>
+                        )}
                         <TouchableOpacity
                           style={styles.settingsItem}
                           onPress={() => Linking.openSettings()}>
@@ -1222,7 +1603,7 @@ function AppContent() {
                         <View style={styles.sectionTitleRow}><View style={[styles.sectionTitleIcon, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="information-circle-outline" size={12} color={colors.textSecondary} /></View><Text style={styles.settingsSectionTitle}>{t('aboutApp')}</Text></View>
                         <View style={styles.settingsItem}>
                           <Text style={styles.settingsItemLabel}>{t('version')}</Text>
-                          <Text style={styles.settingsItemValue}>1.8.0</Text>
+                          <Text style={styles.settingsItemValue}>{DeviceInfo.getVersion()}</Text>
                         </View>
                         <View style={styles.settingsItem}>
                           <Text style={styles.settingsItemLabel}>{t('build')}</Text>
@@ -1416,6 +1797,102 @@ function AppContent() {
         {/* Stats Screen */}
         <StatsScreen visible={showStats} onClose={() => setShowStats(false)} initialDate={currentDate} />
 
+        {/* New User-Calendar modal */}
+        <Modal
+          visible={showCalendarCreate}
+          animationType="fade"
+          transparent
+          onRequestClose={() => setShowCalendarCreate(false)}>
+          <TouchableOpacity
+            style={[styles.calCreateOverlay, {backgroundColor: 'rgba(0,0,0,0.5)'}]}
+            activeOpacity={1}
+            onPress={() => setShowCalendarCreate(false)}>
+            <TouchableOpacity activeOpacity={1} onPress={() => {}}>
+              <View style={[styles.calCreateCard, {backgroundColor: colors.surface}]}>
+                <Text style={[styles.calCreateTitle, {color: colors.text}]}>
+                  {editingCalendarId ? t('calEditTitle') : t('calCreateTitle')}
+                </Text>
+                <TextInput
+                  style={[styles.calCreateInput, {color: colors.text, backgroundColor: colors.inputBackground}]}
+                  value={newCalendarName}
+                  onChangeText={setNewCalendarName}
+                  placeholder={t('calCreatePlaceholder')}
+                  placeholderTextColor={colors.textTertiary}
+                  autoFocus
+                  maxLength={20}
+                />
+                <Text style={[styles.calCreateLabel, {color: colors.textSecondary}]}>{t('calCreateColor')}</Text>
+                <View style={styles.calCreateColorRow}>
+                  {['#007AFF', '#FF3B30', '#34C759', '#FFCC00', '#FF9500', '#AF52DE', '#FF2D92', '#5AC8FA', '#5856D6', '#8E8E93'].map(c => (
+                    <TouchableOpacity
+                      key={c}
+                      style={[
+                        styles.calCreateColorDot,
+                        {backgroundColor: c},
+                        newCalendarColor === c && styles.calCreateColorDotActive,
+                      ]}
+                      onPress={() => setNewCalendarColor(c)}
+                    />
+                  ))}
+                </View>
+                {editingCalendarId === 'default-work' && (
+                  <>
+                    <Text style={[styles.calCreateLabel, {color: colors.textSecondary}]}>{t('calCreateWage')}</Text>
+                    <TextInput
+                      style={[styles.calCreateInput, {color: colors.text, backgroundColor: colors.inputBackground, marginBottom: 4}]}
+                      value={newCalendarWage}
+                      onChangeText={txt => setNewCalendarWage(txt.replace(/[^0-9]/g, ''))}
+                      placeholder={t('calCreateWagePlaceholder')}
+                      placeholderTextColor={colors.textTertiary}
+                      keyboardType="number-pad"
+                      maxLength={7}
+                    />
+                    <Text style={[styles.calCreateHint, {color: colors.textTertiary}]}>{t('calCreateWageHint')}</Text>
+                  </>
+                )}
+                <View style={styles.calCreateActions}>
+                  <TouchableOpacity
+                    style={[styles.calCreateBtn, {backgroundColor: colors.inputBackground}]}
+                    onPress={() => setShowCalendarCreate(false)}>
+                    <Text style={[styles.calCreateBtnText, {color: colors.textSecondary}]}>{t('cancel')}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.calCreateBtn, {backgroundColor: colors.primary, opacity: newCalendarName.trim() ? 1 : 0.4}]}
+                    disabled={!newCalendarName.trim()}
+                    onPress={async () => {
+                      const wageNum = parseInt(newCalendarWage, 10);
+                      const wage = Number.isFinite(wageNum) && wageNum > 0 ? wageNum : undefined;
+                      if (editingCalendarId) {
+                        await updateUserCalendar(editingCalendarId, {
+                          name: newCalendarName,
+                          color: newCalendarColor,
+                          hourlyWage: wage ?? 0, // 0 to clear
+                        });
+                      } else {
+                        const created = await addUserCalendar(newCalendarName, newCalendarColor, wage);
+                        setSelectedCalendarId(created.id);
+                      }
+                      const list = await getUserCalendars();
+                      setUserCalendars(list);
+                      setShowCalendarCreate(false);
+                    }}>
+                    <Text style={[styles.calCreateBtnText, {color: colors.onPrimary}]}>
+                      {editingCalendarId ? t('save') : t('add')}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
+
+        {/* Natural language event input */}
+        <NLEventInput
+          visible={showNLInput}
+          onClose={() => setShowNLInput(false)}
+          onParsed={handleNLParsed}
+        />
+
         {/* App Lock — render last so it sits on top of everything */}
         <LockScreen visible={lockReady && lockEnabled && isLocked} onUnlocked={handleUnlocked} />
         <PinSetupModal
@@ -1479,6 +1956,19 @@ function AppContent() {
         </View>
       )}
       <PaywallScreen visible={showPaywall} onClose={() => setShowPaywall(false)} />
+      <UpdateAvailableModal
+        visible={!!updateInfo}
+        currentVersion={updateInfo?.currentVersion}
+        latestVersion={updateInfo?.latestVersion}
+        onUpdate={() => {
+          openStore(updateInfo?.storeUrl);
+          setUpdateInfo(null);
+        }}
+        onDismiss={() => {
+          dismissUpdatePrompt(updateInfo?.latestVersion);
+          setUpdateInfo(null);
+        }}
+      />
     </SafeAreaProvider>
   );
 }
@@ -1536,6 +2026,103 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  calTabsContainer: {
+    borderBottomWidth: 0.5,
+  },
+  calTabsContent: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  calTab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  calTabDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  calTabText: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  calTabAdd: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  calCreateOverlay: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  calCreateCard: {
+    width: 320,
+    borderRadius: 16,
+    padding: 20,
+  },
+  calCreateTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    marginBottom: 16,
+  },
+  calCreateInput: {
+    fontSize: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  calCreateLabel: {
+    fontSize: 12,
+    marginBottom: 8,
+  },
+  calCreateHint: {
+    fontSize: 11,
+    marginBottom: 16,
+  },
+  calCreateColorRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 20,
+  },
+  calCreateColorDot: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+  },
+  calCreateColorDotActive: {
+    borderWidth: 3,
+    borderColor: '#000',
+  },
+  calCreateActions: {
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'flex-end',
+  },
+  calCreateBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 18,
+    borderRadius: 8,
+  },
+  calCreateBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
   headerRight: {
     flexDirection: 'row',
@@ -1909,6 +2496,31 @@ const styles = StyleSheet.create({
   templateCloseBtn: {
     fontSize: 16,
     color: '#007AFF',
+  },
+  templateTabRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 4,
+    gap: 6,
+  },
+  templateTab: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 8,
+    alignItems: 'center',
+    backgroundColor: '#f0f0f0',
+  },
+  templateTabActive: {
+    backgroundColor: '#007AFF',
+  },
+  templateTabText: {
+    fontSize: 13,
+    color: '#666',
+    fontWeight: '600',
+  },
+  templateTabTextActive: {
+    color: '#fff',
   },
   templateList: {
     maxHeight: 300,

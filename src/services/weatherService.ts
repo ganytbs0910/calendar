@@ -58,8 +58,9 @@ function getWeatherIcon(code: number): {name: string; color: string} {
 
 async function getCurrentPosition(): Promise<{latitude: number; longitude: number}> {
   return new Promise((resolve) => {
-    // Use the global navigator.geolocation (React Native provides this)
-    const geo = (navigator as any)?.geolocation;
+    // Use the global navigator.geolocation (React Native provides this).
+    // Access via globalThis to keep TS happy without a DOM lib dependency.
+    const geo = (globalThis as any)?.navigator?.geolocation;
     if (!geo) {
       console.warn('Geolocation not available, using default location (Tokyo)');
       resolve({latitude: DEFAULT_LAT, longitude: DEFAULT_LON});

@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
 import {getAllEventColors} from './AddEventModal';
+import {cancelEventNotification} from '../services/notificationService';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {fetchWeather, WeatherDay} from '../services/weatherService';
 import {useTheme} from '../theme/ThemeContext';
@@ -46,6 +47,8 @@ interface CalendarProps {
   onMonthChange?: (date: Date) => void;
   hasPermission?: boolean;
   fullscreenMode?: boolean;
+  /** When set, only events whose resolved color matches are rendered. */
+  filterColor?: string | null;
 }
 
 export interface CalendarRef {
@@ -60,25 +63,32 @@ const ConditionalScroll: React.FC<{fullscreen: boolean; children: React.ReactNod
     ? <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{paddingBottom: 80}} nestedScrollEnabled>{children}</ScrollView>
     : <>{children}</>;
 
-export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, onDateDoubleSelect, onEventPress, onDateRangeSelect, onMonthChange, hasPermission: hasPermissionProp, fullscreenMode}, ref) => {
+export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, onDateDoubleSelect, onEventPress, onDateRangeSelect, onMonthChange, hasPermission: hasPermissionProp, fullscreenMode, filterColor}, ref) => {
   const {colors} = useTheme();
   const {t} = useTranslation();
   const [today, setToday] = useState(() => new Date());
 
   // Update 'today' when the date changes (e.g. app stays open past midnight)
   useEffect(() => {
-    let timer: ReturnType<typeof setTimeout>;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const scheduleNext = () => {
+      if (cancelled) return;
       const now = new Date();
       const msUntilMidnight =
         new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime() - now.getTime();
       timer = setTimeout(() => {
+        timer = null;
+        if (cancelled) return;
         setToday(new Date());
         scheduleNext();
       }, msUntilMidnight + 1000);
     };
     scheduleNext();
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, []);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -1094,6 +1104,11 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
               if (!cached) return [];
               return cached.filter(event => {
                 if (!event.startDate || !event.endDate) return false;
+                // Apply user-calendar filter on the resolved event color.
+                if (filterColor) {
+                  const resolved = (event.id && eventColors[event.id]) || event.calendar?.color;
+                  if (resolved?.toUpperCase() !== filterColor.toUpperCase()) return false;
+                }
                 const s = new Date(event.startDate);
                 let e = new Date(event.endDate);
                 if (event.allDay && e.getHours() === 0 && e.getMinutes() === 0 && e.getSeconds() === 0) {
@@ -1240,40 +1255,51 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                                   return <Ionicons name={w.iconName} size={10} color={w.iconColor} style={{marginLeft: 6}} />;
                                 })()}
                               </View>
-                              {singleDayEvents.length > 0 && (
-                                <View style={[styles.singleDayEventsContainer, fullscreenMode ? {marginTop: 4, marginBottom: multiDayOffset > 0 ? multiDayOffset : 0} : (totalEvents >= 2 ? {marginTop: 'auto', marginBottom: multiDayOffset > 0 ? multiDayOffset : 0} : {marginTop: 'auto', marginBottom: 'auto'})]}>
-                                  {(fullscreenMode ? singleDayEvents : singleDayEvents.slice(0, 2)).map(event => {
-                                    const isDraggedEvent = isEventDragSource && draggingEvent?.event.id === event.id;
-                                    return (
-                                      <TouchableOpacity
-                                        key={event.id}
-                                        style={[
-                                          styles.singleDayEventBox,
-                                          {backgroundColor: (event.id && eventColors[event.id]) || event.calendar?.color || colors.primary},
-                                          isDraggedEvent && {opacity: 0.3},
-                                        ]}
-                                        onPress={() => onEventPress?.(event)}
-                                        onLongPress={() => handleEventLongPress(event, item.date!)}
-                                        delayLongPress={200}>
-                                        <Text style={[styles.singleDayEventTime, {color: colors.onEvent}]}>
-                                          {event.startDate && formatTimeCompact(event.startDate)}
-                                        </Text>
-                                        <Text style={[styles.singleDayEventTime, {color: colors.onEvent}]}>
-                                          {event.endDate && formatTimeCompact(event.endDate)}
-                                        </Text>
-                                        <Text style={[styles.singleDayEventTitle, {color: colors.onEvent}]} numberOfLines={1} ellipsizeMode="clip">
-                                          {event.title}
-                                        </Text>
-                                      </TouchableOpacity>
-                                    );
-                                  })}
-                                  {!fullscreenMode && totalEvents > 2 && (
-                                    <Text style={[styles.cellEventMore, {color: colors.textSecondary}]}>{t('totalEvents', {count: totalEvents})}</Text>
-                                  )}
-                                </View>
-                              )}
+                              {(() => {
+                                // Cap total visible rows (multi-day bars + single-day events) to 2
+                                // when not in fullscreen mode. Multi-day bars take priority since they
+                                // are anchored to the row.
+                                const visibleSingleCount = fullscreenMode
+                                  ? singleDayEvents.length
+                                  : Math.max(0, 2 - multiDayRowCount);
+                                const visibleSingle = singleDayEvents.slice(0, visibleSingleCount);
+                                const hiddenCount = singleDayEvents.length - visibleSingle.length;
+                                if (visibleSingle.length === 0 && hiddenCount === 0) return null;
+                                return (
+                                  <View style={[styles.singleDayEventsContainer, {marginTop: multiDayOffset > 0 ? multiDayOffset + 2 : 2}]}>
+                                    {visibleSingle.map(event => {
+                                      const isDraggedEvent = isEventDragSource && draggingEvent?.event.id === event.id;
+                                      return (
+                                        <TouchableOpacity
+                                          key={event.id}
+                                          style={[
+                                            styles.singleDayEventBox,
+                                            {backgroundColor: (event.id && eventColors[event.id]) || event.calendar?.color || colors.primary},
+                                            isDraggedEvent && {opacity: 0.3},
+                                          ]}
+                                          onPress={() => onEventPress?.(event)}
+                                          onLongPress={() => handleEventLongPress(event, item.date!)}
+                                          delayLongPress={200}>
+                                          <Text style={[styles.singleDayEventTime, {color: colors.onEvent}]}>
+                                            {event.startDate && formatTimeCompact(event.startDate)}
+                                          </Text>
+                                          <Text style={[styles.singleDayEventTime, {color: colors.onEvent}]}>
+                                            {event.endDate && formatTimeCompact(event.endDate)}
+                                          </Text>
+                                          <Text style={[styles.singleDayEventTitle, {color: colors.onEvent}]} numberOfLines={1} ellipsizeMode="clip">
+                                            {event.title}
+                                          </Text>
+                                        </TouchableOpacity>
+                                      );
+                                    })}
+                                    {!fullscreenMode && hiddenCount > 0 && (
+                                      <Text style={[styles.cellEventMore, {color: colors.textSecondary}]}>{t('totalEvents', {count: hiddenCount})}</Text>
+                                    )}
+                                  </View>
+                                );
+                              })()}
                               {isEventDragTarget && draggingEvent && totalEvents < 2 && (
-                                <View style={[styles.singleDayEventsContainer, multiDayOffset > 0 && {marginBottom: multiDayOffset}]}>
+                                <View style={[styles.singleDayEventsContainer, {marginTop: multiDayOffset > 0 ? multiDayOffset + 2 : 2}]}>
                                   <View style={[styles.singleDayEventBox, {backgroundColor: (draggingEvent.event.id && eventColors[draggingEvent.event.id]) || draggingEvent.event.calendar?.color || colors.primary, opacity: 0.5}]}>
                                     <Text style={styles.singleDayEventTime}>{draggingEvent.event.startDate && formatTimeCompact(draggingEvent.event.startDate)}</Text>
                                     <Text style={styles.singleDayEventTitle} numberOfLines={1} ellipsizeMode="clip">{draggingEvent.event.title}</Text>
@@ -1288,8 +1314,9 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                           const evColor = (mdEvent.event.id && eventColors[mdEvent.event.id]) || mdEvent.event.calendar?.color || colors.primary;
                           const left = mdEvent.startDayIndex * DAY_WIDTH;
                           const width = (mdEvent.endDayIndex - mdEvent.startDayIndex + 1) * DAY_WIDTH - 2;
-                          const maxRowCount = pageMultiDayByWeek[weekIndex]?.reduce((max, md) => Math.max(max, md.rowIndex + 1), 0) || 1;
-                          const posStyle = {bottom: (maxRowCount - 1 - mdEvent.rowIndex) * (EVENT_BAR_HEIGHT + 2) + 2};
+                          // Position multi-day bars below the day number row (top of cell)
+                          // so they no longer compete with single-day events for the cell's bottom space.
+                          const posStyle = {top: DAY_NUMBER_HEIGHT + 2 + mdEvent.rowIndex * (EVENT_BAR_HEIGHT + 2)};
 
                           const evStart = mdEvent.event.startDate ? new Date(mdEvent.event.startDate) : null;
                           const evEnd = mdEvent.event.endDate ? new Date(mdEvent.event.endDate) : null;
@@ -1436,6 +1463,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                       onPress={async () => {
                         try {
                           await RNCalendarEvents.removeEvent(event.id!);
+                          cancelEventNotification(event.id!).catch(() => {});
                           // Clear cache for current month so deleted event is removed
                           const cacheKey = getMonthKey(currentYear, currentMonth);
                           eventsCache.current.delete(cacheKey);

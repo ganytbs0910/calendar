@@ -22,6 +22,13 @@ import {useTheme} from '../theme/ThemeContext';
 import {usePremium} from '../context/PremiumContext';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {addTemplate} from '../services/templateService';
+import {recordEventCreation} from '../services/eventHistoryService';
+import {getEventWage, setEventWage, removeEventWage, getRecentWages, addRecentWage, removeRecentWage} from '../services/eventWageService';
+import {
+  cancelEventNotification,
+  isNotificationsEnabled,
+  scheduleEventNotification,
+} from '../services/notificationService';
 import {useTranslation} from 'react-i18next';
 
 // Default color options for events with labels (keys for i18n)
@@ -41,6 +48,11 @@ const ADDITIONAL_COLORS = [
 
 const COLOR_SETTINGS_KEY = '@color_settings';
 
+// The "work" color. Selecting it unlocks the per-event hourly wage input,
+// which feeds the monthly revenue total in the statistics screen.
+const WORK_COLOR = '#007AFF';
+const isWorkColor = (c: string): boolean => (c || '').trim().toUpperCase() === WORK_COLOR;
+
 // Reminder options (negative minutes before event)
 const REMINDER_OPTIONS = [
   {label: 'reminderNone', value: null},
@@ -52,6 +64,15 @@ const REMINDER_OPTIONS = [
 ];
 
 const EVENT_COLOR_STORAGE_KEY = '@event_colors';
+
+// Serialize read-modify-write on the colors map so two concurrent setEventColor
+// calls don't clobber each other (e.g. when saving several events at once).
+let eventColorWriteChain: Promise<unknown> = Promise.resolve();
+const withEventColorLock = <T,>(fn: () => Promise<T>): Promise<T> => {
+  const next = eventColorWriteChain.then(fn, fn);
+  eventColorWriteChain = next.catch(() => {});
+  return next;
+};
 
 // Helper functions for event colors
 export const getEventColor = async (eventId: string): Promise<string | null> => {
@@ -67,30 +88,32 @@ export const getEventColor = async (eventId: string): Promise<string | null> => 
   }
 };
 
-export const setEventColor = async (eventId: string, color: string): Promise<void> => {
-  try {
-    const colorsJson = await AsyncStorage.getItem(EVENT_COLOR_STORAGE_KEY);
-    const colors = colorsJson ? JSON.parse(colorsJson) : {};
-    colors[eventId] = color;
-    await AsyncStorage.setItem(EVENT_COLOR_STORAGE_KEY, JSON.stringify(colors));
-  } catch (error) {
-    console.error('Error saving event color:', error);
-  }
-};
-
-export const removeEventColor = async (eventId: string): Promise<void> => {
-  try {
-    const colorsJson = await AsyncStorage.getItem(EVENT_COLOR_STORAGE_KEY);
-    if (!colorsJson) return;
-    const colors = JSON.parse(colorsJson);
-    if (eventId in colors) {
-      delete colors[eventId];
+export const setEventColor = async (eventId: string, color: string): Promise<void> =>
+  withEventColorLock(async () => {
+    try {
+      const colorsJson = await AsyncStorage.getItem(EVENT_COLOR_STORAGE_KEY);
+      const colors = colorsJson ? JSON.parse(colorsJson) : {};
+      colors[eventId] = color;
       await AsyncStorage.setItem(EVENT_COLOR_STORAGE_KEY, JSON.stringify(colors));
+    } catch (error) {
+      console.error('Error saving event color:', error);
     }
-  } catch (error) {
-    console.error('Error removing event color:', error);
-  }
-};
+  });
+
+export const removeEventColor = async (eventId: string): Promise<void> =>
+  withEventColorLock(async () => {
+    try {
+      const colorsJson = await AsyncStorage.getItem(EVENT_COLOR_STORAGE_KEY);
+      if (!colorsJson) return;
+      const colors = JSON.parse(colorsJson);
+      if (eventId in colors) {
+        delete colors[eventId];
+        await AsyncStorage.setItem(EVENT_COLOR_STORAGE_KEY, JSON.stringify(colors));
+      }
+    } catch (error) {
+      console.error('Error removing event color:', error);
+    }
+  });
 
 export const getAllEventColors = async (): Promise<Record<string, string>> => {
   try {
@@ -282,6 +305,7 @@ interface AddEventModalProps {
   initialEndDate?: Date;
   editingEvent?: CalendarEventReadable | null;
   initialColor?: string;
+  initialTitle?: string;
   onDeleted?: () => void;
 }
 
@@ -293,6 +317,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   initialEndDate,
   editingEvent,
   initialColor,
+  initialTitle,
   onDeleted,
 }) => {
   const {t} = useTranslation();
@@ -314,6 +339,10 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   const [selectedCopyDates, setSelectedCopyDates] = useState<Date[]>([]);
   const [busyCopyDates, setBusyCopyDates] = useState<Set<string>>(new Set());
   const [selectedColor, setSelectedColor] = useState<string>(DEFAULT_EVENT_COLORS[0].color);
+  const [hourlyWage, setHourlyWage] = useState<string>('');
+  const [recentWages, setRecentWages] = useState<number[]>([]);
+  const [wageSuggestions, setWageSuggestions] = useState<number[]>([]);
+  const [showWageSuggestions, setShowWageSuggestions] = useState(false);
   const [colorOptions, setColorOptions] = useState<ColorOption[]>(DEFAULT_EVENT_COLORS);
   const [editingLabelColor, setEditingLabelColor] = useState<string | null>(null);
   const [editingLabelText, setEditingLabelText] = useState('');
@@ -368,6 +397,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   // Initialize dates when modal opens or initialDate/initialEndDate changes
   useEffect(() => {
     if (visible) {
+      getRecentWages().then(setRecentWages);
       const isCopying = editingEvent && !editingEvent.id;
 
       if (editingEvent && !isCopying) {
@@ -395,6 +425,11 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           getEventColor(editingEvent.id).then(color => {
             setSelectedColor(color || editingEvent.calendar?.color || DEFAULT_EVENT_COLORS[0].color);
           });
+          getEventWage(editingEvent.id).then(wage => {
+            setHourlyWage(wage ? String(wage) : '');
+          });
+        } else {
+          setHourlyWage('');
         }
       } else if (isCopying && initialDate && initialEndDate) {
         // Copy mode - use title from event but dates from initialDate/initialEndDate
@@ -417,8 +452,12 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           getEventColor(editingEvent.id).then(color => {
             setSelectedColor(color || editingEvent.calendar?.color || DEFAULT_EVENT_COLORS[0].color);
           });
+          getEventWage(editingEvent.id).then(wage => {
+            setHourlyWage(wage ? String(wage) : '');
+          });
         } else {
           setSelectedColor(DEFAULT_EVENT_COLORS[0].color);
+          setHourlyWage('');
         }
       } else if (initialDate) {
         if (initialEndDate) {
@@ -458,9 +497,10 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
             setEndDate(end);
           });
         }
-        setTitle('');
+        setTitle(initialTitle || '');
         setReminder(null);
         setSelectedColor(initialColor || DEFAULT_EVENT_COLORS[0].color);
+        setHourlyWage('');
       } else {
         // No initialDate - use today with smart start time
         const today = new Date();
@@ -495,23 +535,26 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           end.setHours(end.getHours() + 1);
           setEndDate(end);
         });
-        setTitle('');
+        setTitle(initialTitle || '');
         setReminder(null);
         setSelectedColor(initialColor || DEFAULT_EVENT_COLORS[0].color);
+        setHourlyWage('');
       }
     }
-  }, [visible, initialDate, initialEndDate, editingEvent, initialColor]);
+  }, [visible, initialDate, initialEndDate, editingEvent, initialColor, initialTitle]);
 
   const handleClose = useCallback(() => {
     onClose();
   }, [onClose]);
 
   const handleSave = useCallback(async () => {
-    // Check and request permission before saving
-    const permissionStatus = await RNCalendarEvents.checkPermissions();
+    // Check and request permission before saving. iOS 17+ returns "fullAccess"
+    // alongside the older "authorized", but the library's TS types haven't
+    // caught up — widen to string for the comparison.
+    const permissionStatus: string = await RNCalendarEvents.checkPermissions();
 
     if (permissionStatus !== 'authorized' && permissionStatus !== 'fullAccess') {
-      const requestedStatus = await RNCalendarEvents.requestPermissions();
+      const requestedStatus: string = await RNCalendarEvents.requestPermissions();
       if (requestedStatus !== 'authorized' && requestedStatus !== 'fullAccess') {
         Alert.alert(
           t('calendarAccess'),
@@ -538,18 +581,45 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
       finalEndDate = new Date(startDate.getTime() + minDuration);
     }
 
+    // Per-event hourly wage only applies to work-colored events.
+    const parsedWage = parseFloat(hourlyWage);
+    const wageToSave =
+      isWorkColor(selectedColor) && !isNaN(parsedWage) && parsedWage > 0 ? parsedWage : null;
+
     try {
+      // When in-app notifications are on we own the delivery, so don't ask the
+      // OS calendar to alarm too (would cause duplicates).
+      const inAppOn = await isNotificationsEnabled();
+      const osAlarms = !inAppOn && reminder !== null ? [{date: reminder}] : [];
+      const eventTitle = title.trim() || t('noTitle');
+
       if (isEditing && editingEvent?.id) {
         // Update existing event
-        await RNCalendarEvents.saveEvent(title.trim() || t('noTitle'), {
+        await RNCalendarEvents.saveEvent(eventTitle, {
           id: editingEvent.id,
           startDate: startDate.toISOString(),
           endDate: finalEndDate.toISOString(),
           allDay: false,
-          alarms: reminder !== null ? [{date: reminder}] : [],
+          alarms: osAlarms,
         });
         // Save custom color
         await setEventColor(editingEvent.id, selectedColor);
+        // Save (or clear) per-event hourly wage
+        if (wageToSave !== null) {
+          await setEventWage(editingEvent.id, wageToSave);
+        } else {
+          await removeEventWage(editingEvent.id);
+        }
+
+        await cancelEventNotification(editingEvent.id);
+        if (inAppOn && reminder !== null) {
+          const fireDate = new Date(startDate.getTime() + reminder * 60_000);
+          await scheduleEventNotification({
+            eventId: editingEvent.id,
+            title: eventTitle,
+            fireDate,
+          });
+        }
       } else {
         // Create new event
         const calendars = await RNCalendarEvents.findCalendars();
@@ -566,7 +636,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           startDate: startDate.toISOString(),
           endDate: finalEndDate.toISOString(),
           allDay: false,
-          alarms: reminder !== null ? [{date: reminder}] : [],
+          alarms: osAlarms,
         };
         if (recurrence !== 'none') {
           eventConfig.recurrenceRule = {
@@ -574,10 +644,39 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
             occurrence: recurrence === 'monthly' ? 60 : 260, // ~5 years
           };
         }
-        const eventId = await RNCalendarEvents.saveEvent(title.trim() || t('noTitle'), eventConfig);
+        const eventId = await RNCalendarEvents.saveEvent(eventTitle, eventConfig);
         if (eventId) {
           await setEventColor(eventId, selectedColor);
+          if (wageToSave !== null) {
+            await setEventWage(eventId, wageToSave);
+          } else {
+            await removeEventWage(eventId);
+          }
+          if (inAppOn && reminder !== null) {
+            const fireDate = new Date(startDate.getTime() + reminder * 60_000);
+            await scheduleEventNotification({
+              eventId,
+              title: eventTitle,
+              fireDate,
+              recurrence,
+            });
+          }
         }
+        const durationMinutes = Math.max(
+          1,
+          Math.round((finalEndDate.getTime() - startDate.getTime()) / 60000),
+        );
+        recordEventCreation({
+          title: eventTitle,
+          durationMinutes,
+          color: selectedColor,
+          reminder,
+          recurrence,
+        }).catch(() => {});
+      }
+
+      if (wageToSave !== null) {
+        await addRecentWage(wageToSave);
       }
 
       handleClose();
@@ -586,7 +685,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
       console.error('Error saving event:', error);
       Alert.alert(t('error'), isEditing ? t('updateFailed') : t('saveFailed'));
     }
-  }, [title, startDate, endDate, handleClose, onEventAdded, isEditing, editingEvent, selectedColor, reminder]);
+  }, [title, startDate, endDate, handleClose, onEventAdded, isEditing, editingEvent, selectedColor, hourlyWage, reminder, recurrence, t]);
 
   const formatDate = (date: Date) => {
     return `${date.getMonth() + 1}/${date.getDate()}(${WEEKDAYS[date.getDay()]})`;
@@ -697,23 +796,46 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         return;
       }
       const defaultCalendar = writableCalendars.find(cal => cal.isPrimary) || writableCalendars[0];
+      const inAppOn = await isNotificationsEnabled();
+      const osAlarms = !inAppOn && reminder !== null ? [{date: reminder}] : [];
+      const copyTitle = title.trim() || t('noTitle');
+      const parsedCopyWage = parseFloat(hourlyWage);
+      const copyWage =
+        isWorkColor(selectedColor) && !isNaN(parsedCopyWage) && parsedCopyWage > 0
+          ? parsedCopyWage
+          : null;
 
       for (const targetDate of copyTargets) {
         const newStart = new Date(targetDate);
         newStart.setHours(startDate.getHours(), startDate.getMinutes(), 0, 0);
         const newEnd = new Date(newStart.getTime() + durationMs);
 
-        const eventId = await RNCalendarEvents.saveEvent(title.trim() || t('noTitle'), {
+        const eventId = await RNCalendarEvents.saveEvent(copyTitle, {
           calendarId: defaultCalendar.id,
           startDate: newStart.toISOString(),
           endDate: newEnd.toISOString(),
           allDay: false,
-          alarms: reminder !== null ? [{date: reminder}] : [],
+          alarms: osAlarms,
         });
-        // Save custom color for copied event
+        // Save custom color (and per-event wage) for copied event
         if (eventId) {
           await setEventColor(eventId, selectedColor);
+          if (copyWage !== null) {
+            await setEventWage(eventId, copyWage);
+          }
+          if (inAppOn && reminder !== null) {
+            const fireDate = new Date(newStart.getTime() + reminder * 60_000);
+            await scheduleEventNotification({
+              eventId,
+              title: copyTitle,
+              fireDate,
+            });
+          }
         }
+      }
+
+      if (copyWage !== null) {
+        await addRecentWage(copyWage);
       }
 
       setShowCopyCalendar(false);
@@ -724,7 +846,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
       console.error('Error copying event:', error);
       Alert.alert(t('error'), t('copyFailed'));
     }
-  }, [title, startDate, endDate, selectedCopyDates, onEventAdded]);
+  }, [title, startDate, endDate, selectedCopyDates, onEventAdded, reminder, selectedColor, hourlyWage, t]);
 
   // Label editing functions
   const handleLabelPress = useCallback((color: string) => {
@@ -1102,6 +1224,73 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
               )}
             </View>
           </View>
+
+          {isWorkColor(selectedColor) && (
+            <View style={[styles.colorSection, {backgroundColor: colors.surface}]}>
+              <View style={{flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 8}}>
+                <View style={[styles.titleIconBox, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="cash-outline" size={12} color={colors.textSecondary} /></View>
+                <Text style={{fontSize: 12, color: colors.textSecondary, fontWeight: '500'}}>{t('hourlyWage')}</Text>
+              </View>
+              <View style={styles.wageInputRow}>
+                <Text style={[styles.wageCurrency, {color: colors.textSecondary}]}>{t('currencySymbol')}</Text>
+                <TextInput
+                  style={[styles.wageInput, {color: colors.text, borderColor: colors.border, backgroundColor: colors.inputBackground}]}
+                  value={hourlyWage}
+                  onChangeText={(text) => {
+                    const cleaned = text.replace(/[^0-9.]/g, '');
+                    setHourlyWage(cleaned);
+                    if (recentWages.length > 0) {
+                      const filtered = cleaned.length > 0
+                        ? recentWages.filter(w => String(w).includes(cleaned) && String(w) !== cleaned)
+                        : recentWages;
+                      setWageSuggestions(filtered.slice(0, 5));
+                      setShowWageSuggestions(filtered.length > 0);
+                    } else {
+                      setShowWageSuggestions(false);
+                    }
+                  }}
+                  onFocus={() => {
+                    if (recentWages.length > 0) {
+                      const filtered = hourlyWage.length > 0
+                        ? recentWages.filter(w => String(w).includes(hourlyWage) && String(w) !== hourlyWage)
+                        : recentWages;
+                      setWageSuggestions(filtered.slice(0, 5));
+                      setShowWageSuggestions(filtered.length > 0);
+                    }
+                  }}
+                  onBlur={() => {
+                    setTimeout(() => setShowWageSuggestions(false), 200);
+                  }}
+                  keyboardType="numeric"
+                  placeholder={t('hourlyWagePlaceholder')}
+                  placeholderTextColor={colors.textTertiary}
+                  returnKeyType="done"
+                />
+              </View>
+              {showWageSuggestions && wageSuggestions.length > 0 && (
+                <View style={[styles.suggestionsContainer, {backgroundColor: colors.inputBackground, marginTop: 8}]}>
+                  {wageSuggestions.map((w, i) => (
+                    <TouchableOpacity
+                      key={`wage-${w}`}
+                      style={[styles.suggestionItem, i > 0 && {borderTopWidth: 1, borderTopColor: colors.borderLight}]}
+                      onPress={() => {
+                        setHourlyWage(String(w));
+                        setShowWageSuggestions(false);
+                      }}
+                      onLongPress={() => {
+                        removeRecentWage(w);
+                        setRecentWages(prev => prev.filter(x => x !== w));
+                        setWageSuggestions(prev => prev.filter(x => x !== w));
+                      }}>
+                      <Text style={[styles.suggestionText, {color: colors.text}]} numberOfLines={1}>
+                        {t('currencySymbol')}{w.toLocaleString()}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </View>
+          )}
 
           <View style={[styles.reminderSection, {backgroundColor: colors.surface}]}>
             <View style={styles.optionRow}>
@@ -1615,6 +1804,25 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 12,
     marginBottom: 10,
+  },
+  wageInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  wageCurrency: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  wageInput: {
+    flex: 1,
+    height: 40,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    fontSize: 16,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
   },
   colorHeader: {
     flexDirection: 'row',
