@@ -148,7 +148,8 @@
       "Bash(cliclick c:1532,893)",
       "Skill(deep-research)",
       "Workflow(deep-research)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(awk *)"
     ],
     "defaultMode": "acceptEdits"
   }

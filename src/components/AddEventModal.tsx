@@ -349,6 +349,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null); // null = manual wage
   const [showJobsManager, setShowJobsManager] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const selectedJob = useMemo(() => jobs.find(j => j.id === selectedJobId) || null, [jobs, selectedJobId]);
   const payPreview = useMemo(
     () => (selectedJob ? computeShiftPay(startDate, endDate, selectedJob) : null),
@@ -1393,6 +1394,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           )}
 
           <View style={[styles.reminderSection, {backgroundColor: colors.surface}]}>
+            {/* Reminder is always visible — it's the trigger for notifications. */}
             <View style={styles.optionRow}>
               <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
                 <View style={[styles.titleIconBox, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="notifications-outline" size={12} color={colors.textSecondary} /></View>
@@ -1419,7 +1421,20 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                 ))}
               </View>
             </View>
-            <View style={[styles.optionRow, {marginTop: 8}]}>
+
+            {/* Repeat lives under 詳細設定 (less common). */}
+            <TouchableOpacity
+              style={[styles.advancedHeader, {marginTop: 12}]}
+              activeOpacity={0.7}
+              onPress={() => setShowAdvanced(v => !v)}>
+              <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
+                <View style={[styles.titleIconBox, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="options-outline" size={12} color={colors.textSecondary} /></View>
+                <Text style={[styles.optionRowLabel, {color: colors.textSecondary}]}>{t('advancedSettings')}</Text>
+              </View>
+              <Ionicons name={(showAdvanced || recurrence !== 'none') ? 'chevron-up' : 'chevron-down'} size={16} color={colors.textTertiary} />
+            </TouchableOpacity>
+            {(showAdvanced || recurrence !== 'none') && (
+            <View style={[styles.optionRow, {marginTop: 10}]}>
               <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
                 <View style={[styles.titleIconBox, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="repeat-outline" size={12} color={colors.textSecondary} /></View>
                 <Text style={[styles.optionRowLabel, {color: colors.textSecondary}]}>{t('repeat')}</Text>
@@ -1445,6 +1460,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                 ))}
               </View>
             </View>
+            )}
           </View>
 
           {!isEditing && !isCopying && (
@@ -2096,6 +2112,11 @@ const styles = StyleSheet.create({
   addColorLabel: {
     fontSize: 16,
     color: '#333',
+  },
+  advancedHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   reminderSection: {
     backgroundColor: '#fff',

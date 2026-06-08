@@ -36,6 +36,8 @@ import {PremiumProvider, usePremium} from './src/context/PremiumContext';
 import {PaywallScreen} from './src/components/PaywallScreen';
 import StatsScreen from './src/components/StatsScreen';
 import JobsManagerModal from './src/components/JobsManagerModal';
+import OnboardingModal from './src/components/OnboardingModal';
+import AsyncStorageRoot from '@react-native-async-storage/async-storage';
 import {
   SmallWidgetPreview,
   MediumWidgetPreview,
@@ -323,6 +325,8 @@ function AppContent() {
   const [lockExpiryAt, setLockExpiryAt] = useState<number | null>(null);
   const [fullscreenMonth, setFullscreenMonth] = useState(false);
   const [showNLInput, setShowNLInput] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const [initialTitle, setInitialTitle] = useState<string | undefined>(undefined);
   // User-defined calendars (categories) and the active tab.
   const [userCalendars, setUserCalendars] = useState<UserCalendar[]>([]);
@@ -345,6 +349,23 @@ function AppContent() {
       if (!cancelled) setSelectedLanguage(code);
     })();
     return () => { cancelled = true; };
+  }, []);
+
+  // Show first-run onboarding once (drives trial value / retention).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const seen = await AsyncStorageRoot.getItem('@onboarded');
+        if (!cancelled && seen !== '1') setShowOnboarding(true);
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const dismissOnboarding = useCallback(() => {
+    setShowOnboarding(false);
+    AsyncStorageRoot.setItem('@onboarded', '1').catch(() => {});
   }, []);
 
   // Request notification permission once on first launch (no-op if granted).
@@ -394,7 +415,7 @@ function AppContent() {
       ]);
       return;
     }
-    await sendTestNotification();
+    await sendTestNotification(t('testNotificationTitle'), t('testNotificationBody'));
   }, [t]);
 
   // Share the next 60 days of events as a standard .ics file (no backend —
@@ -684,14 +705,20 @@ function AppContent() {
   }, []);
 
   // ── Lock handlers ───────────────────────────────────────────────────────
+  // iOS can only present one modal per view controller, so the Settings modal
+  // must be dismissed before the PIN setup modal is presented — otherwise the
+  // second modal silently fails to appear. This mirrors how the Sleep settings
+  // row opens its modal from Settings (close, wait for dismiss, then open).
   const handleEnableLock = useCallback(() => {
     setPinSetupChange(false);
-    setPinSetupVisible(true);
+    setShowSettingsModal(false);
+    setTimeout(() => setPinSetupVisible(true), 300);
   }, []);
 
   const handleChangePin = useCallback(() => {
     setPinSetupChange(true);
-    setPinSetupVisible(true);
+    setShowSettingsModal(false);
+    setTimeout(() => setPinSetupVisible(true), 300);
   }, []);
 
   const askLockDuration = useCallback(() => {
@@ -732,11 +759,15 @@ function AppContent() {
     setPinSetupVisible(false);
     setLockEnabled(true);
     refreshLockStatus();
-    // First-time setup: ask the user how long the lock should stay active.
-    // Changing an existing PIN keeps the previous expiry intact.
-    if (wasNew) {
-      askLockDuration();
-    }
+    // Reopen Settings once the PIN sheet has dismissed, then (for first-time
+    // setup) ask how long the lock should stay active. Changing an existing
+    // PIN keeps the previous expiry intact.
+    setTimeout(() => {
+      setShowSettingsModal(true);
+      if (wasNew) {
+        askLockDuration();
+      }
+    }, 300);
   }, [pinSetupChange, refreshLockStatus, askLockDuration]);
 
   const handleDisableLock = useCallback(() => {
@@ -1011,30 +1042,10 @@ function AppContent() {
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.iconBtn}
-              onPress={() => setShowSettingsModal(true)}
-              accessibilityLabel={t('settingsLabel')}
+              onPress={() => setShowMoreMenu(true)}
+              accessibilityLabel={t('moreLabel')}
               accessibilityRole="button">
-              <Ionicons name="settings-outline" size={22} color={colors.primary} />
-            </TouchableOpacity>
-            {viewMode === 'month' && (
-              <TouchableOpacity
-                style={styles.iconBtn}
-                onPress={() => setFullscreenMonth(prev => !prev)}
-                accessibilityLabel={t('fullscreenToggle')}
-                accessibilityRole="button">
-                <Ionicons
-                  name={fullscreenMonth ? 'contract-outline' : 'expand-outline'}
-                  size={20}
-                  color={colors.primary}
-                />
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity
-              style={styles.iconBtn}
-              onPress={() => setShowNLInput(true)}
-              accessibilityLabel={t('nlEventTitle')}
-              accessibilityRole="button">
-              <Ionicons name="chatbubble-ellipses-outline" size={20} color={colors.primary} />
+              <Ionicons name="ellipsis-horizontal" size={20} color={colors.primary} />
             </TouchableOpacity>
           </View>
           <View style={styles.headerRight}>
@@ -1855,7 +1866,37 @@ function AppContent() {
         {/* Stats Screen */}
         <StatsScreen visible={showStats} onClose={() => setShowStats(false)} initialDate={currentDate} />
 
+        {/* Toolbar overflow menu */}
+        <Modal visible={showMoreMenu} transparent animationType="fade" onRequestClose={() => setShowMoreMenu(false)}>
+          <TouchableOpacity style={styles.moreMenuOverlay} activeOpacity={1} onPress={() => setShowMoreMenu(false)}>
+            <View style={[styles.moreMenuCard, {backgroundColor: colors.surface, borderColor: colors.border}]}>
+              <TouchableOpacity
+                style={styles.moreMenuItem}
+                onPress={() => { setShowMoreMenu(false); setShowNLInput(true); }}>
+                <Ionicons name="chatbubble-ellipses-outline" size={20} color={colors.primary} />
+                <Text style={[styles.moreMenuText, {color: colors.text}]}>{t('nlEventTitle')}</Text>
+              </TouchableOpacity>
+              {viewMode === 'month' && (
+                <TouchableOpacity
+                  style={[styles.moreMenuItem, {borderTopWidth: 1, borderTopColor: colors.borderLight}]}
+                  onPress={() => { setShowMoreMenu(false); setFullscreenMonth(prev => !prev); }}>
+                  <Ionicons name={fullscreenMonth ? 'contract-outline' : 'expand-outline'} size={20} color={colors.primary} />
+                  <Text style={[styles.moreMenuText, {color: colors.text}]}>{t('fullscreenToggle')}</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                style={[styles.moreMenuItem, {borderTopWidth: 1, borderTopColor: colors.borderLight}]}
+                onPress={() => { setShowMoreMenu(false); setShowSettingsModal(true); }}>
+                <Ionicons name="settings-outline" size={20} color={colors.primary} />
+                <Text style={[styles.moreMenuText, {color: colors.text}]}>{t('settings')}</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </Modal>
+
         <JobsManagerModal visible={showJobsManager} onClose={() => setShowJobsManager(false)} />
+
+        <OnboardingModal visible={showOnboarding} onClose={dismissOnboarding} />
 
         {/* New User-Calendar modal */}
         <Modal
@@ -1939,7 +1980,10 @@ function AppContent() {
         <LockScreen visible={lockReady && lockEnabled && isLocked} onUnlocked={handleUnlocked} />
         <PinSetupModal
           visible={pinSetupVisible}
-          onClose={() => setPinSetupVisible(false)}
+          onClose={() => {
+            setPinSetupVisible(false);
+            setTimeout(() => setShowSettingsModal(true), 300);
+          }}
           onComplete={handlePinSetupComplete}
           requireCurrent={pinSetupChange}
         />
@@ -2068,6 +2112,34 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  moreMenuOverlay: {
+    flex: 1,
+    paddingTop: 96,
+    paddingHorizontal: 12,
+    alignItems: 'flex-start',
+  },
+  moreMenuCard: {
+    minWidth: 200,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingVertical: 4,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    shadowOffset: {width: 0, height: 4},
+    elevation: 6,
+  },
+  moreMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 13,
+    paddingHorizontal: 16,
+  },
+  moreMenuText: {
+    fontSize: 15,
+    fontWeight: '500',
   },
   calTabsContainer: {
     borderBottomWidth: 0.5,

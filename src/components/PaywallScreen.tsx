@@ -143,7 +143,7 @@ export const PaywallScreen: React.FC<PaywallScreenProps> = ({visible, onClose}) 
   const plans: {type: PlanType; title: string; fallbackPrice: string; sub: string; badge?: string}[] = [
     {type: 'monthly', title: t('monthlyPlan'), fallbackPrice: '¥400', sub: t('perMonth')},
     {type: 'yearly', title: t('yearlyPlan'), fallbackPrice: '¥2,400', sub: t('perYear'), badge: t('yearlySaving')},
-    {type: 'lifetime', title: t('lifetimePlan'), fallbackPrice: '¥8,000', sub: t('oneTime'), badge: t('launchSpecial')},
+    {type: 'lifetime', title: t('lifetime'), fallbackPrice: '¥8,000', sub: t('oneTime'), badge: t('releaseSale')},
   ];
 
   return (

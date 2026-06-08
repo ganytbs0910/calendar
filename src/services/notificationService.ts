@@ -190,12 +190,15 @@ export const cleanupExpiredEventNotifications = async (): Promise<number> => {
   }
 };
 
-export const sendTestNotification = async (): Promise<void> => {
+export const sendTestNotification = async (
+  title: string = 'Test',
+  body: string = 'Notifications are working.',
+): Promise<void> => {
   await ensureChannel();
   const sound = await isSoundEnabled();
   await notifee.displayNotification({
-    title: 'Test',
-    body: 'Notifications are working.',
+    title,
+    body,
     android: {
       channelId: CHANNEL_ID,
       pressAction: {id: 'default'},

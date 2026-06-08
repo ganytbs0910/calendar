@@ -746,9 +746,11 @@ const makeStyles = (colors: ThemeColors) =>
       marginTop: 4,
     },
     earningsTotal: {
-      fontSize: 32,
-      fontWeight: '700',
+      fontSize: 34,
+      fontWeight: '800',
       color: colors.primary,
+      fontVariant: ['tabular-nums'],
+      letterSpacing: -0.5,
     },
     earningsRow: {
       flexDirection: 'row',
