@@ -30,6 +30,7 @@ struct SmallWidgetView: View {
                     .foregroundColor(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             } else {
+                let nextId = entry.events.first(where: { !$0.isAllDay && $0.startDate > entry.date })?.id
                 ForEach(entry.events.prefix(3)) { event in
                     HStack(spacing: 4) {
                         RoundedRectangle(cornerRadius: 1.5)
@@ -40,10 +41,23 @@ struct SmallWidgetView: View {
                             Text(event.title)
                                 .font(.system(size: 11, weight: .medium))
                                 .lineLimit(1)
-                            Text(event.isAllDay ? "終日" : formatTime(event.startDate))
-                                .font(.system(size: 9))
-                                .foregroundColor(.secondary)
+                            if event.id == nextId {
+                                HStack(spacing: 2) {
+                                    Text("あと")
+                                        .font(.system(size: 8))
+                                        .foregroundColor(.secondary)
+                                    Text(event.startDate, style: .timer)
+                                        .font(.system(size: 9, weight: .bold))
+                                        .foregroundColor(.blue)
+                                }
+                            } else {
+                                Text(event.isAllDay ? "終日" : formatTime(event.startDate))
+                                    .font(.system(size: 9))
+                                    .foregroundColor(.secondary)
+                            }
                         }
+
+                        Spacer(minLength: 0)
                     }
                 }
             }
@@ -116,6 +130,8 @@ struct MediumWidgetView: View {
                         .frame(maxWidth: .infinity, alignment: .center)
                     Spacer()
                 } else {
+                    // The next event that hasn't started yet — gets a live countdown.
+                    let nextId = entry.events.first(where: { !$0.isAllDay && $0.startDate > entry.date })?.id
                     ForEach(entry.events.prefix(4)) { event in
                         HStack(spacing: 6) {
                             RoundedRectangle(cornerRadius: 2)
@@ -132,6 +148,19 @@ struct MediumWidgetView: View {
                             }
 
                             Spacer(minLength: 0)
+
+                            if event.id == nextId {
+                                VStack(alignment: .trailing, spacing: 0) {
+                                    Text("開始まで")
+                                        .font(.system(size: 8))
+                                        .foregroundColor(.secondary)
+                                    Text(event.startDate, style: .timer)
+                                        .font(.system(size: 13, weight: .bold))
+                                        .foregroundColor(.blue)
+                                        .multilineTextAlignment(.trailing)
+                                }
+                                .fixedSize()
+                            }
                         }
                     }
 

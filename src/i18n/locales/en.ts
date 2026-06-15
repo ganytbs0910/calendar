@@ -128,6 +128,8 @@ export default {
 
   eventTitle: 'Title',
   dateTime: 'Date & Time',
+  startLabel: 'Start',
+  endLabel: 'End',
   eventColor: 'Color',
   colorWork: 'Work',
   testNotificationTitle: 'Test notification',
@@ -450,4 +452,9 @@ export default {
   statsEmpty: 'No data yet. Add some events or tasks!',
   statsMorningType: 'Morning person? ({{pct}}% of activity is in the morning)',
   statsNightType: 'Night owl? ({{pct}}% of activity is in the evening)',
+  tabHome: 'Home',
+  tabTasks: 'Tasks',
+  tabStats: 'Stats',
+  tabSettings: 'Settings',
+  comingSoon: 'Coming soon',
 };

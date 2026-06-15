@@ -31,7 +31,11 @@ export function SmallWidgetPreview() {
               <View style={{width: 2.5, height: 16, borderRadius: 1, backgroundColor: e.color}} />
               <View>
                 <Text style={{fontSize: 9, fontWeight: '500', color: '#333'}} numberOfLines={1}>{e.title}</Text>
-                <Text style={{fontSize: 7, color: '#999'}}>{e.time}</Text>
+                {i === 0 ? (
+                  <Text style={{fontSize: 7.5, fontWeight: '700', color: BLUE}}>あと 57:50</Text>
+                ) : (
+                  <Text style={{fontSize: 7, color: '#999'}}>{e.time}</Text>
+                )}
               </View>
             </View>
           ))}
@@ -65,6 +69,12 @@ export function MediumWidgetPreview() {
                 <Text style={{fontSize: 10, fontWeight: '500', color: '#333'}} numberOfLines={1}>{e.title}</Text>
                 <Text style={{fontSize: 7.5, color: '#999'}}>{e.time}</Text>
               </View>
+              {i === 0 && (
+                <View style={{alignItems: 'flex-end'}}>
+                  <Text style={{fontSize: 6.5, color: '#999'}}>開始まで</Text>
+                  <Text style={{fontSize: 11, fontWeight: '700', color: BLUE}}>57:50</Text>
+                </View>
+              )}
             </View>
           ))}
         </View>
@@ -186,6 +196,75 @@ export function LockScreenInlinePreview() {
   return (
     <View style={s.lockInline}>
       <Text style={{fontSize: 10, color: '#fff'}}>10:00 チームMTG</Text>
+    </View>
+  );
+}
+
+// Countdown Widget: time until the next event
+export function CountdownWidgetPreview() {
+  return (
+    <View style={s.widgetMedium}>
+      <View style={[s.widgetInner, {flexDirection: 'row', alignItems: 'center'}]}>
+        <View style={{justifyContent: 'center'}}>
+          <Text style={{fontSize: 9, fontWeight: '600', color: '#888'}}>次の予定まで</Text>
+          <Text style={{fontSize: 30, fontWeight: '800', color: BLUE}}>57:50</Text>
+        </View>
+        <View style={{width: 1, backgroundColor: '#E5E5EA', marginHorizontal: 10, marginVertical: 6}} />
+        <View style={{flex: 1, gap: 6}}>
+          {[{color: BLUE, title: 'チームMTG', time: '10:00 - 11:00'}, {color: RED, title: 'ランチ', time: '12:00 - 13:00'}].map((e, i) => (
+            <View key={i} style={{flexDirection: 'row', alignItems: 'center', gap: 5}}>
+              <View style={{width: 3, height: 22, borderRadius: 1.5, backgroundColor: e.color}} />
+              <View style={{flex: 1}}>
+                <Text style={{fontSize: 11, fontWeight: '500', color: '#333'}} numberOfLines={1}>{e.title}</Text>
+                <Text style={{fontSize: 8, color: '#999'}}>{e.time}</Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// Free Time Widget: remaining free time today
+export function FreeTimeWidgetPreview() {
+  return (
+    <View style={s.widgetSmall}>
+      <View style={s.widgetInner}>
+        <Text style={{fontSize: 9, fontWeight: '600', color: '#888'}}>☕ 今日の空き時間</Text>
+        <Text style={{fontSize: 24, fontWeight: '800', color: '#333', marginTop: 8}}>3時間35分</Text>
+        <View style={{height: 7, borderRadius: 4, backgroundColor: '#E5E5EA', marginTop: 10, overflow: 'hidden'}}>
+          <View style={{width: '64%', height: '100%', backgroundColor: GREEN}} />
+        </View>
+        <Text style={{fontSize: 8, color: '#999', marginTop: 8}}>予定 2時間</Text>
+      </View>
+    </View>
+  );
+}
+
+// Week Widget: this week's events as 7 columns
+export function WeekWidgetPreview() {
+  const wd = ['日', '月', '火', '水', '木', '金', '土'];
+  const nums = [8, 9, 10, 11, 12, 13, 14];
+  const today = 12;
+  const dots: Record<number, string[]> = {9: [BLUE], 10: [BLUE, RED], 11: [GREEN], 12: [BLUE, ORANGE, RED], 13: [PURPLE], 14: [BLUE]};
+  return (
+    <View style={s.widgetMedium}>
+      <View style={[s.widgetInner, {flexDirection: 'row', gap: 2}]}>
+        {nums.map((n, i) => (
+          <View key={n} style={{flex: 1, alignItems: 'center', gap: 3}}>
+            <Text style={{fontSize: 8, fontWeight: '600', color: i === 0 ? RED : i === 6 ? BLUE : '#888'}}>{wd[i]}</Text>
+            <View style={{width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: n === today ? BLUE : 'transparent'}}>
+              <Text style={{fontSize: 11, fontWeight: n === today ? '700' : '400', color: n === today ? '#fff' : '#333'}}>{n}</Text>
+            </View>
+            <View style={{gap: 2, alignItems: 'center'}}>
+              {(dots[n] || []).map((c, di) => (
+                <View key={di} style={{width: 5, height: 5, borderRadius: 2.5, backgroundColor: c}} />
+              ))}
+            </View>
+          </View>
+        ))}
+      </View>
     </View>
   );
 }

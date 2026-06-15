@@ -6,6 +6,7 @@ import EventKit
 struct LockScreenEntry: TimelineEntry {
     let date: Date
     let nextEvent: EventItem?
+    let freeMinutes: Int
 }
 
 // MARK: - Provider
@@ -15,7 +16,8 @@ struct LockScreenProvider: TimelineProvider {
     func placeholder(in context: Context) -> LockScreenEntry {
         LockScreenEntry(
             date: Date(),
-            nextEvent: EventItem(id: "1", title: "ミーティング", startDate: Date().addingTimeInterval(3600), endDate: Date().addingTimeInterval(7200), colorHex: "#007AFF", isAllDay: false)
+            nextEvent: EventItem(id: "1", title: "ミーティング", startDate: Date().addingTimeInterval(3600), endDate: Date().addingTimeInterval(7200), colorHex: "#007AFF", isAllDay: false),
+            freeMinutes: 180
         )
     }
 
@@ -43,7 +45,32 @@ struct LockScreenProvider: TimelineProvider {
 
     private func makeEntry() -> LockScreenEntry {
         let nextEvent = fetchNextEvent()
-        return LockScreenEntry(date: Date(), nextEvent: nextEvent)
+        return LockScreenEntry(date: Date(), nextEvent: nextEvent, freeMinutes: computeFreeMinutes())
+    }
+
+    // 今日の空き時間: from now until 23:00, minus time taken by timed events.
+    private func computeFreeMinutes() -> Int {
+        let status = EKEventStore.authorizationStatus(for: .event)
+        var hasAccess = status == .authorized
+        if #available(iOSApplicationExtension 17.0, *) {
+            hasAccess = hasAccess || status == .fullAccess
+        }
+        guard hasAccess else { return 0 }
+
+        let cal = Calendar.current
+        let now = Date()
+        guard let cap = cal.date(bySettingHour: 23, minute: 0, second: 0, of: now), now < cap else { return 0 }
+
+        let predicate = eventStore.predicateForEvents(withStart: now, end: cap, calendars: nil)
+        let events = eventStore.events(matching: predicate).filter { !$0.isAllDay }
+        var busy: TimeInterval = 0
+        for e in events {
+            let s = max(e.startDate, now)
+            let en = min(e.endDate, cap)
+            if en > s { busy += en.timeIntervalSince(s) }
+        }
+        let free = max(0, cap.timeIntervalSince(now) - busy)
+        return Int(free / 60.0)
     }
 
     private func fetchNextEvent() -> EventItem? {
@@ -162,8 +189,22 @@ struct LockScreenRectangularView: View {
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
             }
+
+            if entry.freeMinutes > 0 {
+                Text("今日の空き \(freeText)")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var freeText: String {
+        let h = entry.freeMinutes / 60
+        let m = entry.freeMinutes % 60
+        if h > 0 && m > 0 { return "\(h)時間\(m)分" }
+        if h > 0 { return "\(h)時間" }
+        return "\(m)分"
     }
 
     private var dateString: String {

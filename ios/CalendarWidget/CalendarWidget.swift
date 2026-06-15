@@ -36,8 +36,11 @@ struct CalendarWidgetProvider: TimelineProvider {
         let events = fetchTodayEvents()
         let entry = CalendarEntry(date: currentDate, events: events)
 
-        // Refresh every 30 minutes
-        let nextUpdate = Calendar.current.date(byAdding: .minute, value: 30, to: currentDate)!
+        // Refresh at the next event's start (so the countdown target advances to
+        // the following event), or in 30 minutes — whichever comes first.
+        let in30 = Calendar.current.date(byAdding: .minute, value: 30, to: currentDate)!
+        let nextStart = events.first(where: { !$0.isAllDay && $0.startDate > currentDate })?.startDate
+        let nextUpdate = [nextStart, in30].compactMap { $0 }.min() ?? in30
         let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
         completion(timeline)
     }

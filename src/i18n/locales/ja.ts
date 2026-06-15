@@ -141,6 +141,8 @@ export default {
   // Color labels
   eventTitle: 'タイトル',
   dateTime: '日時',
+  startLabel: '開始',
+  endLabel: '終了',
   eventColor: 'カラー',
   colorWork: '仕事',
   testNotificationTitle: 'テスト通知',
@@ -477,4 +479,9 @@ export default {
   statsEmpty: 'まだデータがありません。予定やタスクを追加してみましょう。',
   statsMorningType: '朝型かも（活動の{{pct}}%が朝）',
   statsNightType: '夜型かも（活動の{{pct}}%が夜）',
+  tabHome: 'ホーム',
+  tabTasks: 'タスク',
+  tabStats: '統計',
+  tabSettings: '設定',
+  comingSoon: '準備中です',
 };

@@ -24,9 +24,12 @@ struct CalendarAppWidget: Widget {
 @main
 struct CalendarWidgetBundle: WidgetBundle {
     var body: some Widget {
-        CalendarAppWidget()
-        MonthCalendarWidget()
-        UpcomingEventsWidget()
-        LockScreenWidget()
+        CalendarAppWidget()      // 今日の予定（リスト）
+        CountdownWidget()        // 次の予定までのカウントダウン
+        FreeTimeWidget()         // 今日の空き時間
+        WeekWidget()             // 今週の予定（横並び）
+        MonthCalendarWidget()    // 月間カレンダー
+        UpcomingEventsWidget()   // 今後の予定（複数日）
+        LockScreenWidget()       // ロック画面
     }
 }

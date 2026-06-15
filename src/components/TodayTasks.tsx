@@ -143,6 +143,7 @@ const TodayTasks: React.FC = () => {
                 <Text style={[styles.remainingTime, {color: colors.textSecondary}]}>{remainingText}</Text>
               ) : null}
               {freeTimeText ? (
+
                 <Text style={[styles.freeTime, {color: colors.primary}]}>{freeTimeText}</Text>
               ) : null}
             </View>

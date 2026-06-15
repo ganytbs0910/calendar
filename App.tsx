@@ -16,11 +16,12 @@ import {
   Switch,
   Share,
 } from 'react-native';
-import {SafeAreaProvider, SafeAreaView} from 'react-native-safe-area-context';
+import {SafeAreaProvider, SafeAreaView, useSafeAreaInsets} from 'react-native-safe-area-context';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
 import Calendar, {CalendarRef} from './src/components/Calendar';
 import WeekView, {WeekViewRef} from './src/components/WeekView';
 import AddEventModal, {removeEventColor} from './src/components/AddEventModal';
+import {removeAllEventPhotos} from './src/services/eventPhotoService';
 import EventDetailModal from './src/components/EventDetailModal';
 import {UndoToast, UndoAction} from './src/components/UndoToast';
 import UpdateAvailableModal from './src/components/UpdateAvailableModal';
@@ -35,6 +36,10 @@ import {ThemeProvider, useTheme} from './src/theme/ThemeContext';
 import {PremiumProvider, usePremium} from './src/context/PremiumContext';
 import {PaywallScreen} from './src/components/PaywallScreen';
 import StatsScreen from './src/components/StatsScreen';
+import AgentScreen from './src/components/AgentScreen';
+import ShareAvailabilityModal from './src/components/ShareAvailabilityModal';
+import PollModal from './src/components/PollModal';
+import SettingsLauncherScreen from './src/components/SettingsLauncherScreen';
 import JobsManagerModal from './src/components/JobsManagerModal';
 import OnboardingModal from './src/components/OnboardingModal';
 import AsyncStorageRoot from '@react-native-async-storage/async-storage';
@@ -43,6 +48,9 @@ import {
   MediumWidgetPreview,
   MonthCalendarPreview,
   UpcomingEventsPreview,
+  CountdownWidgetPreview,
+  FreeTimeWidgetPreview,
+  WeekWidgetPreview,
   LockScreenCircularPreview,
   LockScreenRectangularPreview,
   LockScreenInlinePreview,
@@ -68,7 +76,7 @@ import {
   sendTestNotification,
   cleanupExpiredEventNotifications,
 } from './src/services/notificationService';
-import {clearDevSeedEvents} from './src/services/devSeedData';
+import {clearDevSeedEvents, seedDevJuneEventsIfNeeded} from './src/services/devSeedData';
 import LockScreen, {PinSetupModal} from './src/components/LockScreen';
 import NLEventInput from './src/components/NLEventInput';
 import {ParsedEvent} from './src/utils/eventParser';
@@ -140,6 +148,16 @@ const SearchIcon = ({size = 20, color = '#666'}: {size?: number; color?: string}
 // Custom Settings Icon Component (gear)
 
 type ViewMode = 'month' | 'week';
+
+// Bottom navigation tabs. Only "home" is implemented; the other three navigate
+// to a placeholder "coming soon" screen for now.
+type TabKey = 'home' | 'tasks' | 'stats' | 'settings';
+const TABS: {key: TabKey; labelKey: string; icon: string; iconOutline: string}[] = [
+  {key: 'home', labelKey: 'tabHome', icon: 'home', iconOutline: 'home-outline'},
+  {key: 'tasks', labelKey: 'tabTasks', icon: 'checkbox', iconOutline: 'checkbox-outline'},
+  {key: 'stats', labelKey: 'tabStats', icon: 'stats-chart', iconOutline: 'stats-chart-outline'},
+  {key: 'settings', labelKey: 'tabSettings', icon: 'settings', iconOutline: 'settings-outline'},
+];
 
 // Sleep Setup Modal with weekday/weekend tabs
 const SleepSetupModal = ({
@@ -293,6 +311,8 @@ function AppContent() {
   const [initialStartDate, setInitialStartDate] = useState<Date | undefined>();
   const [initialEndDate, setInitialEndDate] = useState<Date | undefined>();
   const [viewMode, setViewMode] = useState<ViewMode>('month');
+  const [activeTab, setActiveTab] = useState<TabKey>('home');
+  const insets = useSafeAreaInsets();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [hasPermission, setHasPermission] = useState(false);
   const [showSearchModal, setShowSearchModal] = useState(false);
@@ -302,6 +322,7 @@ function AppContent() {
   const [isSearching, setIsSearching] = useState(false);
   const [showSleepSetup, setShowSleepSetup] = useState(false);
   const [showStats, setShowStats] = useState(false);
+  const [showIncomeWall, setShowIncomeWall] = useState(false);
   const [sleepSettings, setSleepSettings] = useState<SleepSettings | null>(null);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [templates, setTemplates] = useState<EventTemplate[]>([]);
@@ -325,7 +346,8 @@ function AppContent() {
   const [lockExpiryAt, setLockExpiryAt] = useState<number | null>(null);
   const [fullscreenMonth, setFullscreenMonth] = useState(false);
   const [showNLInput, setShowNLInput] = useState(false);
-  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [showShareAvail, setShowShareAvail] = useState(false);
+  const [showPoll, setShowPoll] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [initialTitle, setInitialTitle] = useState<string | undefined>(undefined);
   // User-defined calendars (categories) and the active tab.
@@ -653,17 +675,17 @@ function AppContent() {
     checkAndRequestPermission();
   }, []);
 
-  // Dev-only: one-shot cleanup of previously-seeded April 2026 sample events.
-  // Seeding is no longer performed; the seeder remains in source for reference.
+  // Dev-only: clean up the old April 2026 sample events, then seed June 2026
+  // with a college-student schedule (classes / part-time / circles).
   useEffect(() => {
     if (!__DEV__) return;
     if (!hasPermission) return;
-    clearDevSeedEvents().then(removed => {
-      if (removed > 0) {
-        calendarRef.current?.refreshEvents();
-        weekViewRef.current?.refreshEvents();
-      }
-    });
+    (async () => {
+      await clearDevSeedEvents();
+      await seedDevJuneEventsIfNeeded();
+      calendarRef.current?.refreshEvents();
+      weekViewRef.current?.refreshEvents();
+    })();
   }, [hasPermission]);
 
 
@@ -882,6 +904,7 @@ function AppContent() {
       // Clean up orphaned color setting (only for full deletes - single instance keeps its color for the series)
       if (deleteType === 'all') {
         removeEventColor(eventData.id).catch(() => {});
+        removeAllEventPhotos(eventData.id).catch(() => {});
       }
       cancelEventNotification(eventData.id).catch(() => {});
       refreshAllViews();
@@ -1014,9 +1037,11 @@ function AppContent() {
   };
 
   return (
-    <SafeAreaProvider>
+    <>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
-      <SafeAreaView style={[dynamicStyles.container, {paddingBottom: 0}]}>
+      <SafeAreaView edges={['top', 'left', 'right']} style={[dynamicStyles.container, {paddingBottom: 0}]}>
+        {activeTab === 'home' && (
+        <>
         <View style={dynamicStyles.header}>
           <View style={styles.headerLeft}>
             <TouchableOpacity
@@ -1040,13 +1065,15 @@ function AppContent() {
               accessibilityRole="button">
               <Ionicons name="stats-chart-outline" size={20} color={colors.primary} />
             </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.iconBtn}
-              onPress={() => setShowMoreMenu(true)}
-              accessibilityLabel={t('moreLabel')}
-              accessibilityRole="button">
-              <Ionicons name="ellipsis-horizontal" size={20} color={colors.primary} />
-            </TouchableOpacity>
+            {viewMode === 'month' && (
+              <TouchableOpacity
+                style={styles.iconBtn}
+                onPress={() => setFullscreenMonth(prev => !prev)}
+                accessibilityLabel={t('fullscreenToggle')}
+                accessibilityRole="button">
+                <Ionicons name={fullscreenMonth ? 'contract-outline' : 'expand-outline'} size={20} color={colors.primary} />
+              </TouchableOpacity>
+            )}
           </View>
           <View style={styles.headerRight}>
             <TouchableOpacity
@@ -1084,96 +1111,6 @@ function AppContent() {
           </TouchableOpacity>
         )}
 
-        {/* User calendar tab bar */}
-        <View style={[styles.calTabsContainer, {backgroundColor: colors.surface, borderBottomColor: colors.border}]}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.calTabsContent}>
-            {(() => {
-              const activeAll = selectedCalendarId === null;
-              return (
-                <TouchableOpacity
-                  style={[
-                    styles.calTab,
-                    {borderColor: activeAll ? colors.primary : colors.border, backgroundColor: activeAll ? colors.primary : 'transparent'},
-                  ]}
-                  onPress={() => setSelectedCalendarId(null)}>
-                  <Text style={[styles.calTabText, {color: activeAll ? colors.onPrimary : colors.text}]}>
-                    {t('calAll')}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })()}
-            {userCalendars.map(uc => {
-              const active = selectedCalendarId === uc.id;
-              const openEdit = () => {
-                setEditingCalendarId(uc.id);
-                setNewCalendarName(resolveCalendarName(uc, t));
-                setNewCalendarColor(uc.color);
-                setShowCalendarCreate(true);
-              };
-              const confirmDelete = () => {
-                Alert.alert(
-                  resolveCalendarName(uc, t),
-                  t('calDeleteConfirmMessage'),
-                  [
-                    {text: t('cancel'), style: 'cancel'},
-                    {
-                      text: t('delete'),
-                      style: 'destructive',
-                      onPress: async () => {
-                        await deleteUserCalendar(uc.id);
-                        const list = await getUserCalendars();
-                        setUserCalendars(list);
-                        if (selectedCalendarId === uc.id) setSelectedCalendarId(null);
-                      },
-                    },
-                  ]
-                );
-              };
-              return (
-                <TouchableOpacity
-                  key={uc.id}
-                  style={[
-                    styles.calTab,
-                    {borderColor: active ? uc.color : colors.border, backgroundColor: active ? uc.color : 'transparent'},
-                  ]}
-                  delayLongPress={300}
-                  onPress={() => setSelectedCalendarId(active ? null : uc.id)}
-                  onLongPress={() => {
-                    Alert.alert(resolveCalendarName(uc, t), undefined, [
-                      {text: t('edit'), onPress: openEdit},
-                      {text: t('delete'), style: 'destructive', onPress: confirmDelete},
-                      {text: t('cancel'), style: 'cancel'},
-                    ]);
-                  }}>
-                  {!active && (
-                    <View style={[styles.calTabDot, {backgroundColor: uc.color}]} />
-                  )}
-                  <Text style={[styles.calTabText, {color: active ? colors.onPrimary : colors.text}]}>
-                    {resolveCalendarName(uc, t)}
-                  </Text>
-                  {active && (
-                    <TouchableOpacity
-                      hitSlop={{top: 10, bottom: 10, left: 6, right: 6}}
-                      onPress={openEdit}>
-                      <Ionicons name="create-outline" size={14} color={colors.onPrimary} />
-                    </TouchableOpacity>
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-            <TouchableOpacity
-              style={[styles.calTabAdd, {borderColor: colors.border}]}
-              onPress={() => {
-                setEditingCalendarId(null);
-                setNewCalendarName('');
-                setNewCalendarColor('#007AFF');
-                setShowCalendarCreate(true);
-              }}>
-              <Ionicons name="add" size={18} color={colors.textSecondary} />
-            </TouchableOpacity>
-          </ScrollView>
-        </View>
-
         {viewMode === 'month' ? (
             <Calendar
               ref={calendarRef}
@@ -1199,6 +1136,34 @@ function AppContent() {
             onJumpToToday={goToToday}
             filterColor={userCalendars.find(c => c.id === selectedCalendarId)?.color ?? null}
           />
+        )}
+        </>
+        )}
+
+        {activeTab === 'tasks' && (
+          <View style={{flex: 1}}>
+            <AgentScreen />
+          </View>
+        )}
+
+        {activeTab === 'stats' && (
+          <View style={{flex: 1}}>
+            {/* 統計タブ: 活動サマリー・月の給料集計を表示。年収の壁は設定からのみ。 */}
+            <StatsScreen embedded hideIncomeWall visible onClose={() => {}} initialDate={currentDate} />
+          </View>
+        )}
+
+        {activeTab === 'settings' && (
+          <View style={{flex: 1}}>
+            <SettingsLauncherScreen
+              onOpenShareAvail={() => setShowShareAvail(true)}
+              onOpenPoll={() => setShowPoll(true)}
+              onOpenSettings={() => setShowSettingsModal(true)}
+              onOpenStats={() => setShowStats(true)}
+              onOpenIncomeWall={() => setShowIncomeWall(true)}
+              onOpenJobs={() => setShowJobsManager(true)}
+            />
+          </View>
         )}
 
         <AddEventModal
@@ -1755,6 +1720,45 @@ function AppContent() {
                     </View>
                   </View>
 
+                  {/* Widget: Next-event countdown */}
+                  <View style={styles.settingsSection}>
+                    <Text style={styles.settingsSectionTitle}>次の予定まで（小・中）</Text>
+                    <View style={styles.widgetPreviewArea}>
+                      <CountdownWidgetPreview />
+                    </View>
+                    <View style={styles.widgetGuideCard}>
+                      <Text style={styles.widgetGuideCardDesc}>
+                        次の予定までの残り時間をカウントダウン表示。あと何分かが一目で分かります。
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Widget: Today's free time */}
+                  <View style={styles.settingsSection}>
+                    <Text style={styles.settingsSectionTitle}>今日の空き時間（小）</Text>
+                    <View style={styles.widgetPreviewArea}>
+                      <FreeTimeWidgetPreview />
+                    </View>
+                    <View style={styles.widgetGuideCard}>
+                      <Text style={styles.widgetGuideCardDesc}>
+                        今日これからの空き時間をゲージ付きで表示。スキマ時間がすぐ分かります。
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Widget: This week */}
+                  <View style={styles.settingsSection}>
+                    <Text style={styles.settingsSectionTitle}>今週の予定（中・大）</Text>
+                    <View style={styles.widgetPreviewArea}>
+                      <WeekWidgetPreview />
+                    </View>
+                    <View style={styles.widgetGuideCard}>
+                      <Text style={styles.widgetGuideCardDesc}>
+                        今週7日間を横並びで表示。曜日ごとの予定の多さが一目で分かります。
+                      </Text>
+                    </View>
+                  </View>
+
                   {/* Widget 2: Month Calendar */}
                   <View style={styles.settingsSection}>
                     <Text style={styles.settingsSectionTitle}>{t('widgetMonthLarge')}</Text>
@@ -1864,35 +1868,23 @@ function AppContent() {
         </Modal>
 
         {/* Stats Screen */}
-        <StatsScreen visible={showStats} onClose={() => setShowStats(false)} initialDate={currentDate} />
+        <StatsScreen visible={showStats} onClose={() => setShowStats(false)} initialDate={currentDate} hideIncomeWall />
+        <StatsScreen visible={showIncomeWall} onClose={() => setShowIncomeWall(false)} initialDate={currentDate} onlyIncomeWall />
 
-        {/* Toolbar overflow menu */}
-        <Modal visible={showMoreMenu} transparent animationType="fade" onRequestClose={() => setShowMoreMenu(false)}>
-          <TouchableOpacity style={styles.moreMenuOverlay} activeOpacity={1} onPress={() => setShowMoreMenu(false)}>
-            <View style={[styles.moreMenuCard, {backgroundColor: colors.surface, borderColor: colors.border}]}>
-              <TouchableOpacity
-                style={styles.moreMenuItem}
-                onPress={() => { setShowMoreMenu(false); setShowNLInput(true); }}>
-                <Ionicons name="chatbubble-ellipses-outline" size={20} color={colors.primary} />
-                <Text style={[styles.moreMenuText, {color: colors.text}]}>{t('nlEventTitle')}</Text>
-              </TouchableOpacity>
-              {viewMode === 'month' && (
-                <TouchableOpacity
-                  style={[styles.moreMenuItem, {borderTopWidth: 1, borderTopColor: colors.borderLight}]}
-                  onPress={() => { setShowMoreMenu(false); setFullscreenMonth(prev => !prev); }}>
-                  <Ionicons name={fullscreenMonth ? 'contract-outline' : 'expand-outline'} size={20} color={colors.primary} />
-                  <Text style={[styles.moreMenuText, {color: colors.text}]}>{t('fullscreenToggle')}</Text>
-                </TouchableOpacity>
-              )}
-              <TouchableOpacity
-                style={[styles.moreMenuItem, {borderTopWidth: 1, borderTopColor: colors.borderLight}]}
-                onPress={() => { setShowMoreMenu(false); setShowSettingsModal(true); }}>
-                <Ionicons name="settings-outline" size={20} color={colors.primary} />
-                <Text style={[styles.moreMenuText, {color: colors.text}]}>{t('settings')}</Text>
-              </TouchableOpacity>
-            </View>
-          </TouchableOpacity>
-        </Modal>
+        {/* ① 空き日シェアカード */}
+        <ShareAvailabilityModal
+          visible={showShareAvail}
+          onClose={() => setShowShareAvail(false)}
+          initialDate={currentDate}
+        />
+
+        {/* ③ グループ日程調整 */}
+        <PollModal
+          visible={showPoll}
+          onClose={() => setShowPoll(false)}
+          initialDate={currentDate}
+        />
+
 
         <JobsManagerModal visible={showJobsManager} onClose={() => setShowJobsManager(false)} />
 
@@ -1996,6 +1988,30 @@ function AppContent() {
           onCancel={sleepSettings ? () => setShowSleepSetup(false) : undefined}
           formatTimeDisplay={formatTimeDisplay}
         />
+
+        {/* Bottom tab bar */}
+        <View
+          style={[
+            styles.bottomTabBar,
+            {backgroundColor: colors.surface, borderTopColor: colors.border, paddingBottom: Math.max(insets.bottom, 4)},
+          ]}>
+          {TABS.map(tb => {
+            const active = activeTab === tb.key;
+            const tint = active ? colors.primary : colors.textTertiary;
+            return (
+              <TouchableOpacity
+                key={tb.key}
+                style={styles.bottomTabItem}
+                onPress={() => setActiveTab(tb.key)}
+                accessibilityRole="button"
+                accessibilityState={{selected: active}}
+                accessibilityLabel={t(tb.labelKey)}>
+                <Ionicons name={(active ? tb.icon : tb.iconOutline) as any} size={22} color={tint} />
+                <Text style={[styles.bottomTabLabel, {color: tint}]}>{t(tb.labelKey)}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
       </SafeAreaView>
       {/* Language Selection Modal */}
       <Modal
@@ -2033,6 +2049,7 @@ function AppContent() {
         </View>
       </Modal>
       <UndoToast action={undoAction} onDismiss={() => setUndoAction(null)} />
+      {/* バナー広告の表示を一旦停止中。再開する場合は下のブロックのコメントを外す。
       {!__DEV__ && !isPremium && (
         <View style={styles.bannerContainer}>
           <BannerAd
@@ -2041,6 +2058,7 @@ function AppContent() {
           />
         </View>
       )}
+      */}
       <PaywallScreen visible={showPaywall} onClose={() => setShowPaywall(false)} />
       <UpdateAvailableModal
         visible={!!updateInfo}
@@ -2055,7 +2073,7 @@ function AppContent() {
           setUpdateInfo(null);
         }}
       />
-    </SafeAreaProvider>
+    </>
   );
 }
 
@@ -2064,12 +2082,40 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f5f5f5',
   },
+  bottomTabBar: {
+    flexDirection: 'row',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: 4,
+  },
+  bottomTabItem: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+  },
+  bottomTabLabel: {
+    fontSize: 10,
+    fontWeight: '500',
+  },
+  tabPlaceholder: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  tabPlaceholderTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  tabPlaceholderSub: {
+    fontSize: 14,
+  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 4,
   },
   headerLeft: {
     flexDirection: 'row',
@@ -2817,11 +2863,13 @@ const styles = StyleSheet.create({
 
 function App() {
   return (
-    <PremiumProvider>
-      <ThemeProvider>
-        <AppContent />
-      </ThemeProvider>
-    </PremiumProvider>
+    <SafeAreaProvider>
+      <PremiumProvider>
+        <ThemeProvider>
+          <AppContent />
+        </ThemeProvider>
+      </PremiumProvider>
+    </SafeAreaProvider>
   );
 }
 

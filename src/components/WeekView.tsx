@@ -13,6 +13,7 @@ import {
   Vibration,
   Platform,
   PanResponder,
+  Animated,
 } from 'react-native';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
 import {getAllEventColors} from './AddEventModal';
@@ -135,6 +136,32 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
   const pinchStartDistRef = useRef(0);
   const pinchStartHourHeightRef = useRef(DEFAULT_HOUR_HEIGHT);
   const pinchStartOffsetRef = useRef(0);
+  const pinchLastScaleRef = useRef(1);
+  // During the pinch we DON'T re-render per frame (that's what made it janky).
+  // Instead we preview the zoom with a native scaleY transform on the grid and
+  // only commit the real hourHeight (one re-layout) when the fingers lift.
+  // scaleY is anchored to the top of the grid; translateY keeps the time that
+  // was at the top of the viewport pinned there while scaling.
+  const pinchScaleY = useRef(new Animated.Value(1)).current;
+  const pinchTranslateY = useRef(new Animated.Value(0)).current;
+
+  const commitPinch = useCallback(() => {
+    if (!pinchActiveRef.current) return;
+    pinchActiveRef.current = false;
+    const startH = pinchStartHourHeightRef.current;
+    const finalScale = pinchLastScaleRef.current;
+    const newHeight = Math.max(MIN_HOUR_HEIGHT, Math.min(MAX_HOUR_HEIGHT, startH * finalScale));
+    const newOffset = pinchStartOffsetRef.current * (newHeight / startH);
+    // Reset the preview transform and commit the real layout in the same JS
+    // task so they land in one UI frame (no flash on the new architecture).
+    pinchScaleY.setValue(1);
+    pinchTranslateY.setValue(0);
+    pinchLastScaleRef.current = 1;
+    setHourHeight(newHeight);
+    verticalScrollRef.current?.scrollTo({y: newOffset, animated: false});
+    setInteractionLocked(false);
+  }, [pinchScaleY, pinchTranslateY]);
+
   const pinchPanResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
@@ -149,6 +176,7 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
           pinchStartDistRef.current = Math.sqrt(dx * dx + dy * dy);
           pinchStartHourHeightRef.current = hourHeightRef.current;
           pinchStartOffsetRef.current = verticalOffsetRef.current;
+          pinchLastScaleRef.current = 1;
           pinchActiveRef.current = true;
           setInteractionLocked(true);
         }
@@ -159,26 +187,19 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
           const dx = ts[0].pageX - ts[1].pageX;
           const dy = ts[0].pageY - ts[1].pageY;
           const dist = Math.sqrt(dx * dx + dy * dy);
-          const scale = dist / pinchStartDistRef.current;
-          const next = Math.max(MIN_HOUR_HEIGHT, Math.min(MAX_HOUR_HEIGHT, pinchStartHourHeightRef.current * scale));
-          setHourHeight(next);
-          // Keep the same time anchored at the top of the visible area
-          const newOffset = pinchStartOffsetRef.current * (next / pinchStartHourHeightRef.current);
-          verticalScrollRef.current?.scrollTo({y: newOffset, animated: false});
+          const startH = pinchStartHourHeightRef.current;
+          // Clamp the scale so the resulting hour-height stays within bounds.
+          const minScale = MIN_HOUR_HEIGHT / startH;
+          const maxScale = MAX_HOUR_HEIGHT / startH;
+          const scale = Math.max(minScale, Math.min(maxScale, dist / pinchStartDistRef.current));
+          pinchLastScaleRef.current = scale;
+          // Smooth, native-driven preview — no React re-render this frame.
+          pinchScaleY.setValue(scale);
+          pinchTranslateY.setValue(pinchStartOffsetRef.current * (1 - scale));
         }
       },
-      onPanResponderRelease: () => {
-        if (pinchActiveRef.current) {
-          pinchActiveRef.current = false;
-          setInteractionLocked(false);
-        }
-      },
-      onPanResponderTerminate: () => {
-        if (pinchActiveRef.current) {
-          pinchActiveRef.current = false;
-          setInteractionLocked(false);
-        }
-      },
+      onPanResponderRelease: commitPinch,
+      onPanResponderTerminate: commitPinch,
     })
   ).current;
 
@@ -577,8 +598,11 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
         showsVerticalScrollIndicator={false}
         directionalLockEnabled
         scrollEnabled={!interactionLocked}>
-        <View
-          style={[styles.bodyContent, {height: timelineHeight}]}
+        <Animated.View
+          style={[
+            styles.bodyContent,
+            {height: timelineHeight, transformOrigin: 'top', transform: [{translateY: pinchTranslateY}, {scaleY: pinchScaleY}]},
+          ]}
           {...pinchPanResponder.panHandlers}
           onLayout={() => {
             // Measure the grid's top Y in the window for long-press coordinate math.
@@ -670,7 +694,7 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
             bounces={false}
             scrollEnabled={!interactionLocked}
           />
-        </View>
+        </Animated.View>
       </ScrollView>
 
       {/* Bottom sheet — tasks + schedule for the currently centered day */}

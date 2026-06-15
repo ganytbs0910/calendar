@@ -296,5 +296,9 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>予定に写真を添付して思い出を記録するために、写真ライブラリへのアクセスを許可してください。</string>
+	<key>NSCameraUsageDescription</key>
+	<string>予定にその場で写真を撮って記録するために、カメラへのアクセスを許可してください。</string>
 </dict>
 </plist>

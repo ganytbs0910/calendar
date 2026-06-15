@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
 import {getAllEventColors} from './AddEventModal';
+import {getAllEventPhotoCounts} from '../services/eventPhotoService';
 import {cancelEventNotification} from '../services/notificationService';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {fetchWeather, WeatherDay} from '../services/weatherService';
@@ -91,7 +92,6 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
     };
   }, []);
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [hasPermissionInternal, setHasPermissionInternal] = useState(false);
   const hasPermission = hasPermissionProp ?? hasPermissionInternal;
   const [isLoading, setIsLoading] = useState(false);
@@ -107,6 +107,8 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
   const [dayEventsDate, setDayEventsDate] = useState<Date | null>(null);
   const bottomSheetAnim = useState(new Animated.Value(0))[0];
   const [eventColors, setEventColors] = useState<Record<string, string>>({});
+  // eventId → photo count, for the 📷 badge on the month grid (⑦ 写真ライフログ)
+  const [eventPhotos, setEventPhotos] = useState<Record<string, number>>({});
   const [weatherData, setWeatherData] = useState<Map<string, WeatherDay>>(new Map());
 
   // Drag selection state
@@ -144,6 +146,10 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
   const fetchEventsRef = useRef<(forceRefresh?: boolean) => void>(() => {});
   const getMonthKeyRef = useRef<(year: number, month: number) => string>((y, m) => `${y}-${m}`);
   const dayHeightRef = useRef(Math.floor(CALENDAR_AVAILABLE_HEIGHT / 5));
+  // Actual space available for the grid, measured at runtime so the last week
+  // never gets clipped by the tab bar (the SCREEN_HEIGHT - 280 constant is only
+  // a first-paint fallback and is wrong on some devices).
+  const [gridHeight, setGridHeight] = useState(CALENDAR_AVAILABLE_HEIGHT);
 
   // FlatList month paging
   const monthListRef = useRef<FlatList>(null);
@@ -529,6 +535,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       if (eventColorsCache.current) {
         setEventColors(eventColorsCache.current);
       }
+      getAllEventPhotoCounts().then(setEventPhotos).catch(() => {});
       lastFetchedMonth.current = currentCacheKey;
       // Prefetch in background
       prefetchMonths(currentYear, currentMonth, 2);
@@ -549,6 +556,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
         eventColorsCache.current = fetchedColors;
         setEventColors(fetchedColors);
       }
+      getAllEventPhotoCounts().then(setEventPhotos).catch(() => {});
 
       // Fetch current month events (this also stores in cache)
       await fetchMonthEvents(currentYear, currentMonth, forceRefresh);
@@ -592,7 +600,6 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
     goToToday: () => {
       const now = new Date();
       setCurrentDate(now);
-      setSelectedDate(now);
       const idx = MONTH_ANCHOR + (now.getFullYear() - baseDate.getFullYear()) * 12 + (now.getMonth() - baseDate.getMonth());
       monthListRef.current?.scrollToIndex({index: idx, animated: true});
     },
@@ -655,8 +662,8 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
 
   // Dynamic day height based on number of weeks
   const dayHeight = useMemo(() => {
-    return Math.floor(CALENDAR_AVAILABLE_HEIGHT / numberOfWeeks);
-  }, [numberOfWeeks]);
+    return Math.floor(gridHeight / numberOfWeeks);
+  }, [numberOfWeeks, gridHeight]);
 
   // Keep dayHeightRef in sync
   useEffect(() => { dayHeightRef.current = dayHeight; }, [dayHeight]);
@@ -851,7 +858,6 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
   const goToToday = useCallback(() => {
     const now = new Date();
     setCurrentDate(now);
-    setSelectedDate(now);
     scrollToMonth(now);
   }, [scrollToMonth]);
 
@@ -880,26 +886,19 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
 
   const handleDateSelect = useCallback(
     (date: Date) => {
-      const alreadySelected = selectedDate &&
-        date.getDate() === selectedDate.getDate() &&
-        date.getMonth() === selectedDate.getMonth() &&
-        date.getFullYear() === selectedDate.getFullYear();
-
-      if (alreadySelected) {
-        // Tap again on selected date: show events or add event
-        const dayEvents = getEventsForDate(date).filter(e => !e.allDay);
-        if (dayEvents.length > 0) {
-          openDayEventsSheet(date);
-        } else {
-          onDateDoubleSelect?.(date);
-        }
+      // No "selected date" concept: a single tap opens the screen directly —
+      // the day-events sheet when the day has timed events, otherwise the
+      // add-event screen. Still sync the parent's current date for context
+      // (e.g. the "+" button / stats default to this day).
+      onDateSelect?.(date);
+      const dayEvents = getEventsForDate(date).filter(e => !e.allDay);
+      if (dayEvents.length > 0) {
+        openDayEventsSheet(date);
       } else {
-        // First tap: just select the date
-        setSelectedDate(date);
-        onDateSelect?.(date);
+        onDateDoubleSelect?.(date);
       }
     },
-    [selectedDate, onDateSelect, onDateDoubleSelect, getEventsForDate, openDayEventsSheet],
+    [onDateSelect, onDateDoubleSelect, getEventsForDate, openDayEventsSheet],
   );
 
   const isToday = useCallback(
@@ -911,18 +910,6 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       );
     },
     [today],
-  );
-
-  const isSelected = useCallback(
-    (date: Date) => {
-      if (!selectedDate) return false;
-      return (
-        date.getDate() === selectedDate.getDate() &&
-        date.getMonth() === selectedDate.getMonth() &&
-        date.getFullYear() === selectedDate.getFullYear()
-      );
-    },
-    [selectedDate],
   );
 
   const isSunday = (index: number) => index % 7 === 0;
@@ -981,7 +968,6 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
     const prevDay = new Date(dayEventsDate);
     prevDay.setDate(prevDay.getDate() - 1);
     setDayEventsDate(prevDay);
-    setSelectedDate(prevDay);
     // Switch month if needed
     if (prevDay.getMonth() !== currentMonth || prevDay.getFullYear() !== currentYear) {
       setCurrentDate(new Date(prevDay.getFullYear(), prevDay.getMonth(), 1));
@@ -994,7 +980,6 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
     const nextDay = new Date(dayEventsDate);
     nextDay.setDate(nextDay.getDate() + 1);
     setDayEventsDate(nextDay);
-    setSelectedDate(nextDay);
     // Switch month if needed
     if (nextDay.getMonth() !== currentMonth || nextDay.getFullYear() !== currentYear) {
       setCurrentDate(new Date(nextDay.getFullYear(), nextDay.getMonth(), 1));
@@ -1064,7 +1049,15 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
           ))}
         </View>
 
-        {/* Calendar grid - horizontal FlatList for smooth month swiping */}
+        {/* Calendar grid - horizontal FlatList for smooth month swiping.
+            Wrapped in a flex:1 View whose measured height drives the grid so
+            the last week is never clipped by the tab bar. */}
+        <View
+          style={styles.gridWrapper}
+          onLayout={(e) => {
+            const h = e.nativeEvent.layout.height;
+            if (h > 0 && Math.abs(h - gridHeight) > 1) setGridHeight(h);
+          }}>
         <FlatList
           ref={monthListRef}
           data={monthData}
@@ -1090,12 +1083,12 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
               fetchMonthEvents(year, month).then(() => setCacheVersion(v => v + 1));
             }
           }}
-          style={{height: CALENDAR_AVAILABLE_HEIGHT}}
+          style={{height: gridHeight}}
           renderItem={({index: pageIndex}) => {
             const {year: pageYear, month: pageMonth} = getMonthForIndex(pageIndex);
             const pageDays = getCalendarDaysForMonth(pageYear, pageMonth);
             const pageWeeks = Math.ceil(pageDays.length / 7);
-            const pageDayHeight = Math.floor(CALENDAR_AVAILABLE_HEIGHT / pageWeeks);
+            const pageDayHeight = Math.floor(gridHeight / pageWeeks);
 
             // Compute multi-day events for this page
             const pageGetEventsForDate = (d: Date) => {
@@ -1227,10 +1220,16 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                                 fullscreenMode ? {minHeight: pageDayHeight, borderColor: colors.border} : {height: pageDayHeight, borderColor: colors.border},
                                 isToday(item.date) && {
                                   backgroundColor: colors.today,
-                                  borderWidth: 2,
                                   borderColor: colors.primary,
+                                  // Override the base cell's 0.5px right/bottom grid lines so the
+                                  // highlight ring is uniform on all four sides (otherwise the
+                                  // thicker top/left edges read as an asymmetric drop shadow).
+                                  borderWidth: 2,
+                                  borderTopWidth: 2,
+                                  borderRightWidth: 2,
+                                  borderBottomWidth: 2,
+                                  borderLeftWidth: 2,
                                 },
-                                isSelected(item.date) && {backgroundColor: colors.selected, borderColor: colors.primary, borderWidth: 3},
                                 inDragRange && {backgroundColor: colors.dragRange},
                                 isEventDragTarget && {backgroundColor: colors.dragRange},
                               ]}
@@ -1243,7 +1242,6 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                                   isSunday(globalIndex) && {color: colors.sunday},
                                   isSaturday(globalIndex) && {color: colors.saturday},
                                   isToday(item.date) && {color: colors.primary, fontWeight: 'bold'},
-                                  isSelected(item.date) && {color: colors.primary, fontWeight: 'bold'},
                                 ]}>
                                   {item.day}
                                 </Text>
@@ -1289,6 +1287,11 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                                           <Text style={[styles.singleDayEventTitle, {color: colors.onEvent}]} numberOfLines={1} ellipsizeMode="clip">
                                             {event.title}
                                           </Text>
+                                          {!!(event.id && eventPhotos[event.id]) && (
+                                            <View style={styles.photoBadge}>
+                                              <Ionicons name="camera" size={8} color={colors.onEvent} />
+                                            </View>
+                                          )}
                                         </TouchableOpacity>
                                       );
                                     })}
@@ -1350,6 +1353,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
             );
           }}
         />
+        </View>
 
       </View>
 
@@ -1490,15 +1494,19 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   container: {
+    flex: 1,
     backgroundColor: '#fff',
     paddingHorizontal: 12,
-    paddingTop: 8,
+    paddingTop: 2,
+  },
+  gridWrapper: {
+    flex: 1,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 6,
   },
   headerTitle: {
     fontSize: 18,
@@ -1506,7 +1514,8 @@ const styles = StyleSheet.create({
     color: '#333',
   },
   navButton: {
-    padding: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   navButtonText: {
     fontSize: 20,
@@ -1545,7 +1554,7 @@ const styles = StyleSheet.create({
   weekdayCell: {
     width: DAY_WIDTH,
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 3,
     borderRightWidth: 0.5,
     borderBottomWidth: 0.5,
     borderColor: '#e0e0e0',
@@ -1680,6 +1689,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
     width: '100%',
     alignItems: 'center',
+    position: 'relative',
+  },
+  photoBadge: {
+    position: 'absolute',
+    top: 1,
+    right: 1,
+    width: 11,
+    height: 11,
+    borderRadius: 6,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   singleDayEventTime: {
     fontSize: 9,

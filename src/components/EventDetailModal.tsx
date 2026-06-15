@@ -17,6 +17,7 @@ import {getJob} from '../services/jobService';
 import {computeShiftPay} from '../services/statisticsService';
 import {useTheme} from '../theme/ThemeContext';
 import {useTranslation} from 'react-i18next';
+import EventPhotoSection from './EventPhotoSection';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const CALENDAR_DAY_WIDTH = Math.floor((SCREEN_WIDTH - 80) / 7);
@@ -326,6 +327,8 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
             />
             <Text style={[styles.title, {color: colors.text}]}>{event.title}</Text>
           </View>
+
+          <EventPhotoSection eventId={event.id} />
 
           <View style={[styles.infoSection, {backgroundColor: colors.surface}]}>
             <View style={[styles.infoRow, {borderBottomColor: colors.borderLight}]}>

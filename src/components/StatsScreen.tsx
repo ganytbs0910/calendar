@@ -25,6 +25,12 @@ interface StatsScreenProps {
   visible: boolean;
   onClose: () => void;
   initialDate?: Date;
+  /** Render inline (no Modal wrapper / Done button) for embedding in a tab. */
+  embedded?: boolean;
+  /** Hide the 年収の壁 (income-wall) section — it lives only in Settings now. */
+  hideIncomeWall?: boolean;
+  /** Show ONLY the 年収の壁 (income-wall) section — opened as its own entry. */
+  onlyIncomeWall?: boolean;
 }
 
 const monthOffsetFromDate = (date: Date): number => {
@@ -44,7 +50,7 @@ const formatDuration = (
   return t('minutesFmt', {m});
 };
 
-const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate}) => {
+const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate, embedded = false, hideIncomeWall = false, onlyIncomeWall = false}) => {
   const {t} = useTranslation();
   const {colors, isDark} = useTheme();
   const {isPremium} = usePremium();
@@ -136,19 +142,23 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate}
     load(monthOffset);
   }, [thresholdDrafts, load, monthOffset]);
 
-  return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      presentationStyle="pageSheet"
-      onRequestClose={onClose}>
+  const inner = (
+    <>
       <View style={styles.container}>
         <View style={styles.header}>
           <View style={{width: 80}} />
-          <Text style={styles.headerTitle}>{t('statsTitle')}</Text>
-          <TouchableOpacity onPress={onClose}>
-            <Text style={styles.headerDone}>{t('done')}</Text>
-          </TouchableOpacity>
+          <Text style={styles.headerTitle}>
+            {onlyIncomeWall
+              ? t('statsIncomeWall', {year: bundle?.incomeWall.year ?? new Date().getFullYear()})
+              : t('statsTitle')}
+          </Text>
+          {embedded ? (
+            <View style={{width: 80}} />
+          ) : (
+            <TouchableOpacity onPress={onClose}>
+              <Text style={styles.headerDone}>{t('done')}</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Month selector */}
@@ -179,6 +189,7 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate}
         ) : (
           <ScrollView style={styles.scroll} contentContainerStyle={{paddingBottom: 40}}>
             {/* Summary card */}
+            {!onlyIncomeWall && (
             <View style={styles.card}>
               <View style={styles.sectionTitleRow}>
                 <Ionicons name="stats-chart-outline" size={16} color={colors.primary} />
@@ -214,9 +225,10 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate}
                 </View>
               )}
             </View>
+            )}
 
             {/* Monthly revenue / payroll (per job, with premiums & targets) */}
-            {bundle.payroll.byJob.length > 0 && (
+            {!onlyIncomeWall && bundle.payroll.byJob.length > 0 && (
               <View style={styles.card}>
                 <View style={styles.sectionTitleRow}>
                   <Ionicons name="cash-outline" size={16} color={colors.primary} />
@@ -287,7 +299,7 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate}
             )}
 
             {/* 年収の壁 (income thresholds) */}
-            {bundle.incomeWall.yearTotal > 0 && (
+            {(onlyIncomeWall || !hideIncomeWall) && bundle.incomeWall.yearTotal > 0 && (
               <View style={styles.card}>
                 <View style={styles.sectionTitleRow}>
                   <Ionicons name="trending-up-outline" size={16} color={colors.primary} />
@@ -327,8 +339,15 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate}
               </View>
             )}
 
+            {/* 年収の壁 empty-state (only when this screen is income-wall only) */}
+            {onlyIncomeWall && bundle.incomeWall.yearTotal === 0 && (
+              <View style={styles.emptyBox}>
+                <Text style={styles.emptyText}>{t('statsEmpty')}</Text>
+              </View>
+            )}
+
             {/* Category pie/bar */}
-            {bundle.monthly.byCategory.length > 0 && (
+            {!onlyIncomeWall && bundle.monthly.byCategory.length > 0 && (
               <View style={styles.card}>
                 <View style={styles.sectionTitleRow}>
                   <Ionicons name="pie-chart-outline" size={16} color={colors.primary} />
@@ -371,6 +390,7 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate}
             )}
 
             {/* Task stats */}
+            {!onlyIncomeWall && (
             <View style={styles.card}>
               <View style={styles.sectionTitleRow}>
                 <Ionicons name="checkmark-done-outline" size={16} color={colors.primary} />
@@ -428,9 +448,10 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate}
                 </>
               )}
             </View>
+            )}
 
             {/* Top titles */}
-            {bundle.monthly.topTitles.length > 0 && (
+            {!onlyIncomeWall && bundle.monthly.topTitles.length > 0 && (
               <View style={styles.card}>
                 <View style={styles.sectionTitleRow}>
                   <Ionicons name="trophy-outline" size={16} color={colors.primary} />
@@ -452,7 +473,7 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate}
             )}
 
             {/* Busiest weekdays */}
-            {bundle.monthly.busiestWeekdays.length > 0 && (
+            {!onlyIncomeWall && bundle.monthly.busiestWeekdays.length > 0 && (
               <View style={styles.card}>
                 <View style={styles.sectionTitleRow}>
                   <Ionicons name="flame-outline" size={16} color={colors.primary} />
@@ -481,7 +502,7 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate}
             )}
 
             {/* Heatmap */}
-            {bundle.monthly.totalMinutes > 0 && (
+            {!onlyIncomeWall && bundle.monthly.totalMinutes > 0 && (
               <View style={styles.card}>
                 <View style={styles.sectionTitleRow}>
                   <Ionicons name="grid-outline" size={16} color={colors.primary} />
@@ -498,7 +519,7 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate}
               </View>
             )}
 
-            {bundle.monthly.totalEvents === 0 && bundle.tasks.total === 0 && (
+            {!onlyIncomeWall && bundle.monthly.totalEvents === 0 && bundle.tasks.total === 0 && (
               <View style={styles.emptyBox}>
                 <Text style={styles.emptyText}>{t('statsEmpty')}</Text>
               </View>
@@ -549,6 +570,19 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate}
           </View>
         </View>
       </Modal>
+    </>
+  );
+
+  if (embedded) {
+    return inner;
+  }
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={onClose}>
+      {inner}
     </Modal>
   );
 };

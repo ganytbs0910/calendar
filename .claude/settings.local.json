@@ -149,8 +149,16 @@
       "Skill(deep-research)",
       "Workflow(deep-research)",
       "WebSearch",
-      "Bash(awk *)"
+      "Bash(awk *)",
+      "Bash(node /tmp/cmp.js)",
+      "Skill(update-config)",
+      "Bash(system_profiler SPDisplaysDataType)",
+      "Bash(osascript -e 'tell application \"Simulator\" to activate')",
+      "Bash(xcrun simctl *)",
+      "Bash(node *)",
+      "Read(//Library/Fonts/**)",
+      "Read(//System/Library/AssetsV2/**)"
     ],
-    "defaultMode": "acceptEdits"
+    "defaultMode": "auto"
   }
 }

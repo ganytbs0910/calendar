@@ -22,10 +22,11 @@ import {useTheme} from '../theme/ThemeContext';
 import {usePremium} from '../context/PremiumContext';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {addTemplate} from '../services/templateService';
-import {recordEventCreation} from '../services/eventHistoryService';
+import {recordEventCreation, getEventHistory, deleteEventHistoryEntry, EventHistoryEntry} from '../services/eventHistoryService';
 import {getEventWage, setEventWage, removeEventWage, getRecentWages, addRecentWage, removeRecentWage, getEventJob, setEventJob, removeEventJob} from '../services/eventWageService';
 import {getJobs, Job} from '../services/jobService';
-import {computeShiftPay} from '../services/statisticsService';
+import {computeShiftPay, getIncomeThresholds} from '../services/statisticsService';
+import {getYearWorkTotal, wallCrossedBy, wallLabel} from '../services/incomeWallService';
 import JobsManagerModal from './JobsManagerModal';
 import {
   cancelEventNotification,
@@ -34,20 +35,23 @@ import {
 } from '../services/notificationService';
 import {useTranslation} from 'react-i18next';
 
-// Default color options for events with labels (keys for i18n)
+// Canonical color category palette (keys for i18n). MUST stay in sync with the
+// calendar seed defaults in userCalendarService.ts — same 7 colors and labels —
+// so the event color picker shows the same categories as the calendar filter tabs.
 const DEFAULT_EVENT_COLORS = [
   {name: 'blue', color: '#007AFF', label: 'colorWork'},
   {name: 'red', color: '#FF3B30', label: 'colorImportant'},
   {name: 'green', color: '#34C759', label: 'colorFun'},
   {name: 'yellow', color: '#FFCC00', label: 'colorOther'},
-];
-
-// Additional colors that can be added (keys for i18n)
-const ADDITIONAL_COLORS = [
   {name: 'orange', color: '#FF9500', label: 'colorPromise'},
   {name: 'purple', color: '#AF52DE', label: 'colorHobby'},
   {name: 'pink', color: '#FF2D92', label: 'colorSchedule'},
 ];
+
+// Preset colors offered by the "+" picker: the full canonical set, so any color
+// the user removed (long-press) can be re-added. availableColorsToAdd filters
+// out the ones already shown.
+const ADDITIONAL_COLORS = DEFAULT_EVENT_COLORS;
 
 const COLOR_SETTINGS_KEY = '@color_settings';
 
@@ -349,7 +353,6 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null); // null = manual wage
   const [showJobsManager, setShowJobsManager] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const selectedJob = useMemo(() => jobs.find(j => j.id === selectedJobId) || null, [jobs, selectedJobId]);
   const payPreview = useMemo(
     () => (selectedJob ? computeShiftPay(startDate, endDate, selectedJob) : null),
@@ -361,6 +364,9 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   const [showAddColor, setShowAddColor] = useState(false);
   const [reminder, setReminder] = useState<number | null>(null);
   const [recurrence, setRecurrence] = useState<'none' | 'daily' | 'weekly' | 'monthly'>('none');
+  // Presets = auto-saved recent events (eventHistory). One tap re-enters the
+  // same event (incl. job/wage for バイト).
+  const [presets, setPresets] = useState<EventHistoryEntry[]>([]);
   const [titleSuggestions, setTitleSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [recentTitles, setRecentTitles] = useState<string[]>([]);
@@ -566,6 +572,43 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
     onClose();
   }, [onClose]);
 
+  // Load presets (recent saved events) when the modal opens.
+  useEffect(() => {
+    if (visible) getEventHistory().then(p => setPresets(p.slice(0, 12))).catch(() => {});
+  }, [visible]);
+
+  // One-tap re-enter a saved event. Duration is applied relative to the current
+  // start; job/wage are restored only for work-colored presets.
+  const applyPreset = useCallback((p: EventHistoryEntry) => {
+    setTitle(p.title);
+    setSelectedColor(p.color);
+    setEndDate(new Date(startDate.getTime() + p.durationMinutes * 60000));
+    setReminder(p.reminder);
+    setRecurrence(p.recurrence);
+    if (isWorkColor(p.color)) {
+      setSelectedJobId(p.jobId ?? null);
+      setHourlyWage(p.hourlyWage != null ? String(p.hourlyWage) : '');
+    } else {
+      setSelectedJobId(null);
+      setHourlyWage('');
+    }
+    setShowSuggestions(false);
+  }, [startDate]);
+
+  const removePreset = useCallback((p: EventHistoryEntry) => {
+    Alert.alert('プリセットを削除', `「${p.title}」を削除しますか？`, [
+      {text: t('cancel'), style: 'cancel'},
+      {
+        text: t('delete'),
+        style: 'destructive',
+        onPress: async () => {
+          await deleteEventHistoryEntry(p.id);
+          setPresets(prev => prev.filter(e => e.id !== p.id));
+        },
+      },
+    ]);
+  }, [t]);
+
   const handleSave = useCallback(async () => {
     // Check and request permission before saving. iOS 17+ returns "fullAccess"
     // alongside the older "authorized", but the library's TS types haven't
@@ -619,6 +662,44 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         }
       }
     };
+
+    // 年収の壁ナビ: before a NEW work shift is saved, warn if it pushes this
+    // year's income over the next 103/106/130/150万 wall. Best-effort — a failed
+    // check must never block saving.
+    if (!isEditing && isWorkColor(selectedColor)) {
+      let addPay = 0;
+      if (jobToSave) {
+        const job = jobs.find(j => j.id === jobToSave);
+        if (job) addPay = computeShiftPay(startDate, finalEndDate, job).total;
+      } else if (wageToSave) {
+        addPay = ((finalEndDate.getTime() - startDate.getTime()) / 3600000) * wageToSave;
+      }
+      if (addPay > 0) {
+        try {
+          const [currentTotal, thresholds] = await Promise.all([
+            getYearWorkTotal(startDate.getFullYear()),
+            getIncomeThresholds(),
+          ]);
+          const crossed = wallCrossedBy(currentTotal, addPay, thresholds);
+          if (crossed) {
+            const ok = await new Promise<boolean>(resolve => {
+              Alert.alert(
+                `${wallLabel(crossed)}円の壁を超えます`,
+                `このシフトで今年の収入が ${wallLabel(crossed)}円の壁（¥${crossed.toLocaleString()}）を超えます。\n` +
+                  `¥${Math.round(currentTotal).toLocaleString()} → ¥${Math.round(currentTotal + addPay).toLocaleString()}`,
+                [
+                  {text: 'やめておく', style: 'cancel', onPress: () => resolve(false)},
+                  {text: '承知で保存', onPress: () => resolve(true)},
+                ],
+              );
+            });
+            if (!ok) return;
+          }
+        } catch {
+          // ignore — never block saving on a wall-check failure
+        }
+      }
+    }
 
     // Local conflict detection (no AI/API): warn on overlapping events.
     try {
@@ -729,6 +810,8 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           color: selectedColor,
           reminder,
           recurrence,
+          jobId: jobToSave,
+          hourlyWage: wageToSave,
         }).catch(() => {});
       }
 
@@ -1074,12 +1157,31 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         </View>
 
         <ScrollView style={styles.form} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
-          <View style={[styles.inputGroup, {backgroundColor: colors.surface}]}>
-            <View style={{flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 8}}>
-              <View style={[styles.titleIconBox, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="create-outline" size={12} color={colors.textSecondary} /></View>
-              <Text style={{fontSize: 12, color: colors.textSecondary, fontWeight: '500'}}>{t('eventTitle')}</Text>
-            </View>
+          <View style={[styles.inputGroup, {backgroundColor: colors.surface, borderBottomColor: colors.border}]}>
+            {!isEditing && presets.length > 0 && (
+              <View style={styles.presetWrap}>
+                <View style={{flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 6}}>
+                  <Ionicons name="flash-outline" size={12} color={colors.textSecondary} />
+                  <Text style={{fontSize: 12, color: colors.textSecondary, fontWeight: '500'}}>プリセット（前回の予定をワンタップ）</Text>
+                </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{gap: 8, paddingRight: 8}}>
+                  {presets.map(p => (
+                    <TouchableOpacity
+                      key={p.id}
+                      style={[styles.presetChip, {backgroundColor: colors.inputBackground, borderColor: colors.border}]}
+                      onPress={() => applyPreset(p)}
+                      onLongPress={() => removePreset(p)}
+                      delayLongPress={300}>
+                      <View style={[styles.presetDot, {backgroundColor: p.color}]} />
+                      <Text style={[styles.presetChipText, {color: colors.text}]} numberOfLines={1}>{p.title}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+                <View style={[styles.titleColorDivider, {backgroundColor: colors.borderLight, marginTop: 12}]} />
+              </View>
+            )}
             <View style={styles.titleInputContainer}>
+              <View style={[styles.titleIconBox, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="create-outline" size={12} color={colors.textSecondary} /></View>
               <TextInput
                 style={[styles.titleInput, {color: colors.text}]}
                 placeholder={t('titlePlaceholder')}
@@ -1139,66 +1241,122 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                 ))}
               </View>
             )}
+
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              style={styles.colorChipScroll}
+              contentContainerStyle={styles.colorChipScrollContent}>
+              {colorOptions.map((colorOption) => {
+                const isSel = selectedColor === colorOption.color;
+                return (
+                  <View
+                    key={colorOption.name}
+                    style={[
+                      styles.colorNameChip,
+                      {backgroundColor: colors.inputBackground, borderColor: colors.border},
+                      isSel && {borderColor: colorOption.color, backgroundColor: colorOption.color + '22'},
+                    ]}>
+                    <TouchableOpacity
+                      style={styles.colorNameChipMain}
+                      onPress={() => setSelectedColor(colorOption.color)}
+                      onLongPress={() => handleRemoveColor(colorOption.color)}>
+                      <View style={[styles.colorNameChipDot, {backgroundColor: colorOption.color}]} />
+                      <Text
+                        style={[
+                          styles.colorNameChipText,
+                          {color: colors.textSecondary},
+                          isSel && {color: colors.text, fontWeight: '700'},
+                        ]}
+                        numberOfLines={1}>
+                        {t(colorOption.label, {defaultValue: colorOption.label})}
+                      </Text>
+                    </TouchableOpacity>
+                    {isSel && (
+                      <TouchableOpacity
+                        onPress={() => handleLabelPress(colorOption.color)}
+                        hitSlop={{top: 8, bottom: 8, left: 4, right: 8}}>
+                        <Ionicons name="pencil-outline" size={12} color={colors.textTertiary} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                );
+              })}
+              {availableColorsToAdd.length > 0 && isPremium && (
+                <TouchableOpacity
+                  style={[styles.colorNameChip, styles.addColorChip, {backgroundColor: colors.inputBackground, borderColor: colors.border}]}
+                  onPress={() => setShowAddColor(true)}>
+                  <Text style={[styles.addColorButtonText, {color: colors.textTertiary}]}>+</Text>
+                </TouchableOpacity>
+              )}
+            </ScrollView>
           </View>
 
-          <View style={[styles.dateTimeSection, {backgroundColor: colors.surface}]}>
-            <View style={{flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 8}}>
-              <View style={[styles.titleIconBox, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="calendar-outline" size={12} color={colors.textSecondary} /></View>
-              <Text style={{fontSize: 12, color: colors.textSecondary, fontWeight: '500'}}>{t('dateTime')}</Text>
+          <View style={[styles.dateTimeSection, {backgroundColor: colors.surface, borderBottomColor: colors.border}]}>
+            <View style={styles.dtLabeledRow}>
+              <View style={styles.dtRowLabel}>
+                <View style={[styles.titleIconBox, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="calendar-outline" size={12} color={colors.textSecondary} /></View>
+                <Text style={[styles.dtRowLabelText, {color: colors.textSecondary}]}>{t('startLabel')}</Text>
+              </View>
+              <View style={styles.dtRowValue}>
+                <TouchableOpacity
+                  style={[styles.dtCell, {backgroundColor: colors.today}]}
+                  onPress={() => {
+                    setShowStartTimePicker(false);
+                    setShowEndDatePicker(false);
+                    setShowEndTimePicker(false);
+                    setTempDate(new Date(startDate));
+                    setShowStartDatePicker(true);
+                  }}>
+                  <Text style={[styles.dtCellText, {color: colors.primary}]}>
+                    {t('dateDayOfWeek', {month: startDate.getMonth() + 1, day: startDate.getDate(), weekday: WEEKDAYS[startDate.getDay()]})}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.dtTimeCell, {backgroundColor: colors.today}]}
+                  onPress={() => {
+                    setShowStartDatePicker(false);
+                    setShowEndDatePicker(false);
+                    setShowEndTimePicker(false);
+                    setTempDate(new Date(startDate));
+                    setShowStartTimePicker(true);
+                  }}>
+                  <Text style={[styles.dtCellTime, {color: colors.primary}]}>{formatTime(startDate)}</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-            <View style={styles.dtRow}>
-              <TouchableOpacity
-                style={[styles.dtCell, {backgroundColor: colors.today}]}
-                onPress={() => {
-                  setShowStartTimePicker(false);
-                  setShowEndDatePicker(false);
-                  setShowEndTimePicker(false);
-                  setTempDate(new Date(startDate));
-                  setShowStartDatePicker(true);
-                }}>
-                <Text style={[styles.dtCellText, {color: colors.primary}]}>
-                  {t('dateDayOfWeek', {month: startDate.getMonth() + 1, day: startDate.getDate(), weekday: WEEKDAYS[startDate.getDay()]})}
-                </Text>
-              </TouchableOpacity>
-              <Text style={[styles.dtArrow, {color: colors.textTertiary}]}>→</Text>
-              <TouchableOpacity
-                style={[styles.dtCell, {backgroundColor: colors.inputBackground}]}
-                onPress={() => {
-                  setShowStartDatePicker(false);
-                  setShowStartTimePicker(false);
-                  setShowEndTimePicker(false);
-                  setTempDate(new Date(endDate));
-                  setShowEndDatePicker(true);
-                }}>
-                <Text style={[styles.dtCellText, {color: colors.text}]}>
-                  {t('dateDayOfWeek', {month: endDate.getMonth() + 1, day: endDate.getDate(), weekday: WEEKDAYS[endDate.getDay()]})}
-                </Text>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.dtRow}>
-              <TouchableOpacity
-                style={[styles.dtCell, {backgroundColor: colors.today}]}
-                onPress={() => {
-                  setShowStartDatePicker(false);
-                  setShowEndDatePicker(false);
-                  setShowEndTimePicker(false);
-                  setTempDate(new Date(startDate));
-                  setShowStartTimePicker(true);
-                }}>
-                <Text style={[styles.dtCellTime, {color: colors.primary}]}>{formatTime(startDate)}</Text>
-              </TouchableOpacity>
-              <Text style={[styles.dtArrow, {color: colors.textTertiary}]}>→</Text>
-              <TouchableOpacity
-                style={[styles.dtCell, {backgroundColor: colors.inputBackground}]}
-                onPress={() => {
-                  setShowStartDatePicker(false);
-                  setShowStartTimePicker(false);
-                  setShowEndDatePicker(false);
-                  setTempDate(new Date(endDate));
-                  setShowEndTimePicker(true);
-                }}>
-                <Text style={[styles.dtCellTime, {color: colors.text}]}>{formatTime(endDate)}</Text>
-              </TouchableOpacity>
+            <View style={styles.dtLabeledRow}>
+              <View style={styles.dtRowLabel}>
+                <View style={[styles.titleIconBox, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="flag-outline" size={12} color={colors.textSecondary} /></View>
+                <Text style={[styles.dtRowLabelText, {color: colors.textSecondary}]}>{t('endLabel')}</Text>
+              </View>
+              <View style={styles.dtRowValue}>
+                <TouchableOpacity
+                  style={[styles.dtCell, {backgroundColor: colors.inputBackground}]}
+                  onPress={() => {
+                    setShowStartDatePicker(false);
+                    setShowStartTimePicker(false);
+                    setShowEndTimePicker(false);
+                    setTempDate(new Date(endDate));
+                    setShowEndDatePicker(true);
+                  }}>
+                  <Text style={[styles.dtCellText, {color: colors.text}]}>
+                    {t('dateDayOfWeek', {month: endDate.getMonth() + 1, day: endDate.getDate(), weekday: WEEKDAYS[endDate.getDay()]})}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.dtTimeCell, {backgroundColor: colors.inputBackground}]}
+                  onPress={() => {
+                    setShowStartDatePicker(false);
+                    setShowStartTimePicker(false);
+                    setShowEndDatePicker(false);
+                    setTempDate(new Date(endDate));
+                    setShowEndTimePicker(true);
+                  }}>
+                  <Text style={[styles.dtCellTime, {color: colors.text}]}>{formatTime(endDate)}</Text>
+                </TouchableOpacity>
+              </View>
             </View>
             <View style={styles.durationInline}>
               <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
@@ -1238,55 +1396,9 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
             </View>
           </View>
 
-          <View style={[styles.colorSection, {backgroundColor: colors.surface}]}>
-            <View style={{flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 8}}>
-              <View style={[styles.titleIconBox, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="color-fill-outline" size={12} color={colors.textSecondary} /></View>
-              <Text style={{fontSize: 12, color: colors.textSecondary, fontWeight: '500'}}>{t('eventColor')}</Text>
-            </View>
-            <View style={styles.colorButtons}>
-              {colorOptions.map((colorOption) => (
-                <View key={colorOption.name} style={styles.colorButtonWrapper}>
-                  <TouchableOpacity
-                    style={[
-                      styles.colorButton,
-                      {backgroundColor: colorOption.color},
-                      selectedColor === colorOption.color && styles.colorButtonSelected,
-                    ]}
-                    onPress={() => setSelectedColor(colorOption.color)}
-                    onLongPress={() => handleRemoveColor(colorOption.color)}>
-                    {selectedColor === colorOption.color && (
-                      <Text style={styles.colorButtonCheck}>✓</Text>
-                    )}
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => handleLabelPress(colorOption.color)}>
-                    <Text
-                      style={[
-                        styles.colorButtonLabel,
-                        {color: colors.textSecondary},
-                        selectedColor === colorOption.color && [styles.colorButtonLabelSelected, {color: colors.primary}],
-                      ]}
-                      numberOfLines={1}>
-                      {t(colorOption.label, {defaultValue: colorOption.label})}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              ))}
-              {availableColorsToAdd.length > 0 && isPremium && (
-                <View style={styles.colorButtonWrapper}>
-                  <TouchableOpacity
-                    style={[styles.addColorButton, {backgroundColor: colors.inputBackground, borderColor: colors.border}]}
-                    onPress={() => setShowAddColor(true)}>
-                    <Text style={[styles.addColorButtonText, {color: colors.textTertiary}]}>+</Text>
-                  </TouchableOpacity>
-                  <Text style={[styles.colorButtonLabel, {color: colors.textSecondary}]}> </Text>
-                </View>
-              )}
-            </View>
-          </View>
-
           {isWorkColor(selectedColor) && (
-            <View style={[styles.colorSection, {backgroundColor: colors.surface}]}>
-              <View style={{flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 8}}>
+            <View style={[styles.colorSection, {backgroundColor: colors.surface, borderBottomColor: colors.border}]}>
+              <View style={{flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 6}}>
                 <View style={[styles.titleIconBox, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="cash-outline" size={12} color={colors.textSecondary} /></View>
                 <Text style={{fontSize: 12, color: colors.textSecondary, fontWeight: '500'}}>{t('payrollLabel')}</Text>
               </View>
@@ -1393,7 +1505,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
             </View>
           )}
 
-          <View style={[styles.reminderSection, {backgroundColor: colors.surface}]}>
+          <View style={[styles.reminderSection, {backgroundColor: colors.surface, borderBottomColor: colors.border}]}>
             {/* Reminder is always visible — it's the trigger for notifications. */}
             <View style={styles.optionRow}>
               <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
@@ -1422,19 +1534,8 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
               </View>
             </View>
 
-            {/* Repeat lives under 詳細設定 (less common). */}
-            <TouchableOpacity
-              style={[styles.advancedHeader, {marginTop: 12}]}
-              activeOpacity={0.7}
-              onPress={() => setShowAdvanced(v => !v)}>
-              <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
-                <View style={[styles.titleIconBox, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="options-outline" size={12} color={colors.textSecondary} /></View>
-                <Text style={[styles.optionRowLabel, {color: colors.textSecondary}]}>{t('advancedSettings')}</Text>
-              </View>
-              <Ionicons name={(showAdvanced || recurrence !== 'none') ? 'chevron-up' : 'chevron-down'} size={16} color={colors.textTertiary} />
-            </TouchableOpacity>
-            {(showAdvanced || recurrence !== 'none') && (
-            <View style={[styles.optionRow, {marginTop: 10}]}>
+            {/* Repeat is always shown. */}
+            <View style={[styles.optionRow, {marginTop: 12}]}>
               <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
                 <View style={[styles.titleIconBox, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="repeat-outline" size={12} color={colors.textSecondary} /></View>
                 <Text style={[styles.optionRowLabel, {color: colors.textSecondary}]}>{t('repeat')}</Text>
@@ -1460,7 +1561,6 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                 ))}
               </View>
             </View>
-            )}
           </View>
 
           {!isEditing && !isCopying && (
@@ -1800,13 +1900,34 @@ const styles = StyleSheet.create({
   },
   form: {
     flex: 1,
-    padding: 14,
   },
   inputGroup: {
     backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  presetWrap: {
+    marginBottom: 4,
+  },
+  presetChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    maxWidth: 180,
+  },
+  presetDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  presetChipText: {
+    fontSize: 13,
+    fontWeight: '600',
   },
   titleIconBox: {
     width: 22,
@@ -1819,6 +1940,7 @@ const styles = StyleSheet.create({
   titleInputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
   },
   titleInput: {
     flex: 1,
@@ -1828,10 +1950,47 @@ const styles = StyleSheet.create({
     color: '#333',
   },
   titleClearButton: {
-    width: 44,
-    height: 44,
+    width: 26,
+    height: 26,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  // Named color chips below the title — tap to pick the category (仕事/重要…),
+  // long-press to remove, and a pencil on the selected chip renames it.
+  colorChipScroll: {
+    flexGrow: 0,
+    marginTop: 8,
+  },
+  colorChipScrollContent: {
+    alignItems: 'center',
+    gap: 8,
+    paddingRight: 8,
+  },
+  colorNameChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+  },
+  colorNameChipMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  colorNameChipDot: {
+    width: 11,
+    height: 11,
+    borderRadius: 5.5,
+  },
+  colorNameChipText: {
+    fontSize: 13,
+  },
+  addColorChip: {
+    borderStyle: 'dashed',
+    paddingHorizontal: 12,
   },
   titleClearButtonText: {
     fontSize: 20,
@@ -1852,11 +2011,15 @@ const styles = StyleSheet.create({
   suggestionText: {
     fontSize: 15,
   },
+  titleColorDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginVertical: 8,
+  },
   dateTimeSection: {
     backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   sectionLabel: {
     fontSize: 13,
@@ -1870,10 +2033,37 @@ const styles = StyleSheet.create({
     gap: 10,
     marginBottom: 8,
   },
+  dtLabeledRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  dtRowLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    width: 64,
+  },
+  dtRowLabelText: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  dtRowValue: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   dtCell: {
     flex: 1,
-    paddingVertical: 10,
+    paddingVertical: 9,
     paddingHorizontal: 10,
+    borderRadius: 9,
+    alignItems: 'center',
+  },
+  dtTimeCell: {
+    paddingVertical: 9,
+    paddingHorizontal: 14,
     borderRadius: 9,
     alignItems: 'center',
   },
@@ -1882,7 +2072,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   dtCellTime: {
-    fontSize: 22,
+    fontSize: 18,
     fontWeight: '800',
     fontVariant: ['tabular-nums'],
   },
@@ -1894,8 +2084,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 10,
-    marginBottom: 8,
+    marginTop: 6,
+    marginBottom: 6,
   },
   durationInlineLabel: {
     fontSize: 12,
@@ -1922,9 +2112,9 @@ const styles = StyleSheet.create({
   },
   colorSection: {
     backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   wageInputRow: {
     flexDirection: 'row',
@@ -1983,15 +2173,30 @@ const styles = StyleSheet.create({
     justifyContent: 'space-around',
     marginTop: 0,
   },
+  colorButtonsInline: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    rowGap: 8,
+    columnGap: 14,
+  },
+  colorChipInline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  colorChipLabel: {
+    fontSize: 13,
+  },
   colorButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
   },
   colorButtonSelected: {
-    borderWidth: 3,
+    borderWidth: 2.5,
     borderColor: '#fff',
     shadowColor: '#000',
     shadowOffset: {width: 0, height: 2},
@@ -2001,7 +2206,7 @@ const styles = StyleSheet.create({
   },
   colorButtonCheck: {
     color: '#fff',
-    fontSize: 18,
+    fontSize: 14,
     fontWeight: 'bold',
   },
   colorButtonWrapper: {
@@ -2019,9 +2224,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   addColorButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#f0f0f0',
@@ -2030,7 +2235,7 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
   },
   addColorButtonText: {
-    fontSize: 22,
+    fontSize: 18,
     color: '#999',
     fontWeight: '300',
   },
@@ -2120,9 +2325,9 @@ const styles = StyleSheet.create({
   },
   reminderSection: {
     backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   optionRow: {
     gap: 8,
@@ -2172,7 +2377,9 @@ const styles = StyleSheet.create({
   bottomButtonsRow: {
     flexDirection: 'row',
     gap: 10,
+    marginTop: 16,
     marginBottom: 12,
+    paddingHorizontal: 16,
   },
   copyButtonBottom: {
     flex: 1,
@@ -2201,6 +2408,7 @@ const styles = StyleSheet.create({
     borderRadius: 9,
     paddingVertical: 11,
     alignItems: 'center',
+    marginHorizontal: 16,
     marginBottom: 24,
   },
   deleteButtonBottomText: {
