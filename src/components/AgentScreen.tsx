@@ -23,18 +23,20 @@ import {parseIntentions} from '../agent/intentionParser';
 import {
   addIntentions,
   applyPlanToCalendar,
+  clearIntentions,
   deleteIntention,
   getIntentions,
   getPlan,
   resolvePlan,
-  updateIntention,
 } from '../agent/intentionService';
 import {Intention, KIND_META, SchedulePlan} from '../agent/types';
+import OneTimeHint from './OneTimeHint';
+import SwipeableRow from './SwipeableRow';
 
 const JP_DOW = ['日', '月', '火', '水', '木', '金', '土'];
 
 const EXAMPLE =
-  '毎週月曜10時から16時まで大学。火曜と木曜は18時から22時までバイト。週2でジム。今月中にレポート提出。';
+  '毎週月曜10時から16時まで大学。火曜と木曜は18時から22時までバイト。';
 
 const intentionMeta = (i: Intention): string => {
   const days =
@@ -106,31 +108,24 @@ const AgentScreen: React.FC = () => {
     await reSolve();
   }, [text, reSolve]);
 
-  const toggleIntention = useCallback(async (i: Intention) => {
-    const next = await updateIntention(i.id, {active: !i.active});
+  // Swipe-to-delete fires this directly (the swipe is already a deliberate
+  // action, so no extra confirm).
+  const removeIntention = useCallback(async (i: Intention) => {
+    const next = await deleteIntention(i.id);
     setIntentions(next);
     await reSolve();
-  }, [reSolve]);
-
-  const removeIntention = useCallback((i: Intention) => {
-    Alert.alert('削除', `「${i.title}」を削除しますか？`, [
-      {text: 'キャンセル', style: 'cancel'},
-      {
-        text: '削除',
-        style: 'destructive',
-        onPress: async () => {
-          const next = await deleteIntention(i.id);
-          setIntentions(next);
-          await reSolve();
-        },
-      },
-    ]);
   }, [reSolve]);
 
   const apply = useCallback(async () => {
     if (!plan) return;
     const n = await applyPlanToCalendar(plan);
-    Alert.alert('カレンダーに追加しました', `${n}件の予定を追加しました。ホームのカレンダーで確認できます。`);
+    // Generating the calendar clears the input list so the next batch starts
+    // from a clean slate.
+    await clearIntentions();
+    setIntentions([]);
+    setPlan(null);
+    setText('');
+    Alert.alert('カレンダーに追加しました', `${n}件の予定を追加しました。入力した予定はリセットしました。ホームのカレンダーで確認できます。`);
   }, [plan]);
 
   const s = makeStyles(colors);
@@ -158,6 +153,14 @@ const AgentScreen: React.FC = () => {
         </Text>
       </View>
 
+      <OneTimeHint
+        hintKey="tasksIntro"
+        icon="sparkles-outline"
+        title="文章で書くだけでOK"
+        message="やりたいことを文章で書いて「予定にする」を押すと、AIが1週間に組んで「カレンダーに追加」で反映できます。下のリストはタップで有効/無効、長押しで削除。"
+        style={{marginBottom: 16}}
+      />
+
       {/* Declaration */}
       <View style={[s.card, {backgroundColor: colors.surface, borderColor: colors.border}]}>
         <Text style={[s.cardLabel, {color: colors.textSecondary}]}>予定・やりたいことを書く</Text>
@@ -169,10 +172,7 @@ const AgentScreen: React.FC = () => {
           placeholderTextColor={colors.textTertiary}
           multiline
         />
-        <View style={s.declareRow}>
-          <TouchableOpacity onPress={() => setText(EXAMPLE)}>
-            <Text style={[s.exampleLink, {color: colors.primary}]}>例を入れる</Text>
-          </TouchableOpacity>
+        <View style={[s.declareRow, {justifyContent: 'flex-end'}]}>
           <TouchableOpacity
             style={[s.declareBtn, {backgroundColor: colors.primary, opacity: text.trim() ? 1 : 0.4}]}
             disabled={!text.trim()}
@@ -190,31 +190,28 @@ const AgentScreen: React.FC = () => {
           {intentions.map(i => {
             const meta = KIND_META[i.kind];
             return (
-              <TouchableOpacity
-                key={i.id}
-                activeOpacity={0.7}
-                onPress={() => toggleIntention(i)}
-                onLongPress={() => removeIntention(i)}
-                style={[s.intRow, {backgroundColor: colors.surface, borderColor: colors.border, opacity: i.active ? 1 : 0.45}]}>
-                <View style={[s.intDot, {backgroundColor: i.color}]}>
-                  <Ionicons name={meta.icon as any} size={14} color="#fff" />
+              <SwipeableRow key={i.id} onDelete={() => removeIntention(i)}>
+                <View style={[s.intRow, {backgroundColor: colors.surface, borderColor: colors.border}]}>
+                  <View style={[s.intDot, {backgroundColor: i.color}]}>
+                    <Ionicons name={meta.icon as any} size={14} color="#fff" />
+                  </View>
+                  <View style={{flex: 1}}>
+                    <Text style={[s.intTitle, {color: colors.text}]} numberOfLines={1}>{i.title}</Text>
+                    <Text style={[s.intMeta, {color: colors.textTertiary}]} numberOfLines={1}>{intentionMeta(i)}</Text>
+                  </View>
+                  <View style={s.prioDots}>
+                    {[1, 2, 3, 4, 5].map(p => (
+                      <View
+                        key={p}
+                        style={[s.prioDot, {backgroundColor: p <= i.priority ? i.color : colors.border}]}
+                      />
+                    ))}
+                  </View>
                 </View>
-                <View style={{flex: 1}}>
-                  <Text style={[s.intTitle, {color: colors.text}]} numberOfLines={1}>{i.title}</Text>
-                  <Text style={[s.intMeta, {color: colors.textTertiary}]} numberOfLines={1}>{intentionMeta(i)}</Text>
-                </View>
-                <View style={s.prioDots}>
-                  {[1, 2, 3, 4, 5].map(p => (
-                    <View
-                      key={p}
-                      style={[s.prioDot, {backgroundColor: p <= i.priority ? i.color : colors.border}]}
-                    />
-                  ))}
-                </View>
-              </TouchableOpacity>
+              </SwipeableRow>
             );
           })}
-          <Text style={[s.hint, {color: colors.textTertiary}]}>タップで有効/無効・長押しで削除</Text>
+          <Text style={[s.hint, {color: colors.textTertiary}]}>左スワイプで削除</Text>
         </View>
       )}
 
@@ -276,7 +273,7 @@ const makeStyles = (colors: any) =>
     declareBtnText: {fontSize: 14, fontWeight: '700'},
     section: {marginBottom: 22},
     sectionTitle: {fontSize: 16, fontWeight: '700', marginBottom: 10},
-    intRow: {flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 8},
+    intRow: {flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderRadius: 12, padding: 12},
     intDot: {width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center'},
     intTitle: {fontSize: 15, fontWeight: '600'},
     intMeta: {fontSize: 12, marginTop: 2},

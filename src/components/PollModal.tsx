@@ -32,6 +32,7 @@ import {
   tally,
   updatePoll,
 } from '../services/pollService';
+import OneTimeHint from './OneTimeHint';
 
 const WD = ['日', '月', '火', '水', '木', '金', '土'];
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -203,6 +204,13 @@ const PollModal: React.FC<Props> = ({visible, onClose, initialDate}) => {
               <Text style={[s.lead, {color: colors.textSecondary}]}>
                 候補日を出して、みんなの「行ける日」をまとめましょう。候補はLINEで共有、回答は手元で集計できます。
               </Text>
+              <OneTimeHint
+                hintKey="pollIntro"
+                icon="people-outline"
+                title="日程調整の使い方"
+                message="「新しい調整を作る」で候補日を選び、参加者ごとにセルをタップして○△✕を記録。作った調整は長押しで削除できます。"
+                style={{marginBottom: 12}}
+              />
               {polls.length === 0 ? (
                 <View style={[s.empty, {backgroundColor: colors.surface, borderColor: colors.border}]}>
                   <Ionicons name="people-outline" size={28} color={colors.textTertiary} />

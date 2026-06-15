@@ -159,6 +159,6 @@
       "Read(//Library/Fonts/**)",
       "Read(//System/Library/AssetsV2/**)"
     ],
-    "defaultMode": "auto"
+    "defaultMode": "bypassPermissions"
   }
 }

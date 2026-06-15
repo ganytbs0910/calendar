@@ -21,6 +21,7 @@ import {useTheme} from '../theme/ThemeContext';
 import {useTranslation} from 'react-i18next';
 import {SleepSettings, getSettingsForDate} from '../services/sleepSettingsService';
 import TaskBottomSheet, {TaskBottomSheetRef} from './TaskBottomSheet';
+import OneTimeHint from './OneTimeHint';
 
 const TIME_LABEL_WIDTH = 48;
 const DEFAULT_HOUR_HEIGHT = 44;
@@ -587,6 +588,14 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
           scrollEnabled={false}
         />
       </View>
+
+      <OneTimeHint
+        hintKey="weekPinchZoom"
+        icon="resize-outline"
+        title="2本指で時間を拡大・縮小"
+        message="タイムラインを2本指でピンチすると、1時間の高さを広げたり縮めたりできます。"
+        style={styles.weekHint}
+      />
 
       {/* Body: time label column (scrolls vertically with the grid) + day columns */}
       <ScrollView
@@ -1334,6 +1343,10 @@ const styles = StyleSheet.create({
   },
   bodyScroll: {
     flex: 1,
+  },
+  weekHint: {
+    marginHorizontal: 10,
+    marginTop: 8,
   },
   bodyContent: {
     flexDirection: 'row',

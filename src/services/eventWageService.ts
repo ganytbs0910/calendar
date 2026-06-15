@@ -115,6 +115,60 @@ export const getAllEventJobs = async (): Promise<Record<string, string>> => {
   }
 };
 
+// --- Per-event unpaid break (minutes) -----------------------------------
+// Explicit break for a single shift. Absent key = no override → the payroll
+// engine auto-applies the legal minimum (45min over 6h, 60min over 8h).
+// A stored 0 is meaningful: "this shift has no break" (overrides the auto).
+export const EVENT_BREAK_STORAGE_KEY = '@event_breaks';
+
+export const getEventBreak = async (eventId: string): Promise<number | null> => {
+  try {
+    const json = await AsyncStorage.getItem(EVENT_BREAK_STORAGE_KEY);
+    if (!json) return null;
+    const map = JSON.parse(json);
+    const b = map[eventId];
+    return typeof b === 'number' && b >= 0 ? b : null;
+  } catch {
+    return null;
+  }
+};
+
+export const setEventBreak = async (eventId: string, minutes: number): Promise<void> =>
+  withEventWageLock(async () => {
+    try {
+      const json = await AsyncStorage.getItem(EVENT_BREAK_STORAGE_KEY);
+      const map = json ? JSON.parse(json) : {};
+      map[eventId] = Math.max(0, Math.round(minutes));
+      await AsyncStorage.setItem(EVENT_BREAK_STORAGE_KEY, JSON.stringify(map));
+    } catch (error) {
+      console.error('Error saving event break:', error);
+    }
+  });
+
+export const removeEventBreak = async (eventId: string): Promise<void> =>
+  withEventWageLock(async () => {
+    try {
+      const json = await AsyncStorage.getItem(EVENT_BREAK_STORAGE_KEY);
+      if (!json) return;
+      const map = JSON.parse(json);
+      if (eventId in map) {
+        delete map[eventId];
+        await AsyncStorage.setItem(EVENT_BREAK_STORAGE_KEY, JSON.stringify(map));
+      }
+    } catch (error) {
+      console.error('Error removing event break:', error);
+    }
+  });
+
+export const getAllEventBreaks = async (): Promise<Record<string, number>> => {
+  try {
+    const json = await AsyncStorage.getItem(EVENT_BREAK_STORAGE_KEY);
+    return json ? JSON.parse(json) : {};
+  } catch {
+    return {};
+  }
+};
+
 // Recently used wage values, for one-tap re-entry. Most recent first.
 export const RECENT_WAGES_STORAGE_KEY = '@recent_wages';
 const MAX_RECENT_WAGES = 6;

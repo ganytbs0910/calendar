@@ -37,6 +37,7 @@ import {PremiumProvider, usePremium} from './src/context/PremiumContext';
 import {PaywallScreen} from './src/components/PaywallScreen';
 import StatsScreen from './src/components/StatsScreen';
 import AgentScreen from './src/components/AgentScreen';
+import OneTimeHint from './src/components/OneTimeHint';
 import ShareAvailabilityModal from './src/components/ShareAvailabilityModal';
 import PollModal from './src/components/PollModal';
 import SettingsLauncherScreen from './src/components/SettingsLauncherScreen';
@@ -1110,6 +1111,14 @@ function AppContent() {
             <Text style={styles.permissionBannerLink}>{t('openSettings')}</Text>
           </TouchableOpacity>
         )}
+
+        <OneTimeHint
+          hintKey="addButtonTemplates"
+          icon="bookmark-outline"
+          title="「＋」長押しでテンプレート"
+          message="右上の「＋」を長押しすると、保存したテンプレートからワンタップで予定を追加できます。"
+          style={{marginHorizontal: 10, marginTop: 6}}
+        />
 
         {viewMode === 'month' ? (
             <Calendar

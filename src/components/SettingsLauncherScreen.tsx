@@ -5,11 +5,12 @@
 // bottom Settings tab is the single home for configuration.
 
 import React from 'react';
-import {ScrollView, StyleSheet, Text, TouchableOpacity, View} from 'react-native';
+import {Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View} from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import DeviceInfo from 'react-native-device-info';
 
 import {useTheme} from '../theme/ThemeContext';
+import {resetAllHints} from './OneTimeHint';
 
 interface RowProps {
   icon: string;
@@ -118,6 +119,33 @@ const SettingsLauncherScreen: React.FC<Props> = ({
           label="年収の壁"
           sublabel="今年の収入と壁までの残りを確認"
           onPress={onOpenIncomeWall}
+          isLast
+        />
+      </Section>
+
+      <Section title="ヘルプ">
+        <Row
+          colors={colors}
+          icon="bulb-outline"
+          tint="#FFCC00"
+          label="使い方ガイドをもう一度見る"
+          sublabel="各画面の使い方ヒントを最初から表示します"
+          onPress={() => {
+            Alert.alert(
+              '使い方ガイドを表示',
+              'タスク・週ビュー・予定追加などの使い方ヒントを、もう一度表示しますか？',
+              [
+                {text: 'キャンセル', style: 'cancel'},
+                {
+                  text: '表示する',
+                  onPress: async () => {
+                    await resetAllHints();
+                    Alert.alert('準備しました', 'タスクタブや週ビューなどを開くとヒントが表示されます。');
+                  },
+                },
+              ],
+            );
+          }}
           isLast
         />
       </Section>

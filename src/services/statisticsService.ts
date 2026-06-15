@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
 import {Task} from './taskService';
-import {getAllEventWages, getAllEventJobs} from './eventWageService';
+import {getAllEventWages, getAllEventJobs, getAllEventBreaks} from './eventWageService';
 import {getJobs, Job} from './jobService';
 
 // The "work" category color. Per-event wages only apply to work-colored events.
@@ -72,6 +72,7 @@ export interface TaskStats {
 // Per-shift pay broken into base + premiums, the way JP wage apps present it.
 export interface ShiftPayBreakdown {
   paidMinutes: number;
+  breakMinutes: number;   // unpaid break deducted from this shift
   nightMinutes: number;
   overtimeMinutes: number;
   isHoliday: boolean;
@@ -82,6 +83,15 @@ export interface ShiftPayBreakdown {
   transport: number;
   total: number;
 }
+
+// Legally-required unpaid break by gross shift length (労働基準法 第34条):
+//   over 6h → 45min, over 8h → 60min, otherwise none.
+// "over" is strict: exactly 6h/8h needs no extra break.
+export const legalBreakMinutes = (grossMin: number): number => {
+  if (grossMin > 480) return 60;
+  if (grossMin > 360) return 45;
+  return 0;
+};
 
 export interface JobEarning {
   jobId: string | null; // null = manual per-event wages bucket
@@ -388,15 +398,18 @@ const nightOverlapMinutes = (
 
 // Compute one shift's pay from a job's wage rules. Exported so the event
 // editor can show a live pay preview using the same logic as the stats.
-export const computeShiftPay = (start: Date, end: Date, job: Job): ShiftPayBreakdown => {
+// `breakOverrideMin`: an explicit per-shift break (minutes). When null/undefined
+// the break is auto-derived as max(legal minimum, the job's fixed break).
+export const computeShiftPay = (start: Date, end: Date, job: Job, breakOverrideMin?: number | null): ShiftPayBreakdown => {
   const empty: ShiftPayBreakdown = {
-    paidMinutes: 0, nightMinutes: 0, overtimeMinutes: 0, isHoliday: false,
+    paidMinutes: 0, breakMinutes: 0, nightMinutes: 0, overtimeMinutes: 0, isHoliday: false,
     base: 0, nightPremium: 0, overtimePremium: 0, holidayPremium: 0, transport: 0, total: 0,
   };
   const grossMin = Math.max(0, Math.round((end.getTime() - start.getTime()) / 60_000));
   if (grossMin <= 0 || !job.hourlyWage || job.hourlyWage <= 0) return empty;
 
-  const breakMin = Math.max(0, job.unpaidBreakMin || 0);
+  const autoBreak = Math.max(legalBreakMinutes(grossMin), job.unpaidBreakMin || 0);
+  const breakMin = Math.min(grossMin, Math.max(0, breakOverrideMin != null ? breakOverrideMin : autoBreak));
   const paidMin = Math.max(0, grossMin - breakMin);
   const wage = job.hourlyWage;
   const base = (paidMin / 60) * wage;
@@ -436,7 +449,7 @@ export const computeShiftPay = (start: Date, end: Date, job: Job): ShiftPayBreak
   const transport = Math.max(0, job.transportPerShift || 0);
   const total = base + nightPremium + overtimePremium + holidayPremium + transport;
   return {
-    paidMinutes: paidMin, nightMinutes: nightMin, overtimeMinutes: overtimeMin, isHoliday,
+    paidMinutes: paidMin, breakMinutes: breakMin, nightMinutes: nightMin, overtimeMinutes: overtimeMin, isHoliday,
     base, nightPremium, overtimePremium, holidayPremium, transport, total,
   };
 };
@@ -455,6 +468,7 @@ export const computePayroll = (
   eventWages: Record<string, number>,
   eventJobs: Record<string, string>,
   jobs: Job[],
+  eventBreaks: Record<string, number> = {},
 ): PayrollSummary => {
   const jobMap = new Map(jobs.map(j => [j.id, j]));
   const buckets = new Map<string, JobEarning>();
@@ -472,9 +486,10 @@ export const computePayroll = (
     const end = new Date(event.endDate);
     const jobId = eventJobs[id];
     const job = jobId ? jobMap.get(jobId) : undefined;
+    const breakOverride = id in eventBreaks ? eventBreaks[id] : null;
 
     if (job) {
-      const bd = computeShiftPay(start, end, job);
+      const bd = computeShiftPay(start, end, job, breakOverride);
       if (bd.total <= 0 && bd.paidMinutes <= 0) continue;
       const b = bucketFor(job.id, () => ({
         jobId: job.id, name: job.name, color: job.color, shiftCount: 0, minutes: 0,
@@ -495,16 +510,18 @@ export const computePayroll = (
       if (!wage || wage <= 0) continue;
       const dur = eventDurationMinutes(event);
       if (dur <= 0) continue;
-      const amount = (dur / 60) * wage;
+      const breakMin = Math.min(dur, Math.max(0, breakOverride != null ? breakOverride : legalBreakMinutes(dur)));
+      const paidDur = Math.max(0, dur - breakMin);
+      const amount = (paidDur / 60) * wage;
       const b = bucketFor('__manual__', () => ({
         jobId: null, name: '', color: WORK_COLOR, shiftCount: 0, minutes: 0,
         base: 0, nightPremium: 0, overtimePremium: 0, holidayPremium: 0, transport: 0, total: 0,
       }));
       b.shiftCount += 1;
-      b.minutes += dur;
+      b.minutes += paidDur;
       b.base += amount;
       b.total += amount;
-      shifts.push({jobId: null, jobName: '', startISO: event.startDate, endISO: event.endDate, minutes: dur, total: amount});
+      shifts.push({jobId: null, jobName: '', startISO: event.startDate, endISO: event.endDate, minutes: paidDur, total: amount});
     }
   }
 
@@ -579,8 +596,9 @@ export const fetchStats = async (rangeStart: Date, rangeEnd: Date): Promise<Stat
   // Shift/payroll: month buckets per job, plus full-year income for 年収の壁.
   const eventWages = await getAllEventWages();
   const eventJobs = await getAllEventJobs();
+  const eventBreaks = await getAllEventBreaks();
   const jobs = await getJobs();
-  const payroll = computePayroll(events, eventWages, eventJobs, jobs);
+  const payroll = computePayroll(events, eventWages, eventJobs, jobs, eventBreaks);
 
   const year = rangeStart.getFullYear();
   let yearEvents: CalendarEventReadable[] = [];
@@ -592,7 +610,7 @@ export const fetchStats = async (rangeStart: Date, rangeEnd: Date): Promise<Stat
   } catch {
     yearEvents = [];
   }
-  const yearPayroll = computePayroll(yearEvents, eventWages, eventJobs, jobs);
+  const yearPayroll = computePayroll(yearEvents, eventWages, eventJobs, jobs, eventBreaks);
   const thresholds = await getIncomeThresholds();
   const incomeWall = computeIncomeWall(yearPayroll.total, year, thresholds);
 

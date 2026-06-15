@@ -1289,7 +1289,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                                           </Text>
                                           {!!(event.id && eventPhotos[event.id]) && (
                                             <View style={styles.photoBadge}>
-                                              <Ionicons name="camera" size={8} color={colors.onEvent} />
+                                              <Ionicons name="camera" size={10} color="#fff" />
                                             </View>
                                           )}
                                         </TouchableOpacity>
@@ -1695,10 +1695,12 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 1,
     right: 1,
-    width: 11,
-    height: 11,
-    borderRadius: 6,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.9)',
     alignItems: 'center',
     justifyContent: 'center',
   },

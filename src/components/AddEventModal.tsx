@@ -23,11 +23,13 @@ import {usePremium} from '../context/PremiumContext';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {addTemplate} from '../services/templateService';
 import {recordEventCreation, getEventHistory, deleteEventHistoryEntry, EventHistoryEntry} from '../services/eventHistoryService';
-import {getEventWage, setEventWage, removeEventWage, getRecentWages, addRecentWage, removeRecentWage, getEventJob, setEventJob, removeEventJob} from '../services/eventWageService';
+import {getEventWage, setEventWage, removeEventWage, getRecentWages, addRecentWage, removeRecentWage, getEventJob, setEventJob, removeEventJob, getEventBreak, setEventBreak, removeEventBreak} from '../services/eventWageService';
 import {getJobs, Job} from '../services/jobService';
-import {computeShiftPay, getIncomeThresholds} from '../services/statisticsService';
+import {computeShiftPay, getIncomeThresholds, legalBreakMinutes} from '../services/statisticsService';
 import {getYearWorkTotal, wallCrossedBy, wallLabel} from '../services/incomeWallService';
 import JobsManagerModal from './JobsManagerModal';
+import OneTimeHint from './OneTimeHint';
+import EventPhotoSection from './EventPhotoSection';
 import {
   cancelEventNotification,
   isNotificationsEnabled,
@@ -353,11 +355,27 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null); // null = manual wage
   const [showJobsManager, setShowJobsManager] = useState(false);
+  // Per-shift unpaid break. `breakTouched` = the user typed a value, so stop
+  // auto-filling the legal default and persist it explicitly.
+  const [breakMinutes, setBreakMinutes] = useState<string>('');
+  const [breakTouched, setBreakTouched] = useState(false);
   const selectedJob = useMemo(() => jobs.find(j => j.id === selectedJobId) || null, [jobs, selectedJobId]);
+  const breakOverride = useMemo(() => {
+    const n = parseInt(breakMinutes, 10);
+    return breakMinutes.trim() === '' ? 0 : (isNaN(n) ? 0 : Math.max(0, n));
+  }, [breakMinutes]);
   const payPreview = useMemo(
-    () => (selectedJob ? computeShiftPay(startDate, endDate, selectedJob) : null),
-    [selectedJob, startDate, endDate],
+    () => (selectedJob ? computeShiftPay(startDate, endDate, selectedJob, breakOverride) : null),
+    [selectedJob, startDate, endDate, breakOverride],
   );
+  // Auto-fill the legally-required break (45min/60min) as the shift grows, until
+  // the user types their own value. Job's own fixed break wins if it's larger.
+  useEffect(() => {
+    if (!isWorkColor(selectedColor) || breakTouched) return;
+    const grossMin = Math.max(0, Math.round((endDate.getTime() - startDate.getTime()) / 60000));
+    const auto = Math.max(legalBreakMinutes(grossMin), selectedJob?.unpaidBreakMin || 0);
+    setBreakMinutes(auto > 0 ? String(auto) : '');
+  }, [startDate, endDate, selectedColor, selectedJob, breakTouched]);
   const [colorOptions, setColorOptions] = useState<ColorOption[]>(DEFAULT_EVENT_COLORS);
   const [editingLabelColor, setEditingLabelColor] = useState<string | null>(null);
   const [editingLabelText, setEditingLabelText] = useState('');
@@ -448,9 +466,14 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
             setHourlyWage(wage ? String(wage) : '');
           });
           getEventJob(editingEvent.id).then(jobId => setSelectedJobId(jobId));
+          getEventBreak(editingEvent.id).then(b => {
+            if (b != null) { setBreakMinutes(String(b)); setBreakTouched(true); }
+            else { setBreakMinutes(''); setBreakTouched(false); }
+          });
         } else {
           setHourlyWage('');
           setSelectedJobId(null);
+          setBreakMinutes(''); setBreakTouched(false);
         }
       } else if (isCopying && initialDate && initialEndDate) {
         // Copy mode - use title from event but dates from initialDate/initialEndDate
@@ -477,10 +500,15 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
             setHourlyWage(wage ? String(wage) : '');
           });
           getEventJob(editingEvent.id).then(jobId => setSelectedJobId(jobId));
+          getEventBreak(editingEvent.id).then(b => {
+            if (b != null) { setBreakMinutes(String(b)); setBreakTouched(true); }
+            else { setBreakMinutes(''); setBreakTouched(false); }
+          });
         } else {
           setSelectedColor(DEFAULT_EVENT_COLORS[0].color);
           setHourlyWage('');
           setSelectedJobId(null);
+          setBreakMinutes(''); setBreakTouched(false);
         }
       } else if (initialDate) {
         if (initialEndDate) {
@@ -525,6 +553,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         setSelectedColor(initialColor || DEFAULT_EVENT_COLORS[0].color);
         setHourlyWage('');
         setSelectedJobId(null);
+        setBreakMinutes(''); setBreakTouched(false);
       } else {
         // No initialDate - use today with smart start time
         const today = new Date();
@@ -564,6 +593,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         setSelectedColor(initialColor || DEFAULT_EVENT_COLORS[0].color);
         setHourlyWage('');
         setSelectedJobId(null);
+        setBreakMinutes(''); setBreakTouched(false);
       }
     }
   }, [visible, initialDate, initialEndDate, editingEvent, initialColor, initialTitle]);
@@ -585,6 +615,8 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
     setEndDate(new Date(startDate.getTime() + p.durationMinutes * 60000));
     setReminder(p.reminder);
     setRecurrence(p.recurrence);
+    // Break re-derives from the preset's duration (auto), unless edited.
+    setBreakTouched(false);
     if (isWorkColor(p.color)) {
       setSelectedJobId(p.jobId ?? null);
       setHourlyWage(p.hourlyWage != null ? String(p.hourlyWage) : '');
@@ -649,6 +681,9 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
     const parsedWage = parseFloat(hourlyWage);
     const wageToSave =
       isWorkColor(selectedColor) && !jobToSave && !isNaN(parsedWage) && parsedWage > 0 ? parsedWage : null;
+    // Persist the break only when the user set it explicitly; otherwise leave it
+    // unset so the engine keeps auto-applying the legal break as the shift changes.
+    const breakToSave = isWorkColor(selectedColor) && breakTouched ? breakOverride : null;
     const persistPayroll = async (eventId: string) => {
       if (jobToSave) {
         await setEventJob(eventId, jobToSave);
@@ -661,6 +696,11 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           await removeEventWage(eventId);
         }
       }
+      if (breakToSave !== null) {
+        await setEventBreak(eventId, breakToSave);
+      } else {
+        await removeEventBreak(eventId);
+      }
     };
 
     // 年収の壁ナビ: before a NEW work shift is saved, warn if it pushes this
@@ -670,9 +710,11 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
       let addPay = 0;
       if (jobToSave) {
         const job = jobs.find(j => j.id === jobToSave);
-        if (job) addPay = computeShiftPay(startDate, finalEndDate, job).total;
+        if (job) addPay = computeShiftPay(startDate, finalEndDate, job, breakToSave).total;
       } else if (wageToSave) {
-        addPay = ((finalEndDate.getTime() - startDate.getTime()) / 3600000) * wageToSave;
+        const grossMin = (finalEndDate.getTime() - startDate.getTime()) / 60000;
+        const brk = breakToSave != null ? breakToSave : legalBreakMinutes(grossMin);
+        addPay = (Math.max(0, grossMin - brk) / 60) * wageToSave;
       }
       if (addPay > 0) {
         try {
@@ -964,6 +1006,9 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
             await setEventJob(eventId, selectedJobId);
           } else if (copyWage !== null) {
             await setEventWage(eventId, copyWage);
+          }
+          if (isWorkColor(selectedColor) && breakTouched) {
+            await setEventBreak(eventId, breakOverride);
           }
           if (inAppOn && reminder !== null) {
             const fireDate = new Date(newStart.getTime() + reminder * 60_000);
@@ -1291,6 +1336,13 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                 </TouchableOpacity>
               )}
             </ScrollView>
+            <OneTimeHint
+              hintKey="colorChipActions"
+              icon="color-palette-outline"
+              title="カテゴリ（色）の操作"
+              message="タップで色を選択。選択中の鉛筆で名前を変更、長押しで色を削除できます。"
+              style={{marginTop: 10}}
+            />
           </View>
 
           <View style={[styles.dateTimeSection, {backgroundColor: colors.surface, borderBottomColor: colors.border}]}>
@@ -1403,6 +1455,14 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                 <Text style={{fontSize: 12, color: colors.textSecondary, fontWeight: '500'}}>{t('payrollLabel')}</Text>
               </View>
 
+              <OneTimeHint
+                hintKey="workColorWage"
+                icon="cash-outline"
+                title="バイト代を自動計算"
+                message="「仕事」カラーの予定は時給やバイト先を設定できます。統計タブでお給料を自動集計します。"
+                style={{marginBottom: 10}}
+              />
+
               {/* Job picker: manual wage, each job, or add a job */}
               <View style={styles.durationChipRow}>
                 <TouchableOpacity
@@ -1425,6 +1485,28 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                   <Text style={[styles.durationChipSmallText, {color: colors.textSecondary}]}>{t('addJob')}</Text>
                 </TouchableOpacity>
               </View>
+
+              {/* Per-shift unpaid break (auto-filled to the legal minimum). */}
+              <View style={styles.breakRow}>
+                <Ionicons name="cafe-outline" size={14} color={colors.textSecondary} />
+                <Text style={{fontSize: 13, color: colors.textSecondary, fontWeight: '500'}}>{t('shiftBreak')}</Text>
+                <View style={{flex: 1}} />
+                <TextInput
+                  style={[styles.breakInput, {color: colors.text, borderColor: colors.border, backgroundColor: colors.inputBackground}]}
+                  value={breakMinutes}
+                  onChangeText={(text) => {
+                    setBreakTouched(true);
+                    setBreakMinutes(text.replace(/[^0-9]/g, ''));
+                  }}
+                  keyboardType="numeric"
+                  placeholder="0"
+                  placeholderTextColor={colors.textTertiary}
+                  returnKeyType="done"
+                  maxLength={3}
+                />
+                <Text style={{fontSize: 13, color: colors.textSecondary}}>{t('minutesUnit')}</Text>
+              </View>
+              <Text style={{fontSize: 11, color: colors.textTertiary, marginTop: 4}}>{t('breakAutoHint')}</Text>
 
               {selectedJobId === null ? (
                 <>
@@ -1495,6 +1577,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                   </View>
                   <Text style={[styles.payPreviewSub, {color: colors.textTertiary}]} numberOfLines={2}>
                     {t('base')} {t('currencySymbol')}{Math.round(payPreview.base).toLocaleString()}
+                    {payPreview.breakMinutes > 0 ? `  ・${t('shiftBreak')} -${payPreview.breakMinutes}${t('minutesUnit')}` : ''}
                     {payPreview.nightPremium > 0 ? `  ・${t('nightPremiumShort')} +${t('currencySymbol')}${Math.round(payPreview.nightPremium).toLocaleString()}` : ''}
                     {payPreview.overtimePremium > 0 ? `  ・${t('overtimeShort')} +${t('currencySymbol')}${Math.round(payPreview.overtimePremium).toLocaleString()}` : ''}
                     {payPreview.holidayPremium > 0 ? `  ・${t('holidayShort')} +${t('currencySymbol')}${Math.round(payPreview.holidayPremium).toLocaleString()}` : ''}
@@ -1562,6 +1645,11 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
               </View>
             </View>
           </View>
+
+          {/* Photo lifelog — only for an already-saved event (needs an id). */}
+          {isEditing && editingEvent?.id && (
+            <EventPhotoSection eventId={editingEvent.id} />
+          )}
 
           {!isEditing && !isCopying && (
             <TouchableOpacity
@@ -2120,6 +2208,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+  },
+  breakRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 10,
+  },
+  breakInput: {
+    width: 64,
+    height: 36,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    fontSize: 15,
+    fontWeight: '600',
+    textAlign: 'right',
+    fontVariant: ['tabular-nums'],
   },
   wageCurrency: {
     fontSize: 16,

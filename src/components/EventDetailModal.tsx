@@ -12,9 +12,9 @@ import {
 import {CalendarEventReadable} from 'react-native-calendar-events';
 import RNCalendarEvents from 'react-native-calendar-events';
 import {getEventColor, setEventColor} from './AddEventModal';
-import {getEventJob, getEventWage} from '../services/eventWageService';
+import {getEventJob, getEventWage, getEventBreak} from '../services/eventWageService';
 import {getJob} from '../services/jobService';
-import {computeShiftPay} from '../services/statisticsService';
+import {computeShiftPay, legalBreakMinutes} from '../services/statisticsService';
 import {useTheme} from '../theme/ThemeContext';
 import {useTranslation} from 'react-i18next';
 import EventPhotoSection from './EventPhotoSection';
@@ -54,18 +54,21 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
       const start = new Date(event.startDate);
       const end = new Date(event.endDate);
       const jobId = await getEventJob(event.id);
+      const brk = await getEventBreak(event.id);
       if (jobId) {
         const job = await getJob(jobId);
         if (job) {
-          const bd = computeShiftPay(start, end, job);
+          const bd = computeShiftPay(start, end, job, brk);
           if (!cancelled) setPayInfo({total: Math.round(bd.total), label: job.name});
           return;
         }
       }
       const wage = await getEventWage(event.id);
       if (wage && wage > 0) {
-        const hours = (end.getTime() - start.getTime()) / 3600000;
-        if (!cancelled) setPayInfo({total: Math.round(hours * wage), label: ''});
+        const grossMin = (end.getTime() - start.getTime()) / 60000;
+        const breakMin = brk != null ? brk : legalBreakMinutes(grossMin);
+        const paidHours = Math.max(0, grossMin - breakMin) / 60;
+        if (!cancelled) setPayInfo({total: Math.round(paidHours * wage), label: ''});
         return;
       }
       if (!cancelled) setPayInfo(null);

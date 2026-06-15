@@ -22,6 +22,7 @@ import {captureRef} from 'react-native-view-shot';
 import RNCalendarEvents from 'react-native-calendar-events';
 
 import {useTheme} from '../theme/ThemeContext';
+import OneTimeHint from './OneTimeHint';
 
 const WD = ['日', '月', '火', '水', '木', '金', '土'];
 
@@ -144,6 +145,14 @@ const ShareAvailabilityModal: React.FC<Props> = ({visible, onClose, initialDate}
             <Ionicons name="chevron-forward" size={22} color={colors.primary} />
           </TouchableOpacity>
         </View>
+
+        <OneTimeHint
+          hintKey="shareAvailIntro"
+          icon="share-social-outline"
+          title="空き日を画像で共有"
+          message="予定が入っていない日をまとめたカードを画像にして共有できます。受け取った相手はアプリ不要で見られます。"
+          style={{marginHorizontal: 16, marginBottom: 4}}
+        />
 
         <View style={s.cardWrap}>
           {/* The capture target — a clean standalone card */}

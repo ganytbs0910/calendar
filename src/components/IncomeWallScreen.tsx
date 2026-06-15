@@ -18,6 +18,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 
 import {useTheme} from '../theme/ThemeContext';
 import {getWallStatus, wallLabel, WallStatus} from '../services/incomeWallService';
+import OneTimeHint from './OneTimeHint';
 
 const yen = (n: number) => `¥${Math.round(n).toLocaleString()}`;
 
@@ -79,6 +80,14 @@ const IncomeWallScreen: React.FC<Props> = ({onOpenStats}) => {
         <Text style={[s.heroTitle, {color: colors.text}]}>年収の壁</Text>
         <Text style={[s.heroYear, {color: colors.textTertiary}]}>{status?.year}年</Text>
       </View>
+
+      <OneTimeHint
+        hintKey="incomeWallIntro"
+        icon="trending-up-outline"
+        title="年収の壁ナビとは"
+        message="バイト予定の給料を合計し、103/106/130/150万などの「壁」まであといくらかを表示します。シフト保存時に壁を超えそうなら警告します。"
+        style={{marginBottom: 14}}
+      />
 
       {total <= 0 ? (
         <View style={[s.empty, {backgroundColor: colors.surface, borderColor: colors.border}]}>
