@@ -78,62 +78,46 @@ Ideal Calendar
 
 **Subtitle / Short description**
 ```
-Calendar, AI planning & shifts
+The calendar that just works
 ```
 
 **Keywords (App Store)**
 ```
-calendar,planner,schedule,AI,widget,part-time,shift,pay,student,week,tasks,todo,free day,share
+calendar,schedule,planner,weekly,monthly,timetable,tasks,reminder,drag,diary,dark mode,simple,free
 ```
 
 **Promotional text**
 ```
-See your whole month at a glance, plan your week just by typing, and track your part-time hours and pay — all on-device.
+No manual. No tutorial. A calendar that just works the way you'd expect. Not overloaded, not too bare — one that's finally just right.
 ```
 
 **Description**
 ```
-A calendar you'll actually enjoy opening.
+Too many calendar apps?
 
-Ideal Calendar turns a busy week into something you can see at a glance — and helps you plan it, share it, and track it.
+Every one does it all — then buries it under a wall of buttons. The built-in calendar is simple, but never quite enough.
 
-■ One-screen month
-Every event, color-coded, no scrolling. Week view shows a per-day event-count badge so you can see how busy each day is.
+This app has no tutorial. No manual. No mountain of settings.
 
-■ Plan with AI
-Just type "University every Mon 10–16, part-time Tue & Thu 18–22" and the AI reads your intent and lays it out across your week.
+Long-press to add an event.
+Drag to move it.
+Swipe to delete it.
 
-■ Shift & pay tracking
-Set an hourly rate or workplace on your shifts and your monthly earnings add up automatically, including night, overtime and holiday premiums.
+Every year you've spent with a phone is the only instruction manual you need.
 
-■ Insights
-See where your time goes, your most-used events, and your task streak at a glance.
+"It probably works like this…"
+— and your instinct is always right.
 
-■ Widgets
-Today's events, your remaining free time, and a countdown to your next event — right on your home and lock screen.
+Events, tasks, even sleep — all on one timeline. See the free time you have left today at a glance.
 
-■ Later list
-Park to-dos that don't have a time yet and check them off when you're ready.
-
-■ Share your free days
-Turn your open days into a clean, shareable image — "which day works for you?" in one tap. No app needed to view it.
-
-■ Group scheduling
-Propose candidate dates and tally who can make it.
-
-■ Photo lifelog
-Attach photos to events and look back on them later.
-
-Fully on-device. Fast, private, and built for real weeks.
-
-Available in English, 日本語, 简体中文, 繁體中文, 한국어, Español, Français, Deutsch, Português, ภาษาไทย and Bahasa Indonesia.
+Build your day, your way.
 ```
 
 **What's New / Release notes**
 ```
-• Now fully available in English and 9 more languages
-• Faster throughout, with smoother tab switching
-• Various display and translation improvements
+• Now available in English and 10 languages in total
+• Faster and smoother throughout
+• Various display and translation fixes
 ```
 
 ---
