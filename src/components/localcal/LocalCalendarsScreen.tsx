@@ -62,8 +62,9 @@ const LocalCalendarsScreen: React.FC<Props> = ({visible}) => {
     setCounts(cnt);
   }, []);
 
+  // Load on (background pre-)mount too, so the first visit shows data instantly.
   useEffect(() => {
-    if (visible) reload();
+    reload();
   }, [visible, reload]);
 
   const openCreate = () => {

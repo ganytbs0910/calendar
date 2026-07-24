@@ -87,11 +87,14 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate,
     }
   }, [hideIncomeWall]);
 
+  // The embedded Stats tab is background-pre-mounted, so load on mount (not only
+  // when visible) — the first switch to it then shows data instantly. Modal
+  // usages stay visible-gated (they do the heavier full-year scan on open).
   useEffect(() => {
-    if (visible) {
+    if (visible || embedded) {
       load(monthOffset);
     }
-  }, [visible, monthOffset, load]);
+  }, [visible, embedded, monthOffset, load]);
 
   const weekdayLabels = useMemo(() => {
     const arr = t('weekdaysSingle', {returnObjects: true}) as unknown;

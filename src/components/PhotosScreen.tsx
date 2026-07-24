@@ -115,8 +115,10 @@ const PhotosScreen: React.FC<Props> = ({visible}) => {
     setInfo(map);
   }, [t]);
 
+  // Load on (background pre-)mount too — not only when visible — so the first
+  // switch to the Photos tab shows data instantly instead of a spinner.
   useEffect(() => {
-    if (visible) reload();
+    reload();
   }, [visible, reload]);
 
   const colorOf = useCallback(
