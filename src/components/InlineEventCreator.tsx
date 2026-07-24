@@ -21,8 +21,9 @@ interface InlineEventCreatorProps {
   onMoreOptions: (title: string, color: string) => void;
 }
 
+// Matches AddEventModal.DEFAULT_EVENT_COLORS — 8 categories by scheduling frequency.
 const DEFAULT_COLORS = [
-  '#007AFF', '#FF3B30', '#34C759', '#FFCC00', '#FF9500', '#AF52DE', '#FF2D92',
+  '#007AFF', '#AF52DE', '#30B0C7', '#34C759', '#FF9500', '#FF3B30', '#FFCC00', '#FF2D92',
 ];
 
 export const InlineEventCreator: React.FC<InlineEventCreatorProps> = ({

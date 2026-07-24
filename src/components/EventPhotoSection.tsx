@@ -4,6 +4,7 @@
 // you add (library or camera), view full-screen, and delete. On-device.
 
 import React, {useCallback, useEffect, useState} from 'react';
+import {useTranslation} from 'react-i18next';
 import {
   Alert,
   Image,
@@ -26,6 +27,7 @@ interface Props {
 
 const EventPhotoSection: React.FC<Props> = ({eventId, onCountChange}) => {
   const {colors} = useTheme();
+  const {t} = useTranslation();
   const [photos, setPhotos] = useState<EventPhoto[]>([]);
   const [viewer, setViewer] = useState<string | null>(null);
 
@@ -75,20 +77,20 @@ const EventPhotoSection: React.FC<Props> = ({eventId, onCountChange}) => {
   }, [ingest]);
 
   const onAdd = useCallback(() => {
-    Alert.alert('写真を追加', undefined, [
-      {text: 'ライブラリから選ぶ', onPress: pickFromLibrary},
-      {text: 'カメラで撮る', onPress: takePhoto},
-      {text: 'キャンセル', style: 'cancel'},
+    Alert.alert(t('photoAddTitle'), undefined, [
+      {text: t('photoLibrary'), onPress: pickFromLibrary},
+      {text: t('photoCamera'), onPress: takePhoto},
+      {text: t('cancel'), style: 'cancel'},
     ]);
   }, [pickFromLibrary, takePhoto]);
 
   const onDelete = useCallback(
     (uri: string) => {
       if (!eventId) return;
-      Alert.alert('写真を削除', 'この写真を削除しますか？', [
-        {text: 'キャンセル', style: 'cancel'},
+      Alert.alert(t('photoDeleteTitle'), t('photoDeleteMsg'), [
+        {text: t('cancel'), style: 'cancel'},
         {
-          text: '削除',
+          text: t('delete'),
           style: 'destructive',
           onPress: async () => {
             const next = await removeEventPhoto(eventId, uri);
@@ -125,12 +127,12 @@ const EventPhotoSection: React.FC<Props> = ({eventId, onCountChange}) => {
         ))}
         <TouchableOpacity style={[s.addTile, {borderColor: colors.border}]} onPress={onAdd}>
           <Ionicons name="camera-outline" size={24} color={colors.primary} />
-          <Text style={[s.addText, {color: colors.primary}]}>追加</Text>
+          <Text style={[s.addText, {color: colors.primary}]}>{t('add')}</Text>
         </TouchableOpacity>
       </View>
       {photos.length === 0 && (
         <Text style={[s.hint, {color: colors.textTertiary}]}>
-          写真を追加すると、月表示にも📷が付き、後から見返せます。
+          {t('photoHint')}
         </Text>
       )}
 
@@ -143,7 +145,7 @@ const EventPhotoSection: React.FC<Props> = ({eventId, onCountChange}) => {
           {viewer && (
             <TouchableOpacity style={s.viewerDelete} onPress={() => onDelete(viewer)}>
               <Ionicons name="trash-outline" size={20} color="#fff" />
-              <Text style={s.viewerDeleteText}>削除</Text>
+              <Text style={s.viewerDeleteText}>{t('delete')}</Text>
             </TouchableOpacity>
           )}
         </View>

@@ -57,7 +57,9 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate,
   const [showPaywall, setShowPaywall] = useState(false);
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
-  const [loading, setLoading] = useState(false);
+  // Only the setter is needed now — the screen keeps the previous bundle on
+  // screen while refreshing, so there's no full-screen loading state to read.
+  const [, setLoading] = useState(false);
   const [bundle, setBundle] = useState<StatsBundle | null>(null);
   const [monthOffset, setMonthOffset] = useState(0); // 0 = current month, -1 previous
   const [showThresholdEditor, setShowThresholdEditor] = useState(false);
@@ -77,12 +79,13 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate,
     base.setMonth(base.getMonth() + offset);
     const {start, end} = getMonthRange(base);
     try {
-      const data = await fetchStats(start, end);
+      // The embedded Stats tab hides 年収の壁, so skip the heavy full-year scan.
+      const data = await fetchStats(start, end, {includeIncomeWall: !hideIncomeWall});
       setBundle(data);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [hideIncomeWall]);
 
   useEffect(() => {
     if (visible) {
@@ -98,7 +101,10 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate,
   const monthLabel = useMemo(() => {
     if (!bundle) return '';
     const d = bundle.rangeStart;
-    return t('yearMonthFormat', {year: d.getFullYear(), month: t('monthFormat', {month: d.getMonth() + 1})});
+    // Use the localized month NAME (same array the calendar header uses) — the
+    // old monthFormat echoed the bare number, giving e.g. "5 2026" in English.
+    const months = t('monthNames', {returnObjects: true}) as string[];
+    return t('yearMonthFormat', {year: d.getFullYear(), month: months[d.getMonth()]});
   }, [bundle, t]);
 
   const handleExportCsv = useCallback(async () => {
@@ -181,7 +187,7 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate,
           </TouchableOpacity>
         </View>
 
-        {loading || !bundle ? (
+        {!bundle ? (
           <View style={styles.loadingBox}>
             <ActivityIndicator color={colors.primary} />
             <Text style={styles.loadingText}>{t('statsLoading')}</Text>
@@ -1044,4 +1050,6 @@ const makeStyles = (colors: ThemeColors) =>
     },
   });
 
-export default StatsScreen;
+// Memoised: App re-renders on every tab switch, and without this each
+// tab's whole subtree would re-render even while hidden.
+export default React.memo(StatsScreen);

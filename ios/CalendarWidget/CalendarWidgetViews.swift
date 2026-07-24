@@ -25,7 +25,7 @@ struct SmallWidgetView: View {
 
             // Events (max 3)
             if entry.events.isEmpty {
-                Text("予定なし")
+                Text(wloc("予定なし", "No events"))
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
@@ -43,7 +43,7 @@ struct SmallWidgetView: View {
                                 .lineLimit(1)
                             if event.id == nextId {
                                 HStack(spacing: 2) {
-                                    Text("あと")
+                                    Text(wloc("あと", "in"))
                                         .font(.system(size: 8))
                                         .foregroundColor(.secondary)
                                     Text(event.startDate, style: .timer)
@@ -51,7 +51,7 @@ struct SmallWidgetView: View {
                                         .foregroundColor(.blue)
                                 }
                             } else {
-                                Text(event.isAllDay ? "終日" : formatTime(event.startDate))
+                                Text(event.isAllDay ? wloc("終日", "All-day") : formatTime(event.startDate))
                                     .font(.system(size: 9))
                                     .foregroundColor(.secondary)
                             }
@@ -75,14 +75,14 @@ struct SmallWidgetView: View {
 
     private var monthString: String {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ja_JP")
-        formatter.dateFormat = "M月"
+        formatter.locale = widgetLocale
+        formatter.dateFormat = wloc("M月", "MMM")
         return formatter.string(from: entry.date)
     }
 
     private var weekdayString: String {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ja_JP")
+        formatter.locale = widgetLocale
         formatter.dateFormat = "EEEE"
         return formatter.string(from: entry.date)
     }
@@ -124,7 +124,7 @@ struct MediumWidgetView: View {
             VStack(alignment: .leading, spacing: 4) {
                 if entry.events.isEmpty {
                     Spacer()
-                    Text("予定なし")
+                    Text(wloc("予定なし", "No events"))
                         .font(.system(size: 13))
                         .foregroundColor(.secondary)
                         .frame(maxWidth: .infinity, alignment: .center)
@@ -142,7 +142,7 @@ struct MediumWidgetView: View {
                                 Text(event.title)
                                     .font(.system(size: 13, weight: .medium))
                                     .lineLimit(1)
-                                Text(event.isAllDay ? "終日" : "\(formatTime(event.startDate)) - \(formatTime(event.endDate))")
+                                Text(event.isAllDay ? wloc("終日", "All-day") : "\(formatTime(event.startDate)) - \(formatTime(event.endDate))")
                                     .font(.system(size: 10))
                                     .foregroundColor(.secondary)
                             }
@@ -151,7 +151,7 @@ struct MediumWidgetView: View {
 
                             if event.id == nextId {
                                 VStack(alignment: .trailing, spacing: 0) {
-                                    Text("開始まで")
+                                    Text(wloc("開始まで", "until start"))
                                         .font(.system(size: 8))
                                         .foregroundColor(.secondary)
                                     Text(event.startDate, style: .timer)
@@ -165,7 +165,7 @@ struct MediumWidgetView: View {
                     }
 
                     if entry.events.count > 4 {
-                        Text("他 \(entry.events.count - 4)件")
+                        Text(wloc("他 \(entry.events.count - 4)件", "\(entry.events.count - 4) more"))
                             .font(.system(size: 10))
                             .foregroundColor(.secondary)
                     }
@@ -185,14 +185,14 @@ struct MediumWidgetView: View {
 
     private var monthString: String {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ja_JP")
-        formatter.dateFormat = "M月"
+        formatter.locale = widgetLocale
+        formatter.dateFormat = wloc("M月", "MMM")
         return formatter.string(from: entry.date)
     }
 
     private var weekdayString: String {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ja_JP")
+        formatter.locale = widgetLocale
         formatter.dateFormat = "EEEE"
         return formatter.string(from: entry.date)
     }

@@ -18,6 +18,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 
 import {useTheme} from '../theme/ThemeContext';
 import {getWallStatus, wallLabel, WallStatus} from '../services/incomeWallService';
+import {useTranslation} from 'react-i18next';
 import OneTimeHint from './OneTimeHint';
 
 const yen = (n: number) => `¥${Math.round(n).toLocaleString()}`;
@@ -28,6 +29,8 @@ interface Props {
 
 const IncomeWallScreen: React.FC<Props> = ({onOpenStats}) => {
   const {colors} = useTheme();
+  const {t, i18n} = useTranslation();
+  const wallAmt = (n: number) => (i18n.language === 'ja' ? `${wallLabel(n)}円` : yen(n));
   const [status, setStatus] = useState<WallStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -77,15 +80,15 @@ const IncomeWallScreen: React.FC<Props> = ({onOpenStats}) => {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}>
       <View style={s.heroRow}>
         <Ionicons name="trending-up" size={20} color={colors.primary} />
-        <Text style={[s.heroTitle, {color: colors.text}]}>年収の壁</Text>
-        <Text style={[s.heroYear, {color: colors.textTertiary}]}>{status?.year}年</Text>
+        <Text style={[s.heroTitle, {color: colors.text}]}>{t('setIncomeWallLabel')}</Text>
+        <Text style={[s.heroYear, {color: colors.textTertiary}]}>{t('incomeWallYearLabel', {year: status?.year})}</Text>
       </View>
 
       <OneTimeHint
         hintKey="incomeWallIntro"
         icon="trending-up-outline"
-        title="年収の壁ナビとは"
-        message="バイト予定の給料を合計し、103/106/130/150万などの「壁」まであといくらかを表示します。シフト保存時に壁を超えそうなら警告します。"
+        title={t('hintIncomeWallTitle')}
+        message={t('hintIncomeWallBody')}
         style={{marginBottom: 14}}
       />
 
@@ -93,52 +96,52 @@ const IncomeWallScreen: React.FC<Props> = ({onOpenStats}) => {
         <View style={[s.empty, {backgroundColor: colors.surface, borderColor: colors.border}]}>
           <Ionicons name="cash-outline" size={28} color={colors.textTertiary} />
           <Text style={[s.emptyText, {color: colors.textSecondary}]}>
-            バイトの予定に給料（時給かバイト先）を設定すると、ここに今年の収入と「壁」までの残りが表示されます。
+            {t('incomeWallEmpty')}
           </Text>
         </View>
       ) : (
         <>
           {/* Headline */}
           <View style={[s.card, {backgroundColor: colors.surface, borderColor: colors.border}]}>
-            <Text style={[s.cardCaption, {color: colors.textSecondary}]}>今年の収入</Text>
+            <Text style={[s.cardCaption, {color: colors.textSecondary}]}>{t('incomeWallCaption')}</Text>
             <Text style={[s.bigNumber, {color: colors.text}]}>{yen(total)}</Text>
             {next ? (
               <>
                 <Text style={[s.nextLine, {color: colors.text}]}>
-                  <Text style={{color: colors.primary, fontWeight: '800'}}>{wallLabel(next.amount)}円の壁</Text>
-                  {' まで あと '}
-                  <Text style={{color: colors.error, fontWeight: '800'}}>{yen(next.remaining)}</Text>
+                  <Text style={{color: colors.primary, fontWeight: '800'}}>{t('incomeWallThresholdName', {amount: wallAmt(next.amount)})}</Text>
+                  {t('incomeWallToGo')}
+                  <Text style={{color: colors.error, fontWeight: '800'}}>{t('incomeWallRemaining', {amount: yen(next.remaining)})}</Text>
                 </Text>
                 <View style={[s.bigBar, {backgroundColor: colors.border}]}>
                   <View style={[s.bigFill, {width: `${segProg * 100}%`, backgroundColor: segProg > 0.85 ? colors.error : colors.primary}]} />
                 </View>
                 <Text style={[s.subtle, {color: colors.textTertiary}]}>
-                  {wallLabel(prevWallAmount || 0)}{prevWallAmount ? '円' : ''} → {wallLabel(next.amount)}円
+                  {wallAmt(prevWallAmount || 0)} → {wallAmt(next.amount)}
                 </Text>
               </>
             ) : (
-              <Text style={[s.nextLine, {color: colors.textSecondary}]}>すべての壁を超えています</Text>
+              <Text style={[s.nextLine, {color: colors.textSecondary}]}>{t('incomeWallAllOver')}</Text>
             )}
           </View>
 
           {/* All walls */}
           <View style={s.section}>
-            <Text style={[s.sectionTitle, {color: colors.text}]}>壁の一覧</Text>
+            <Text style={[s.sectionTitle, {color: colors.text}]}>{t('incomeWallListTitle')}</Text>
             {status?.thresholds.map(th => {
               const prog = Math.min(1, total / th.amount);
               return (
                 <View key={th.amount} style={[s.wallRow, {backgroundColor: colors.surface, borderColor: colors.border}]}>
                   <View style={s.wallHead}>
                     <Text style={[s.wallName, {color: colors.text}]}>
-                      {wallLabel(th.amount)}円の壁
+                      {t('incomeWallThresholdName', {amount: wallAmt(th.amount)})}
                     </Text>
                     {th.reached ? (
                       <View style={s.reachedTag}>
                         <Ionicons name="checkmark-circle" size={14} color={colors.error} />
-                        <Text style={[s.reachedText, {color: colors.error}]}>超過</Text>
+                        <Text style={[s.reachedText, {color: colors.error}]}>{t('incomeWallOver')}</Text>
                       </View>
                     ) : (
-                      <Text style={[s.remainText, {color: colors.textSecondary}]}>あと {yen(th.remaining)}</Text>
+                      <Text style={[s.remainText, {color: colors.textSecondary}]}>{t('incomeWallRemain2', {amount: yen(th.remaining)})}</Text>
                     )}
                   </View>
                   <View style={[s.bar, {backgroundColor: colors.border}]}>
@@ -148,7 +151,7 @@ const IncomeWallScreen: React.FC<Props> = ({onOpenStats}) => {
               );
             })}
             <Text style={[s.note, {color: colors.textTertiary}]}>
-              ※壁の金額は統計画面で変更できます（2025/2026の制度変更に対応）
+              {t('incomeWallNote2')}
             </Text>
           </View>
         </>
@@ -156,7 +159,7 @@ const IncomeWallScreen: React.FC<Props> = ({onOpenStats}) => {
 
       <TouchableOpacity style={[s.statsBtn, {borderColor: colors.primary}]} onPress={onOpenStats}>
         <Ionicons name="stats-chart" size={16} color={colors.primary} />
-        <Text style={[s.statsBtnText, {color: colors.primary}]}>詳しい統計・給料を見る</Text>
+        <Text style={[s.statsBtnText, {color: colors.primary}]}>{t('incomeWallStatsBtn')}</Text>
       </TouchableOpacity>
 
       <View style={{height: 40}} />

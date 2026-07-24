@@ -2,6 +2,7 @@ import UIKit
 import React
 import React_RCTAppDelegate
 import ReactAppDependencyProvider
+import WidgetKit
 
 @main
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -9,6 +10,16 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
   var reactNativeDelegate: ReactNativeDelegate?
   var reactNativeFactory: RCTReactNativeFactory?
+
+  // Widgets read events straight from EventKit but iOS caches their timelines,
+  // so a newly-added/edited event won't show until the timeline is reloaded.
+  // Reload whenever the app is backgrounded — i.e. right before the user looks
+  // at the home/lock screen where the widget lives.
+  func applicationDidEnterBackground(_ application: UIApplication) {
+    if #available(iOS 14.0, *) {
+      WidgetCenter.shared.reloadAllTimelines()
+    }
+  }
 
   func application(
     _ application: UIApplication,

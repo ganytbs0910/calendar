@@ -21,8 +21,8 @@ struct CalendarWidgetProvider: TimelineProvider {
 
     func placeholder(in context: Context) -> CalendarEntry {
         CalendarEntry(date: Date(), events: [
-            EventItem(id: "1", title: "サンプル予定", startDate: Date(), endDate: Date().addingTimeInterval(3600), colorHex: "#007AFF", isAllDay: false),
-            EventItem(id: "2", title: "ミーティング", startDate: Date().addingTimeInterval(7200), endDate: Date().addingTimeInterval(10800), colorHex: "#FF3B30", isAllDay: false),
+            EventItem(id: "1", title: wloc("サンプル予定", "Sample event"), startDate: Date(), endDate: Date().addingTimeInterval(3600), colorHex: "#007AFF", isAllDay: false),
+            EventItem(id: "2", title: wloc("ミーティング", "Meeting"), startDate: Date().addingTimeInterval(7200), endDate: Date().addingTimeInterval(10800), colorHex: "#FF3B30", isAllDay: false),
         ])
     }
 
@@ -68,7 +68,7 @@ struct CalendarWidgetProvider: TimelineProvider {
             .map { event in
                 EventItem(
                     id: event.eventIdentifier ?? UUID().uuidString,
-                    title: event.title ?? "(タイトルなし)",
+                    title: event.title ?? wloc("(タイトルなし)", "(No title)"),
                     startDate: event.startDate,
                     endDate: event.endDate,
                     colorHex: event.calendar.cgColor.flatMap { UIColor(cgColor: $0).toHex() } ?? "#007AFF",

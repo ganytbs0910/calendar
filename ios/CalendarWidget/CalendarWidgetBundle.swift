@@ -15,8 +15,8 @@ struct CalendarAppWidget: Widget {
                     .background()
             }
         }
-        .configurationDisplayName("理想のカレンダー")
-        .description("今日の予定を表示します")
+        .configurationDisplayName(wloc("理想のカレンダー", "Ideal Calendar"))
+        .description(wloc("今日の予定を表示します", "Shows today's events"))
         .supportedFamilies([.systemSmall, .systemMedium])
     }
 }
@@ -28,6 +28,7 @@ struct CalendarWidgetBundle: WidgetBundle {
         CountdownWidget()        // 次の予定までのカウントダウン
         FreeTimeWidget()         // 今日の空き時間
         WeekWidget()             // 今週の予定（横並び）
+        TwoWeekWidget()          // 2週間の予定（グリッド）
         MonthCalendarWidget()    // 月間カレンダー
         UpcomingEventsWidget()   // 今後の予定（複数日）
         LockScreenWidget()       // ロック画面

@@ -2030,4 +2030,6 @@ const styles = StyleSheet.create({
   },
 });
 
-export default Calendar;
+// Memoised: App re-renders on every tab switch, and without this each
+// tab's whole subtree would re-render even while hidden.
+export default React.memo(Calendar);

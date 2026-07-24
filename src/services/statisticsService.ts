@@ -10,14 +10,17 @@ export const WORK_COLOR = '#007AFF';
 const TASKS_STORAGE_KEY = '@today_tasks';
 const EVENT_COLOR_STORAGE_KEY = '@event_colors';
 
+// Maps a category color to its i18n label key (the canonical 8-category palette,
+// in sync with AddEventModal.DEFAULT_EVENT_COLORS).
 export const COLOR_LABEL_MAP: Record<string, string> = {
   '#007AFF': 'colorWork',
-  '#FF3B30': 'colorImportant',
-  '#34C759': 'colorFun',
-  '#FFCC00': 'colorOther',
-  '#FF9500': 'colorPromise',
   '#AF52DE': 'colorHobby',
-  '#FF2D92': 'colorSchedule',
+  '#30B0C7': 'colorSchool',
+  '#34C759': 'colorFun',
+  '#FF9500': 'colorAppointment',
+  '#FF3B30': 'colorDeadline',
+  '#FFCC00': 'colorJobHunt',
+  '#FF2D92': 'colorOshi',
 };
 
 export interface CategoryStat {
@@ -576,7 +579,14 @@ const computeIncomeWall = (yearTotal: number, year: number, thresholds: number[]
   return {yearTotal, year, thresholds: stats, nextWall};
 };
 
-export const fetchStats = async (rangeStart: Date, rangeEnd: Date): Promise<StatsBundle> => {
+// `includeIncomeWall` defaults to true. Set it false (e.g. the embedded Stats
+// tab) to skip the heavy full-year fetch — that scan only feeds 年収の壁.
+export const fetchStats = async (
+  rangeStart: Date,
+  rangeEnd: Date,
+  opts: {includeIncomeWall?: boolean} = {},
+): Promise<StatsBundle> => {
+  const {includeIncomeWall = true} = opts;
   const startISO = rangeStart.toISOString();
   const endISO = rangeEnd.toISOString();
 
@@ -601,18 +611,23 @@ export const fetchStats = async (rangeStart: Date, rangeEnd: Date): Promise<Stat
   const payroll = computePayroll(events, eventWages, eventJobs, jobs, eventBreaks);
 
   const year = rangeStart.getFullYear();
-  let yearEvents: CalendarEventReadable[] = [];
-  try {
-    yearEvents = await RNCalendarEvents.fetchAllEvents(
-      new Date(year, 0, 1, 0, 0, 0).toISOString(),
-      new Date(year, 11, 31, 23, 59, 59).toISOString(),
-    );
-  } catch {
-    yearEvents = [];
+  let incomeWall: IncomeWallSummary;
+  if (includeIncomeWall) {
+    let yearEvents: CalendarEventReadable[] = [];
+    try {
+      yearEvents = await RNCalendarEvents.fetchAllEvents(
+        new Date(year, 0, 1, 0, 0, 0).toISOString(),
+        new Date(year, 11, 31, 23, 59, 59).toISOString(),
+      );
+    } catch {
+      yearEvents = [];
+    }
+    const yearPayroll = computePayroll(yearEvents, eventWages, eventJobs, jobs, eventBreaks);
+    const thresholds = await getIncomeThresholds();
+    incomeWall = computeIncomeWall(yearPayroll.total, year, thresholds);
+  } else {
+    incomeWall = computeIncomeWall(0, year, []);
   }
-  const yearPayroll = computePayroll(yearEvents, eventWages, eventJobs, jobs, eventBreaks);
-  const thresholds = await getIncomeThresholds();
-  const incomeWall = computeIncomeWall(yearPayroll.total, year, thresholds);
 
   return {
     monthly,

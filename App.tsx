@@ -1,5 +1,6 @@
 import React, {useCallback, useState, useRef, useEffect} from 'react';
 import {
+  Animated,
   StatusBar,
   StyleSheet,
   View,
@@ -15,6 +16,7 @@ import {
   AppState,
   Switch,
   Share,
+  InteractionManager,
 } from 'react-native';
 import {SafeAreaProvider, SafeAreaView, useSafeAreaInsets} from 'react-native-safe-area-context';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
@@ -33,9 +35,12 @@ import {
   UpdateCheckResult,
 } from './src/services/versionCheckService';
 import {ThemeProvider, useTheme} from './src/theme/ThemeContext';
+import {ACCENTS, AccentKey} from './src/theme/colors';
 import {PremiumProvider, usePremium} from './src/context/PremiumContext';
 import {PaywallScreen} from './src/components/PaywallScreen';
 import StatsScreen from './src/components/StatsScreen';
+import PhotosScreen from './src/components/PhotosScreen';
+import LocalCalendarsScreen from './src/components/localcal/LocalCalendarsScreen';
 import AgentScreen from './src/components/AgentScreen';
 import OneTimeHint from './src/components/OneTimeHint';
 import ShareAvailabilityModal from './src/components/ShareAvailabilityModal';
@@ -77,7 +82,7 @@ import {
   sendTestNotification,
   cleanupExpiredEventNotifications,
 } from './src/services/notificationService';
-import {clearDevSeedEvents, seedDevJuneEventsIfNeeded} from './src/services/devSeedData';
+import {clearDevSeedEvents, clearDevMaySeedEvents, clearDevJuneSeedEvents, seedDevJuneEventsIfNeeded, seedDevMayEventsIfNeeded, seedDevSummerEventsIfNeeded} from './src/services/devSeedData';
 import LockScreen, {PinSetupModal} from './src/components/LockScreen';
 import NLEventInput from './src/components/NLEventInput';
 import {ParsedEvent} from './src/utils/eventParser';
@@ -152,11 +157,16 @@ type ViewMode = 'month' | 'week';
 
 // Bottom navigation tabs. Only "home" is implemented; the other three navigate
 // to a placeholder "coming soon" screen for now.
-type TabKey = 'home' | 'tasks' | 'stats' | 'settings';
+// Stable no-op, so memoised children don't see a new prop each render.
+const NOOP = () => {};
+
+type TabKey = 'home' | 'tasks' | 'stats' | 'localcal' | 'photos' | 'settings';
 const TABS: {key: TabKey; labelKey: string; icon: string; iconOutline: string}[] = [
   {key: 'home', labelKey: 'tabHome', icon: 'home', iconOutline: 'home-outline'},
   {key: 'tasks', labelKey: 'tabTasks', icon: 'checkbox', iconOutline: 'checkbox-outline'},
   {key: 'stats', labelKey: 'tabStats', icon: 'stats-chart', iconOutline: 'stats-chart-outline'},
+  {key: 'localcal', labelKey: 'tabLocalCal', icon: 'albums', iconOutline: 'albums-outline'},
+  {key: 'photos', labelKey: 'tabPhotos', icon: 'images', iconOutline: 'images-outline'},
   {key: 'settings', labelKey: 'tabSettings', icon: 'settings', iconOutline: 'settings-outline'},
 ];
 
@@ -297,7 +307,7 @@ const SleepSetupModal = ({
 
 function AppContent() {
   const {t} = useTranslation();
-  const {colors, isDark, themeMode, setThemeMode} = useTheme();
+  const {colors, isDark, themeMode, setThemeMode, accentColor, setAccentColor} = useTheme();
   const {isPremium} = usePremium();
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState('auto');
@@ -313,6 +323,29 @@ function AppContent() {
   const [initialEndDate, setInitialEndDate] = useState<Date | undefined>();
   const [viewMode, setViewMode] = useState<ViewMode>('month');
   const [activeTab, setActiveTab] = useState<TabKey>('home');
+  // Tabs are kept mounted once visited (lazy keep-alive) so switching back
+  // doesn't unmount + refetch every time. Home is mounted from the start.
+  const [visitedTabs, setVisitedTabs] = useState<Set<TabKey>>(() => new Set<TabKey>(['home']));
+  useEffect(() => {
+    setVisitedTabs(prev => (prev.has(activeTab) ? prev : new Set(prev).add(activeTab)));
+  }, [activeTab]);
+  // Stable identities, so the memoised settings tab doesn't re-render whenever
+  // App does (e.g. on every tab switch).
+  const openShareAvail = useCallback(() => setShowShareAvail(true), []);
+  const openPoll = useCallback(() => setShowPoll(true), []);
+  const openSettingsModal = useCallback(() => setShowSettingsModal(true), []);
+  const openStats = useCallback(() => setShowStats(true), []);
+  const openIncomeWall = useCallback(() => setShowIncomeWall(true), []);
+  const openJobs = useCallback(() => setShowJobsManager(true), []);
+  // Once the launch settles, mount the remaining tabs in the background so the
+  // first tap on one doesn't pay for a whole screen mount. Hidden tabs fetch
+  // nothing (they all gate their loads on `visible`), so this is near-free.
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
+      setVisitedTabs(new Set<TabKey>(TABS.map(tb => tb.key)));
+    });
+    return () => task.cancel();
+  }, []);
   const insets = useSafeAreaInsets();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [hasPermission, setHasPermission] = useState(false);
@@ -361,6 +394,12 @@ function AppContent() {
   const [editingCalendarId, setEditingCalendarId] = useState<string | null>(null);
   const calendarRef = useRef<CalendarRef>(null);
   const weekViewRef = useRef<WeekViewRef>(null);
+  // Springy press feedback for the "+" add button — a tiny bit of delight on the
+  // app's most-used action.
+  const addBtnScale = useRef(new Animated.Value(1)).current;
+  const bounceAddBtn = useCallback((to: number) => {
+    Animated.spring(addBtnScale, {toValue: to, useNativeDriver: true, friction: 4, tension: 200}).start();
+  }, [addBtnScale]);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load saved language on mount
@@ -683,7 +722,11 @@ function AppContent() {
     if (!hasPermission) return;
     (async () => {
       await clearDevSeedEvents();
+      await clearDevMaySeedEvents(); // drop the old JP May events before re-seeding EN
+      await clearDevJuneSeedEvents(); // same for June
       await seedDevJuneEventsIfNeeded();
+      await seedDevMayEventsIfNeeded();
+      await seedDevSummerEventsIfNeeded(); // ~1 month from today (English student life)
       calendarRef.current?.refreshEvents();
       weekViewRef.current?.refreshEvents();
     })();
@@ -1041,16 +1084,15 @@ function AppContent() {
     <>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
       <SafeAreaView edges={['top', 'left', 'right']} style={[dynamicStyles.container, {paddingBottom: 0}]}>
-        {activeTab === 'home' && (
-        <>
+        <View style={[styles.tabPage, activeTab !== 'home' && styles.tabHidden]}>
         <View style={dynamicStyles.header}>
           <View style={styles.headerLeft}>
             <TouchableOpacity
-              style={styles.todayBtn}
+              style={[styles.todayBtn, {backgroundColor: colors.today}]}
               onPress={goToToday}
               accessibilityLabel={t('goToToday')}
               accessibilityRole="button">
-              <Text style={styles.todayBtnText}>{t('today')}</Text>
+              <Text style={[styles.todayBtnText, {color: colors.primary}]}>{t('today')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.iconBtn}
@@ -1078,16 +1120,19 @@ function AppContent() {
           </View>
           <View style={styles.headerRight}>
             <TouchableOpacity
-              style={styles.viewToggle}
+              style={[styles.viewToggle, {backgroundColor: colors.today}]}
               onPress={toggleViewMode}
               accessibilityLabel={t('toggleView')}
               accessibilityRole="button">
-              <Text style={styles.viewToggleText}>
+              <Text style={[styles.viewToggleText, {color: colors.primary}]}>
                 {viewMode === 'month' ? t('monthView') : t('weekView')}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={styles.addButton}
+              activeOpacity={0.85}
+              style={[styles.addButton, {backgroundColor: colors.primary}]}
+              onPressIn={() => bounceAddBtn(0.8)}
+              onPressOut={() => bounceAddBtn(1)}
               onPress={handleAddEvent}
               onLongPress={() => {
                 loadTemplates();
@@ -1096,7 +1141,7 @@ function AppContent() {
               accessibilityLabel={t('addEventLabel')}
               accessibilityHint={t('addEventHint')}
               accessibilityRole="button">
-              <Text style={styles.addButtonText}>+</Text>
+              <Animated.Text style={[styles.addButtonText, {transform: [{scale: addBtnScale}]}]}>+</Animated.Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1115,8 +1160,8 @@ function AppContent() {
         <OneTimeHint
           hintKey="addButtonTemplates"
           icon="bookmark-outline"
-          title="「＋」長押しでテンプレート"
-          message="右上の「＋」を長押しすると、保存したテンプレートからワンタップで予定を追加できます。"
+          title={t('hintTemplateTitle')}
+          message={t('hintTemplateBody')}
           style={{marginHorizontal: 10, marginTop: 6}}
         />
 
@@ -1146,31 +1191,47 @@ function AppContent() {
             filterColor={userCalendars.find(c => c.id === selectedCalendarId)?.color ?? null}
           />
         )}
-        </>
-        )}
+        </View>
 
-        {activeTab === 'tasks' && (
-          <View style={{flex: 1}}>
+        {visitedTabs.has('tasks') && (
+          <View style={[styles.tabPage, activeTab !== 'tasks' && styles.tabHidden]}>
             <AgentScreen />
           </View>
         )}
 
-        {activeTab === 'stats' && (
-          <View style={{flex: 1}}>
-            {/* 統計タブ: 活動サマリー・月の給料集計を表示。年収の壁は設定からのみ。 */}
-            <StatsScreen embedded hideIncomeWall visible onClose={() => {}} initialDate={currentDate} />
+        {visitedTabs.has('stats') && (
+          <View style={[styles.tabPage, activeTab !== 'stats' && styles.tabHidden]}>
+            {/* 統計タブ: 活動サマリー・月の給料集計を表示。年収の壁は設定からのみ。
+                visible=タブ表示中のみ → 入るたびに最新化（年フェッチは省略済みで軽量）。 */}
+            <StatsScreen embedded hideIncomeWall visible={activeTab === 'stats'} onClose={NOOP} initialDate={currentDate} />
           </View>
         )}
 
-        {activeTab === 'settings' && (
-          <View style={{flex: 1}}>
+        {visitedTabs.has('localcal') && (
+          <View style={[styles.tabPage, activeTab !== 'localcal' && styles.tabHidden]}>
+            {/* マイカレンダータブ: 端末内に独立保存するTimeTree風サブカレンダー。
+                メインのiCloudカレンダーとは完全分離。 */}
+            <LocalCalendarsScreen visible={activeTab === 'localcal'} />
+          </View>
+        )}
+
+        {visitedTabs.has('photos') && (
+          <View style={[styles.tabPage, activeTab !== 'photos' && styles.tabHidden]}>
+            {/* 写真タブ: 全イベントに添付した写真を月ごとにまとめて表示。
+                visible=表示中のみ → 入るたびに最新化。 */}
+            <PhotosScreen visible={activeTab === 'photos'} />
+          </View>
+        )}
+
+        {visitedTabs.has('settings') && (
+          <View style={[styles.tabPage, activeTab !== 'settings' && styles.tabHidden]}>
             <SettingsLauncherScreen
-              onOpenShareAvail={() => setShowShareAvail(true)}
-              onOpenPoll={() => setShowPoll(true)}
-              onOpenSettings={() => setShowSettingsModal(true)}
-              onOpenStats={() => setShowStats(true)}
-              onOpenIncomeWall={() => setShowIncomeWall(true)}
-              onOpenJobs={() => setShowJobsManager(true)}
+              onOpenShareAvail={openShareAvail}
+              onOpenPoll={openPoll}
+              onOpenSettings={openSettingsModal}
+              onOpenStats={openStats}
+              onOpenIncomeWall={openIncomeWall}
+              onOpenJobs={openJobs}
             />
           </View>
         )}
@@ -1447,6 +1508,28 @@ function AppContent() {
                                 themeMode === 'dark' && styles.themeSelectorTextActive,
                               ]}>{t('themeDark')}</Text>
                             </TouchableOpacity>
+                          </View>
+                        </View>
+                        <View style={styles.settingsItem}>
+                          <Text style={styles.settingsItemLabel}>{t('colorTheme')}</Text>
+                          <View style={styles.accentSelector}>
+                            {(Object.keys(ACCENTS) as AccentKey[]).map(key => {
+                              const swatch = isDark ? ACCENTS[key].dark : ACCENTS[key].light;
+                              const active = accentColor === key;
+                              return (
+                                <TouchableOpacity
+                                  key={key}
+                                  onPress={() => setAccentColor(key)}
+                                  activeOpacity={0.7}
+                                  style={[
+                                    styles.accentSwatch,
+                                    {backgroundColor: swatch},
+                                    active && {borderColor: colors.text, borderWidth: 2},
+                                  ]}>
+                                  {active && <Ionicons name="checkmark" size={16} color="#fff" />}
+                                </TouchableOpacity>
+                              );
+                            })}
                           </View>
                         </View>
                       </View>
@@ -1731,39 +1814,39 @@ function AppContent() {
 
                   {/* Widget: Next-event countdown */}
                   <View style={styles.settingsSection}>
-                    <Text style={styles.settingsSectionTitle}>次の予定まで（小・中）</Text>
+                    <Text style={styles.settingsSectionTitle}>{t('widgetCountdownTitle')}</Text>
                     <View style={styles.widgetPreviewArea}>
                       <CountdownWidgetPreview />
                     </View>
                     <View style={styles.widgetGuideCard}>
                       <Text style={styles.widgetGuideCardDesc}>
-                        次の予定までの残り時間をカウントダウン表示。あと何分かが一目で分かります。
+                        {t('widgetCountdownDesc')}
                       </Text>
                     </View>
                   </View>
 
                   {/* Widget: Today's free time */}
                   <View style={styles.settingsSection}>
-                    <Text style={styles.settingsSectionTitle}>今日の空き時間（小）</Text>
+                    <Text style={styles.settingsSectionTitle}>{t('widgetFreeTitle')}</Text>
                     <View style={styles.widgetPreviewArea}>
                       <FreeTimeWidgetPreview />
                     </View>
                     <View style={styles.widgetGuideCard}>
                       <Text style={styles.widgetGuideCardDesc}>
-                        今日これからの空き時間をゲージ付きで表示。スキマ時間がすぐ分かります。
+                        {t('widgetFreeDesc')}
                       </Text>
                     </View>
                   </View>
 
                   {/* Widget: This week */}
                   <View style={styles.settingsSection}>
-                    <Text style={styles.settingsSectionTitle}>今週の予定（中・大）</Text>
+                    <Text style={styles.settingsSectionTitle}>{t('widgetWeekTitle')}</Text>
                     <View style={styles.widgetPreviewArea}>
                       <WeekWidgetPreview />
                     </View>
                     <View style={styles.widgetGuideCard}>
                       <Text style={styles.widgetGuideCardDesc}>
-                        今週7日間を横並びで表示。曜日ごとの予定の多さが一目で分かります。
+                        {t('widgetWeekDesc')}
                       </Text>
                     </View>
                   </View>
@@ -2090,6 +2173,13 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
+  },
+  // Kept-alive tab page: fills the area when active, removed from layout when not.
+  tabPage: {
+    flex: 1,
+  },
+  tabHidden: {
+    display: 'none',
   },
   bottomTabBar: {
     flexDirection: 'row',
@@ -2487,6 +2577,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#f0f0f0',
     borderRadius: 8,
     padding: 2,
+  },
+  accentSelector: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    gap: 10,
+    maxWidth: 200,
+  },
+  accentSwatch: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderColor: 'transparent',
   },
   themeSelectorBtn: {
     paddingVertical: 6,

@@ -227,10 +227,11 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
   const computeMonthLabel = useCallback((leftIndex: number) => {
     const leftDate = getDateForIndex(leftIndex);
     const rightDate = getDateForIndex(leftIndex + 6);
-    const startMonth = leftDate.getMonth() + 1;
-    const endMonth = rightDate.getMonth() + 1;
-    if (startMonth === endMonth) return t('monthFormat', {month: startMonth});
-    return t('monthFormat', {month: `${startMonth}-${endMonth}`});
+    // Localized month names (same array as the calendar/stats headers) — the
+    // old monthFormat echoed the bare number, e.g. "5" instead of "May".
+    const months = t('monthNames', {returnObjects: true}) as string[];
+    if (leftDate.getMonth() === rightDate.getMonth()) return months[leftDate.getMonth()];
+    return `${months[leftDate.getMonth()]}-${months[rightDate.getMonth()]}`;
   }, [getDateForIndex, t]);
 
   useEffect(() => {
@@ -592,8 +593,8 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
       <OneTimeHint
         hintKey="weekPinchZoom"
         icon="resize-outline"
-        title="2本指で時間を拡大・縮小"
-        message="タイムラインを2本指でピンチすると、1時間の高さを広げたり縮めたりできます。"
+        title={t('hintPinchTitle')}
+        message={t('hintPinchBody')}
         style={styles.weekHint}
       />
 

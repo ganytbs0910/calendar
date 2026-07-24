@@ -16,14 +16,17 @@ export interface UserCalendar {
  * Default calendar set seeded on first run, mirroring the existing color-label
  * map so users start with familiar categories rather than an empty list.
  */
+// Mirrors AddEventModal.DEFAULT_EVENT_COLORS — 8 categories sorted by how often
+// each is actually scheduled (research-backed). Keep ids/colors/labels in sync.
 const DEFAULTS: UserCalendar[] = [
   {id: 'default-work', nameKey: 'colorWork', color: '#007AFF'},
-  {id: 'default-important', nameKey: 'colorImportant', color: '#FF3B30'},
-  {id: 'default-fun', nameKey: 'colorFun', color: '#34C759'},
-  {id: 'default-other', nameKey: 'colorOther', color: '#FFCC00'},
-  {id: 'default-promise', nameKey: 'colorPromise', color: '#FF9500'},
   {id: 'default-hobby', nameKey: 'colorHobby', color: '#AF52DE'},
-  {id: 'default-schedule', nameKey: 'colorSchedule', color: '#FF2D92'},
+  {id: 'default-school', nameKey: 'colorSchool', color: '#30B0C7'},
+  {id: 'default-fun', nameKey: 'colorFun', color: '#34C759'},
+  {id: 'default-appointment', nameKey: 'colorAppointment', color: '#FF9500'},
+  {id: 'default-deadline', nameKey: 'colorDeadline', color: '#FF3B30'},
+  {id: 'default-jobhunt', nameKey: 'colorJobHunt', color: '#FFCC00'},
+  {id: 'default-oshi', nameKey: 'colorOshi', color: '#FF2D92'},
 ];
 
 const generateId = (): string =>

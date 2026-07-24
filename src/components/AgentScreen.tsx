@@ -30,40 +30,42 @@ import {
   resolvePlan,
 } from '../agent/intentionService';
 import {Intention, KIND_META, SchedulePlan} from '../agent/types';
+import {useTranslation} from 'react-i18next';
 import OneTimeHint from './OneTimeHint';
 import SwipeableRow from './SwipeableRow';
 
-const JP_DOW = ['日', '月', '火', '水', '木', '金', '土'];
+type TFunc = (key: string, opts?: any) => string;
 
-const EXAMPLE =
-  '毎週月曜10時から16時まで大学。火曜と木曜は18時から22時までバイト。';
-
-const intentionMeta = (i: Intention): string => {
-  const days =
-    i.days && i.days.length && i.days.length < 7
-      ? i.days.map(d => JP_DOW[d]).join('・')
-      : '';
-  const win = i.window ? `${i.window.startHour}–${i.window.endHour}時` : '';
+// Build the one-line meta under an intention title, fully localized. `t` and the
+// weekday names come from i18n so the units (時/min, 曜, 分, 週N回…) follow locale.
+const intentionMeta = (i: Intention, t: TFunc, dow: string[]): string => {
+  const daysList =
+    i.days && i.days.length && i.days.length < 7 ? i.days.map(d => dow[d]).join('·') : '';
+  const days = daysList ? t('agentDaysFmt', {days: daysList}) : '';
+  const win = i.window ? t('agentWin', {start: i.window.startHour, end: i.window.endHour}) : '';
+  const dur = t('agentDurMin', {n: i.durationMin});
   switch (i.kind) {
     case 'focus':
-      return [KIND_META.focus.labelJa, days && `${days}曜`, win, `${i.durationMin}分`]
-        .filter(Boolean)
-        .join(' ・ ');
+      return [t('agentKindFocus'), days, win, dur].filter(Boolean).join(' · ');
     case 'recurring':
-      return [`週${i.timesPerWeek ?? 3}回`, `${i.durationMin}分`, win].filter(Boolean).join(' ・ ');
+      return [t('agentPerWeek', {n: i.timesPerWeek ?? 3}), dur, win].filter(Boolean).join(' · ');
     case 'fixed':
-      return [days && `${days}曜`, win, `${i.durationMin}分`].filter(Boolean).join(' ・ ');
+      return [days, win, dur].filter(Boolean).join(' · ');
     case 'deadline':
-      return [`締切 ${i.deadline ?? '—'}`, `約${Math.round((i.totalEstimateMin ?? 0) / 60)}h`]
+      return [
+        t('agentDeadline', {date: i.deadline ?? '—'}),
+        t('agentApproxH', {h: Math.round((i.totalEstimateMin ?? 0) / 60)}),
+      ]
         .filter(Boolean)
-        .join(' ・ ');
+        .join(' · ');
     default:
-      return KIND_META.preference.labelJa;
+      return t('agentKindPreference');
   }
 };
 
 const AgentScreen: React.FC = () => {
   const {colors} = useTheme();
+  const {t} = useTranslation();
   const [text, setText] = useState('');
   const [intentions, setIntentions] = useState<Intention[]>([]);
   const [plan, setPlan] = useState<SchedulePlan | null>(null);
@@ -89,16 +91,16 @@ const AgentScreen: React.FC = () => {
       const pl = await resolvePlan();
       setPlan(pl);
     } catch (e) {
-      Alert.alert('エラー', 'プランの作成に失敗しました');
+      Alert.alert(t('agentErrTitle'), t('agentErrMsg'));
     } finally {
       setSolving(false);
     }
-  }, []);
+  }, [t]);
 
   const declare = useCallback(async () => {
     const parsed = parseIntentions(text);
     if (!parsed.length) {
-      Alert.alert('うまく読み取れませんでした', '「毎週月曜10時から16時まで大学」「週2でジム」のように、予定を区切って書いてみてください。');
+      Alert.alert(t('agentParseFailTitle'), t('agentParseFailMsg'));
       return;
     }
     await addIntentions(parsed);
@@ -106,7 +108,7 @@ const AgentScreen: React.FC = () => {
     const ins = await getIntentions();
     setIntentions(ins);
     await reSolve();
-  }, [text, reSolve]);
+  }, [text, reSolve, t]);
 
   // Swipe-to-delete fires this directly (the swipe is already a deliberate
   // action, so no extra confirm).
@@ -125,10 +127,11 @@ const AgentScreen: React.FC = () => {
     setIntentions([]);
     setPlan(null);
     setText('');
-    Alert.alert('カレンダーに追加しました', `${n}件の予定を追加しました。入力した予定はリセットしました。ホームのカレンダーで確認できます。`);
-  }, [plan]);
+    Alert.alert(t('agentAppliedTitle'), t('agentAppliedMsg', {count: n}));
+  }, [plan, t]);
 
   const s = makeStyles(colors);
+  const dow = t('weekdaysSingle', {returnObjects: true}) as unknown as string[];
 
   if (loading) {
     return (
@@ -146,29 +149,29 @@ const AgentScreen: React.FC = () => {
       <View style={s.hero}>
         <View style={s.heroRow}>
           <Ionicons name="sparkles" size={20} color={colors.primary} />
-          <Text style={[s.heroTitle, {color: colors.text}]}>AIで予定づくり</Text>
+          <Text style={[s.heroTitle, {color: colors.text}]}>{t('agentTitle')}</Text>
         </View>
         <Text style={[s.heroSub, {color: colors.textSecondary}]}>
-          「毎週月曜10時から16時まで大学」のように、予定ややりたいことを文章で書くだけ。AIが1週間にうまく組み込んでカレンダーに追加します。
+          {t('agentSubtitle')}
         </Text>
       </View>
 
       <OneTimeHint
         hintKey="tasksIntro"
         icon="sparkles-outline"
-        title="文章で書くだけでOK"
-        message="やりたいことを文章で書いて「予定にする」を押すと、AIが1週間に組んで「カレンダーに追加」で反映できます。下のリストはタップで有効/無効、長押しで削除。"
+        title={t('hintAgentTitle')}
+        message={t('hintAgentBody')}
         style={{marginBottom: 16}}
       />
 
       {/* Declaration */}
       <View style={[s.card, {backgroundColor: colors.surface, borderColor: colors.border}]}>
-        <Text style={[s.cardLabel, {color: colors.textSecondary}]}>予定・やりたいことを書く</Text>
+        <Text style={[s.cardLabel, {color: colors.textSecondary}]}>{t('agentInputLabel')}</Text>
         <TextInput
           style={[s.input, {color: colors.text, backgroundColor: colors.inputBackground, borderColor: colors.border}]}
           value={text}
           onChangeText={setText}
-          placeholder={EXAMPLE}
+          placeholder={t('agentExample')}
           placeholderTextColor={colors.textTertiary}
           multiline
         />
@@ -178,7 +181,7 @@ const AgentScreen: React.FC = () => {
             disabled={!text.trim()}
             onPress={declare}>
             <Ionicons name="sparkles" size={16} color={colors.onPrimary} />
-            <Text style={[s.declareBtnText, {color: colors.onPrimary}]}>予定にする</Text>
+            <Text style={[s.declareBtnText, {color: colors.onPrimary}]}>{t('agentDeclareBtn')}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -186,7 +189,7 @@ const AgentScreen: React.FC = () => {
       {/* Intentions */}
       {intentions.length > 0 && (
         <View style={s.section}>
-          <Text style={[s.sectionTitle, {color: colors.text}]}>入力した予定・やりたいこと</Text>
+          <Text style={[s.sectionTitle, {color: colors.text}]}>{t('agentIntentionsTitle')}</Text>
           {intentions.map(i => {
             const meta = KIND_META[i.kind];
             return (
@@ -197,7 +200,7 @@ const AgentScreen: React.FC = () => {
                   </View>
                   <View style={{flex: 1}}>
                     <Text style={[s.intTitle, {color: colors.text}]} numberOfLines={1}>{i.title}</Text>
-                    <Text style={[s.intMeta, {color: colors.textTertiary}]} numberOfLines={1}>{intentionMeta(i)}</Text>
+                    <Text style={[s.intMeta, {color: colors.textTertiary}]} numberOfLines={1}>{intentionMeta(i, t, dow)}</Text>
                   </View>
                   <View style={s.prioDots}>
                     {[1, 2, 3, 4, 5].map(p => (
@@ -211,7 +214,7 @@ const AgentScreen: React.FC = () => {
               </SwipeableRow>
             );
           })}
-          <Text style={[s.hint, {color: colors.textTertiary}]}>左スワイプで削除</Text>
+          <Text style={[s.hint, {color: colors.textTertiary}]}>{t('agentSwipeHint')}</Text>
         </View>
       )}
 
@@ -221,13 +224,13 @@ const AgentScreen: React.FC = () => {
           <View style={s.resultRow}>
             <Ionicons name="checkmark-circle" size={18} color={colors.primary} />
             <Text style={[s.resultText, {color: colors.textSecondary}]}>
-              AIが{placed}件の予定を1週間に組みました{solving ? '…' : ''}
+              {t('agentPlaced', {count: placed})}{solving ? '…' : ''}
             </Text>
           </View>
 
           {plan.unplaced.length > 0 && (
             <View style={[s.noteBox, {backgroundColor: colors.surface, borderColor: colors.border}]}>
-              <Text style={[s.noteHead, {color: colors.error}]}>入りきらなかった予定</Text>
+              <Text style={[s.noteHead, {color: colors.error}]}>{t('agentUnplacedHead')}</Text>
               {plan.unplaced.map(u => (
                 <Text key={u.intentionId} style={[s.noteLine, {color: colors.textSecondary}]}>
                   ・{u.title}：{u.reason}
@@ -237,7 +240,7 @@ const AgentScreen: React.FC = () => {
           )}
           {plan.conflicts.length > 0 && (
             <View style={[s.noteBox, {backgroundColor: colors.surface, borderColor: colors.border}]}>
-              <Text style={[s.noteHead, {color: colors.primary}]}>エージェントの判断</Text>
+              <Text style={[s.noteHead, {color: colors.primary}]}>{t('agentConflictsHead')}</Text>
               {plan.conflicts.map((c, i) => (
                 <Text key={i} style={[s.noteLine, {color: colors.textSecondary}]}>・{c}</Text>
               ))}
@@ -246,7 +249,7 @@ const AgentScreen: React.FC = () => {
 
           <TouchableOpacity style={[s.applyBtn, {backgroundColor: colors.primary}]} onPress={apply}>
             <Ionicons name="calendar" size={16} color={colors.onPrimary} />
-            <Text style={[s.applyText, {color: colors.onPrimary}]}>カレンダーに追加</Text>
+            <Text style={[s.applyText, {color: colors.onPrimary}]}>{t('agentApplyBtn')}</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -289,4 +292,6 @@ const makeStyles = (colors: any) =>
     applyText: {fontSize: 14, fontWeight: '700'},
   });
 
-export default AgentScreen;
+// Memoised: App re-renders on every tab switch, and without this each
+// tab's whole subtree would re-render even while hidden.
+export default React.memo(AgentScreen);

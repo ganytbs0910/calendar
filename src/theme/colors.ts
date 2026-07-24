@@ -61,3 +61,46 @@ export const darkColors = {
 };
 
 export type ThemeColors = typeof lightColors;
+
+// --- Accent color (selectable theme color) ---
+export const ACCENTS = {
+  blue: {label: 'ブルー', light: '#007AFF', dark: '#0A84FF'},
+  green: {label: 'グリーン', light: '#34C759', dark: '#30D158'},
+  indigo: {label: 'インディゴ', light: '#5856D6', dark: '#5E5CE6'},
+  purple: {label: 'パープル', light: '#AF52DE', dark: '#BF5AF2'},
+  pink: {label: 'ピンク', light: '#FF2D55', dark: '#FF375F'},
+  orange: {label: 'オレンジ', light: '#FF9500', dark: '#FF9F0A'},
+  teal: {label: 'ティール', light: '#30B0C7', dark: '#40C8E0'},
+  graphite: {label: 'グラファイト', light: '#48484a', dark: '#8e8e93'},
+} as const;
+
+export type AccentKey = keyof typeof ACCENTS;
+export const DEFAULT_ACCENT: AccentKey = 'blue';
+
+const hexToRgba = (hex: string, alpha: number) => {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.substring(0, 2), 16);
+  const g = parseInt(h.substring(2, 4), 16);
+  const b = parseInt(h.substring(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
+// Returns the full color palette for a given mode + accent.
+// Non-accent colors come from the base light/dark palettes; the
+// accent-derived ones (primary + its tints) are recomputed per accent.
+export const buildColors = (isDark: boolean, accent: AccentKey): ThemeColors => {
+  const base = isDark ? darkColors : lightColors;
+  const a = ACCENTS[accent] ?? ACCENTS[DEFAULT_ACCENT];
+  const p = isDark ? a.dark : a.light;
+  return {
+    ...base,
+    primary: p,
+    saturday: p,
+    today: hexToRgba(p, isDark ? 0.22 : 0.1),
+    selected: hexToRgba(p, isDark ? 0.4 : 0.25),
+    dragRange: hexToRgba(p, isDark ? 0.3 : 0.18),
+    pickerHighlight: hexToRgba(p, isDark ? 0.12 : 0.06),
+    allDayEvent: hexToRgba(p, isDark ? 0.22 : 0.12),
+    allDayEventText: p,
+  };
+};

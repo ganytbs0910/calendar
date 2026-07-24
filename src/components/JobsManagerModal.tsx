@@ -31,7 +31,7 @@ import {
   DEFAULT_HOLIDAY_WEEKDAYS,
 } from '../services/jobService';
 
-const JOB_COLORS = ['#007AFF', '#FF3B30', '#34C759', '#FFCC00', '#FF9500', '#AF52DE', '#FF2D92'];
+const JOB_COLORS = ['#007AFF', '#AF52DE', '#30B0C7', '#34C759', '#FF9500', '#FF3B30', '#FFCC00', '#FF2D92'];
 
 interface JobsManagerModalProps {
   visible: boolean;

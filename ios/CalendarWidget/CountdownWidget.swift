@@ -15,8 +15,8 @@ struct CountdownProvider: TimelineProvider {
     func placeholder(in context: Context) -> CountdownEntry {
         CountdownEntry(
             date: Date(),
-            next: EventItem(id: "1", title: "チームMTG", startDate: Date().addingTimeInterval(3470), endDate: Date().addingTimeInterval(7070), colorHex: "#007AFF", isAllDay: false),
-            following: EventItem(id: "2", title: "ランチ", startDate: Date().addingTimeInterval(10800), endDate: Date().addingTimeInterval(14400), colorHex: "#FF3B30", isAllDay: false)
+            next: EventItem(id: "1", title: wloc("チームMTG", "Team sync"), startDate: Date().addingTimeInterval(3470), endDate: Date().addingTimeInterval(7070), colorHex: "#007AFF", isAllDay: false),
+            following: EventItem(id: "2", title: wloc("ランチ", "Lunch"), startDate: Date().addingTimeInterval(10800), endDate: Date().addingTimeInterval(14400), colorHex: "#FF3B30", isAllDay: false)
         )
     }
 
@@ -50,7 +50,7 @@ struct CountdownProvider: TimelineProvider {
         func item(_ e: EKEvent) -> EventItem {
             EventItem(
                 id: e.eventIdentifier ?? UUID().uuidString,
-                title: e.title ?? "(タイトルなし)",
+                title: e.title ?? wloc("(タイトルなし)", "(No title)"),
                 startDate: e.startDate,
                 endDate: e.endDate,
                 colorHex: e.calendar.cgColor.flatMap { UIColor(cgColor: $0).toHex() } ?? "#007AFF",
@@ -75,7 +75,7 @@ struct CountdownWidgetEntryView: View {
         } else {
             VStack(spacing: 4) {
                 Image(systemName: "checkmark.circle").font(.system(size: 22)).foregroundColor(.secondary)
-                Text("この後の予定なし").font(.system(size: 12)).foregroundColor(.secondary)
+                Text(wloc("この後の予定なし", "Nothing left today")).font(.system(size: 12)).foregroundColor(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -83,7 +83,7 @@ struct CountdownWidgetEntryView: View {
 
     private func smallView(_ next: EventItem) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("次の予定まで").font(.system(size: 10, weight: .semibold)).foregroundColor(.secondary)
+            Text(wloc("次の予定まで", "Time to next")).font(.system(size: 10, weight: .semibold)).foregroundColor(.secondary)
             Text(next.startDate, style: .timer)
                 .font(.system(size: 26, weight: .heavy)).foregroundColor(.blue)
                 .lineLimit(1).minimumScaleFactor(0.5)
@@ -100,7 +100,7 @@ struct CountdownWidgetEntryView: View {
     private func mediumView(_ next: EventItem) -> some View {
         HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("次の予定まで").font(.system(size: 11, weight: .semibold)).foregroundColor(.secondary)
+                Text(wloc("次の予定まで", "Time to next")).font(.system(size: 11, weight: .semibold)).foregroundColor(.secondary)
                 Text(next.startDate, style: .timer)
                     .font(.system(size: 34, weight: .heavy)).foregroundColor(.blue)
                     .lineLimit(1).minimumScaleFactor(0.5)
@@ -111,7 +111,7 @@ struct CountdownWidgetEntryView: View {
                 if let f = entry.following {
                     eventRow(f)
                 } else {
-                    Text("この後の予定なし").font(.system(size: 10)).foregroundColor(.secondary)
+                    Text(wloc("この後の予定なし", "Nothing left today")).font(.system(size: 10)).foregroundColor(.secondary)
                 }
                 Spacer(minLength: 0)
             }
@@ -145,8 +145,8 @@ struct CountdownWidget: Widget {
                 CountdownWidgetEntryView(entry: entry).padding().background()
             }
         }
-        .configurationDisplayName("次の予定まで")
-        .description("次の予定までの残り時間をカウントダウン表示します")
+        .configurationDisplayName(wloc("次の予定まで", "Time to next event"))
+        .description(wloc("次の予定までの残り時間をカウントダウン表示します", "Counts down to your next event"))
         .supportedFamilies([.systemSmall, .systemMedium])
     }
 }

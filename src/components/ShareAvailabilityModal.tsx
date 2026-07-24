@@ -22,9 +22,9 @@ import {captureRef} from 'react-native-view-shot';
 import RNCalendarEvents from 'react-native-calendar-events';
 
 import {useTheme} from '../theme/ThemeContext';
+import {useTranslation} from 'react-i18next';
 import OneTimeHint from './OneTimeHint';
 
-const WD = ['日', '月', '火', '水', '木', '金', '土'];
 
 interface Props {
   visible: boolean;
@@ -34,6 +34,7 @@ interface Props {
 
 const ShareAvailabilityModal: React.FC<Props> = ({visible, onClose, initialDate}) => {
   const {colors, isDark} = useTheme();
+  const {t} = useTranslation();
   const cardRef = useRef<View>(null);
   const [month, setMonth] = useState(() => new Date(initialDate.getFullYear(), initialDate.getMonth(), 1));
   const [busy, setBusy] = useState<Set<number>>(new Set());
@@ -95,10 +96,12 @@ const ShareAvailabilityModal: React.FC<Props> = ({visible, onClose, initialDate}
     return {cells: arr, freeDays: free};
   }, [y, m, busy, isCurrentMonth, todayDate]);
 
+  const months = t('monthNames', {returnObjects: true}) as unknown as string[];
+  const wd = t('weekdaysSingle', {returnObjects: true}) as unknown as string[];
   const shareText = useMemo(() => {
-    const list = freeDays.join('・');
-    return `📅 ${m + 1}月の空いてる日\n${list ? list + '日' : '（空きなし）'}\n\nこの中で都合いい日ある？`;
-  }, [freeDays, m]);
+    const list = freeDays.join(', ');
+    return t('availShareMsg', {month: months[m], list: list || t('availNone')});
+  }, [freeDays, m, months, t]);
 
   const onShareImage = useCallback(async () => {
     try {
@@ -130,9 +133,9 @@ const ShareAvailabilityModal: React.FC<Props> = ({visible, onClose, initialDate}
       <SafeAreaView style={[s.container, {backgroundColor: colors.background}]}>
         <View style={[s.header, {borderBottomColor: colors.border}]}>
           <TouchableOpacity onPress={onClose} style={s.headerBtn}>
-            <Text style={[s.headerBtnText, {color: colors.primary}]}>閉じる</Text>
+            <Text style={[s.headerBtnText, {color: colors.primary}]}>{t('close')}</Text>
           </TouchableOpacity>
-          <Text style={[s.headerTitle, {color: colors.text}]}>空き日を共有</Text>
+          <Text style={[s.headerTitle, {color: colors.text}]}>{t('setShareLabel')}</Text>
           <View style={s.headerBtn} />
         </View>
 
@@ -140,7 +143,7 @@ const ShareAvailabilityModal: React.FC<Props> = ({visible, onClose, initialDate}
           <TouchableOpacity onPress={() => setMonth(new Date(y, m - 1, 1))} style={s.navBtn}>
             <Ionicons name="chevron-back" size={22} color={colors.primary} />
           </TouchableOpacity>
-          <Text style={[s.monthLabel, {color: colors.text}]}>{y}年 {m + 1}月</Text>
+          <Text style={[s.monthLabel, {color: colors.text}]}>{t('yearMonthFormat', {year: y, month: months[m]})}</Text>
           <TouchableOpacity onPress={() => setMonth(new Date(y, m + 1, 1))} style={s.navBtn}>
             <Ionicons name="chevron-forward" size={22} color={colors.primary} />
           </TouchableOpacity>
@@ -149,8 +152,8 @@ const ShareAvailabilityModal: React.FC<Props> = ({visible, onClose, initialDate}
         <OneTimeHint
           hintKey="shareAvailIntro"
           icon="share-social-outline"
-          title="空き日を画像で共有"
-          message="予定が入っていない日をまとめたカードを画像にして共有できます。受け取った相手はアプリ不要で見られます。"
+          title={t('hintShareAvailTitle')}
+          message={t('hintShareAvailBody')}
           style={{marginHorizontal: 16, marginBottom: 4}}
         />
 
@@ -160,13 +163,13 @@ const ShareAvailabilityModal: React.FC<Props> = ({visible, onClose, initialDate}
             <View style={s.cardTitleRow}>
               <Text style={s.cardEmoji}>📅</Text>
               <View>
-                <Text style={[s.cardTitle, {color: isDark ? '#fff' : '#111'}]}>{m + 1}月の空いてる日</Text>
-                <Text style={[s.cardSub, {color: freeBg}]}>空き {freeDays.length} 日</Text>
+                <Text style={[s.cardTitle, {color: isDark ? '#fff' : '#111'}]}>{t('availCardTitle', {month: months[m]})}</Text>
+                <Text style={[s.cardSub, {color: freeBg}]}>{t('availFreeCount', {count: freeDays.length})}</Text>
               </View>
             </View>
 
             <View style={s.weekRow}>
-              {WD.map((w, i) => (
+              {wd.map((w, i) => (
                 <Text key={w} style={[s.weekCell, {color: i === 0 ? '#FF3B30' : i === 6 ? '#007AFF' : isDark ? '#999' : '#888'}]}>
                   {w}
                 </Text>
@@ -201,7 +204,7 @@ const ShareAvailabilityModal: React.FC<Props> = ({visible, onClose, initialDate}
 
             <View style={s.cardFooter}>
               <View style={[s.legendDot, {backgroundColor: freeBg}]} />
-              <Text style={[s.legendText, {color: isDark ? '#aaa' : '#999'}]}>= 空いてる日　・　この中で都合いい日ある？</Text>
+              <Text style={[s.legendText, {color: isDark ? '#aaa' : '#999'}]}>{t('availLegend')}</Text>
             </View>
           </View>
         </View>
@@ -209,10 +212,10 @@ const ShareAvailabilityModal: React.FC<Props> = ({visible, onClose, initialDate}
         <View style={s.actions}>
           <TouchableOpacity style={[s.primaryBtn, {backgroundColor: colors.primary}]} onPress={onShareImage}>
             <Ionicons name="share-outline" size={18} color={colors.onPrimary} />
-            <Text style={[s.primaryBtnText, {color: colors.onPrimary}]}>画像で共有</Text>
+            <Text style={[s.primaryBtnText, {color: colors.onPrimary}]}>{t('availShareImage')}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[s.secondaryBtn, {borderColor: colors.border}]} onPress={onShareTextOnly}>
-            <Text style={[s.secondaryBtnText, {color: colors.text}]}>テキストで共有</Text>
+            <Text style={[s.secondaryBtnText, {color: colors.text}]}>{t('availShareText')}</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>

@@ -30,6 +30,7 @@ import {getYearWorkTotal, wallCrossedBy, wallLabel} from '../services/incomeWall
 import JobsManagerModal from './JobsManagerModal';
 import OneTimeHint from './OneTimeHint';
 import EventPhotoSection from './EventPhotoSection';
+import SuccessOverlay from './SuccessOverlay';
 import {
   cancelEventNotification,
   isNotificationsEnabled,
@@ -40,14 +41,19 @@ import {useTranslation} from 'react-i18next';
 // Canonical color category palette (keys for i18n). MUST stay in sync with the
 // calendar seed defaults in userCalendarService.ts — same 7 colors and labels —
 // so the event color picker shows the same categories as the calendar filter tabs.
+// Canonical 8-category palette, ordered by how often each is actually scheduled
+// (research-backed ranking: 仕事/バイト is the most-registered recurring category,
+// then 趣味/部活, 学校, 遊び/約束, 予約, 締切, 就活, 推し活). MUST stay in sync with
+// userCalendarService.ts DEFAULTS and InlineEventCreator.tsx DEFAULT_COLORS.
 const DEFAULT_EVENT_COLORS = [
   {name: 'blue', color: '#007AFF', label: 'colorWork'},
-  {name: 'red', color: '#FF3B30', label: 'colorImportant'},
-  {name: 'green', color: '#34C759', label: 'colorFun'},
-  {name: 'yellow', color: '#FFCC00', label: 'colorOther'},
-  {name: 'orange', color: '#FF9500', label: 'colorPromise'},
   {name: 'purple', color: '#AF52DE', label: 'colorHobby'},
-  {name: 'pink', color: '#FF2D92', label: 'colorSchedule'},
+  {name: 'teal', color: '#30B0C7', label: 'colorSchool'},
+  {name: 'green', color: '#34C759', label: 'colorFun'},
+  {name: 'orange', color: '#FF9500', label: 'colorAppointment'},
+  {name: 'red', color: '#FF3B30', label: 'colorDeadline'},
+  {name: 'yellow', color: '#FFCC00', label: 'colorJobHunt'},
+  {name: 'pink', color: '#FF2D92', label: 'colorOshi'},
 ];
 
 // Preset colors offered by the "+" picker: the full canonical set, so any color
@@ -273,7 +279,7 @@ const MonthDayPicker: React.FC<MonthDayPickerProps & {t: (key: string, opts?: an
           onMomentumScrollEnd={handleMonthScrollEnd}
           contentContainerStyle={styles.monthDayPickerScrollContent}
         >
-          {renderPickerItems(months, (m) => t('monthFormat', {month: m + 1}), selectedMonth)}
+          {renderPickerItems(months, (m) => (t('monthNames', {returnObjects: true}) as unknown as string[])[m], selectedMonth)}
         </ScrollView>
       </View>
       <View style={styles.monthDayPickerColumn}>
@@ -300,7 +306,9 @@ const DURATION_OPTIONS = [
   {label: 'duration1h', minutes: 60},
   {label: 'duration1_5h', minutes: 90},
   {label: 'duration2h', minutes: 120},
+  {label: 'duration2_5h', minutes: 150},
   {label: 'duration3h', minutes: 180},
+  {label: 'duration4h', minutes: 240},
   {label: 'duration6h', minutes: 360},
   {label: 'custom', minutes: -1},
 ];
@@ -335,6 +343,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   const isCopying = !!(editingEvent && !editingEvent.id);
   const {colors} = useTheme();
   const {isPremium} = usePremium();
+  const [saveSuccess, setSaveSuccess] = useState(false);
   const [title, setTitle] = useState('');
   const [startDate, setStartDate] = useState(new Date());
   const [endDate, setEndDate] = useState(new Date());
@@ -359,6 +368,9 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   // auto-filling the legal default and persist it explicitly.
   const [breakMinutes, setBreakMinutes] = useState<string>('');
   const [breakTouched, setBreakTouched] = useState(false);
+  // Break + wage sit behind a collapsed row: picking a job is usually all a
+  // shift needs, and the auto-filled break is right most of the time.
+  const [showPayDetail, setShowPayDetail] = useState(false);
   const selectedJob = useMemo(() => jobs.find(j => j.id === selectedJobId) || null, [jobs, selectedJobId]);
   const breakOverride = useMemo(() => {
     const n = parseInt(breakMinutes, 10);
@@ -368,6 +380,20 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
     () => (selectedJob ? computeShiftPay(startDate, endDate, selectedJob, breakOverride) : null),
     [selectedJob, startDate, endDate, breakOverride],
   );
+  // Collapsed summary, so the row still answers "how much / how long a break?"
+  // without opening it.
+  const payDetailSummary = useMemo(() => {
+    const parts: string[] = [];
+    if (selectedJob) parts.push(selectedJob.name);
+    if (breakOverride > 0) parts.push(`${t('shiftBreak')} ${breakOverride}${t('minutesUnit')}`);
+    if (selectedJobId === null) {
+      const w = parseFloat(hourlyWage);
+      parts.push(!isNaN(w) && w > 0 ? `${t('currencySymbol')}${w.toLocaleString()}/h` : t('notSet'));
+    } else if (payPreview) {
+      parts.push(`${t('currencySymbol')}${Math.round(payPreview.total).toLocaleString()}`);
+    }
+    return parts.join('・');
+  }, [selectedJob, breakOverride, selectedJobId, hourlyWage, payPreview, t]);
   // Auto-fill the legally-required break (45min/60min) as the shift grows, until
   // the user types their own value. Job's own fixed break wins if it's larger.
   useEffect(() => {
@@ -435,6 +461,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
     if (visible) {
       getRecentWages().then(setRecentWages);
       getJobs().then(setJobs);
+      setShowPayDetail(false); // always start collapsed
       const isCopying = editingEvent && !editingEvent.id;
 
       if (editingEvent && !isCopying) {
@@ -861,8 +888,8 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         await addRecentWage(wageToSave);
       }
 
-      handleClose();
-      onEventAdded();
+      // Play a quick success animation, then close (onDone handler below).
+      setSaveSuccess(true);
     } catch (error) {
       console.error('Error saving event:', error);
       Alert.alert(t('error'), isEditing ? t('updateFailed') : t('saveFailed'));
@@ -1065,15 +1092,30 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   }, [colorOptions]);
 
   // Remove color function
-  const handleRemoveColor = useCallback(async (colorToRemove: string) => {
+  const handleRemoveColor = useCallback((colorToRemove: string) => {
     if (colorOptions.length <= 1) return; // Keep at least one color
-    const updatedColors = colorOptions.filter(c => c.color !== colorToRemove);
-    setColorOptions(updatedColors);
-    await saveColorSettings(updatedColors);
-    if (selectedColor === colorToRemove && updatedColors.length > 0) {
-      setSelectedColor(updatedColors[0].color);
-    }
-  }, [colorOptions, selectedColor]);
+    const target = colorOptions.find(c => c.color === colorToRemove);
+    const name = target ? t(target.label, {defaultValue: target.label}) : '';
+    Alert.alert(
+      t('deleteColorTitle'),
+      t('deleteColorMessage', {name}),
+      [
+        {text: t('cancel'), style: 'cancel'},
+        {
+          text: t('delete'),
+          style: 'destructive',
+          onPress: async () => {
+            const updatedColors = colorOptions.filter(c => c.color !== colorToRemove);
+            setColorOptions(updatedColors);
+            await saveColorSettings(updatedColors);
+            if (selectedColor === colorToRemove && updatedColors.length > 0) {
+              setSelectedColor(updatedColors[0].color);
+            }
+          },
+        },
+      ],
+    );
+  }, [colorOptions, selectedColor, t]);
 
   // Get available colors to add
   const availableColorsToAdd = useMemo(() => {
@@ -1207,7 +1249,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
               <View style={styles.presetWrap}>
                 <View style={{flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 6}}>
                   <Ionicons name="flash-outline" size={12} color={colors.textSecondary} />
-                  <Text style={{fontSize: 12, color: colors.textSecondary, fontWeight: '500'}}>プリセット（前回の予定をワンタップ）</Text>
+                  <Text style={{fontSize: 12, color: colors.textSecondary, fontWeight: '500'}}>{t('presetLabel')}</Text>
                 </View>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{gap: 8, paddingRight: 8}}>
                   {presets.map(p => (
@@ -1339,8 +1381,8 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
             <OneTimeHint
               hintKey="colorChipActions"
               icon="color-palette-outline"
-              title="カテゴリ（色）の操作"
-              message="タップで色を選択。選択中の鉛筆で名前を変更、長押しで色を削除できます。"
+              title={t('hintColorTitle')}
+              message={t('hintColorBody')}
               style={{marginTop: 10}}
             />
           </View>
@@ -1448,18 +1490,97 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
             </View>
           </View>
 
+          <View style={[styles.reminderSection, {backgroundColor: colors.surface, borderBottomColor: colors.border}]}>
+            {/* Reminder is always visible — it's the trigger for notifications. */}
+            <View style={styles.optionRow}>
+              <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
+                <View style={[styles.titleIconBox, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="notifications-outline" size={12} color={colors.textSecondary} /></View>
+                <Text style={[styles.optionRowLabel, {color: colors.textSecondary}]}>{t('reminder')}</Text>
+              </View>
+              <View style={styles.optionRowChips}>
+                {REMINDER_OPTIONS.map((option) => (
+                  <TouchableOpacity
+                    key={option.label}
+                    style={[
+                      styles.reminderButton,
+                      {backgroundColor: colors.inputBackground},
+                      reminder === option.value && [styles.reminderButtonSelected, {backgroundColor: colors.primary}],
+                    ]}
+                    onPress={() => setReminder(option.value)}>
+                    <Text style={[
+                      styles.reminderButtonText,
+                      {color: colors.text},
+                      reminder === option.value && styles.reminderButtonTextSelected,
+                    ]}>
+                      {t(option.label)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {/* Repeat is always shown. */}
+            <View style={[styles.optionRow, {marginTop: 12}]}>
+              <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
+                <View style={[styles.titleIconBox, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="repeat-outline" size={12} color={colors.textSecondary} /></View>
+                <Text style={[styles.optionRowLabel, {color: colors.textSecondary}]}>{t('repeat')}</Text>
+              </View>
+              <View style={styles.optionRowChips}>
+                {([{label: 'repeatNone', value: 'none'}, {label: 'repeatDaily', value: 'daily'}, {label: 'repeatWeekly', value: 'weekly'}, {label: 'repeatMonthly', value: 'monthly'}] as const).map((option) => (
+                  <TouchableOpacity
+                    key={option.value}
+                    style={[
+                      styles.reminderButton,
+                      {backgroundColor: colors.inputBackground},
+                      recurrence === option.value && [styles.reminderButtonSelected, {backgroundColor: colors.primary}],
+                    ]}
+                    onPress={() => setRecurrence(option.value)}>
+                    <Text style={[
+                      styles.reminderButtonText,
+                      {color: colors.text},
+                      recurrence === option.value && styles.reminderButtonTextSelected,
+                    ]}>
+                      {t(option.label)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          </View>
+
+          {/* Photo lifelog — only for an already-saved event (needs an id). */}
+          {isEditing && editingEvent?.id && (
+            <EventPhotoSection eventId={editingEvent.id} />
+          )}
+
           {isWorkColor(selectedColor) && (
             <View style={[styles.colorSection, {backgroundColor: colors.surface, borderBottomColor: colors.border}]}>
-              <View style={{flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 6}}>
+              {/* The whole payroll block collapses behind its own header: the
+                  auto-filled break and the remembered job are right most of
+                  the time, so the summary usually answers it without opening. */}
+              <TouchableOpacity
+                style={styles.payDetailToggle}
+                onPress={() => setShowPayDetail(v => !v)}
+                activeOpacity={0.7}>
                 <View style={[styles.titleIconBox, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="cash-outline" size={12} color={colors.textSecondary} /></View>
                 <Text style={{fontSize: 12, color: colors.textSecondary, fontWeight: '500'}}>{t('payrollLabel')}</Text>
-              </View>
+                <View style={{flex: 1}} />
+                {!showPayDetail && !!payDetailSummary && (
+                  <Text style={{fontSize: 12, color: colors.textTertiary}} numberOfLines={1}>{payDetailSummary}</Text>
+                )}
+                <Ionicons
+                  name={showPayDetail ? 'chevron-down' : 'chevron-forward'}
+                  size={14}
+                  color={colors.textTertiary}
+                />
+              </TouchableOpacity>
 
+              {showPayDetail && (<>
               <OneTimeHint
                 hintKey="workColorWage"
                 icon="cash-outline"
-                title="バイト代を自動計算"
-                message="「仕事」カラーの予定は時給やバイト先を設定できます。統計タブでお給料を自動集計します。"
+                title={t('hintWageTitle')}
+                message={t('hintWageBody')}
                 style={{marginBottom: 10}}
               />
 
@@ -1585,103 +1706,47 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                   </Text>
                 </View>
               ) : null}
+              </>)}
             </View>
-          )}
-
-          <View style={[styles.reminderSection, {backgroundColor: colors.surface, borderBottomColor: colors.border}]}>
-            {/* Reminder is always visible — it's the trigger for notifications. */}
-            <View style={styles.optionRow}>
-              <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
-                <View style={[styles.titleIconBox, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="notifications-outline" size={12} color={colors.textSecondary} /></View>
-                <Text style={[styles.optionRowLabel, {color: colors.textSecondary}]}>{t('reminder')}</Text>
-              </View>
-              <View style={styles.optionRowChips}>
-                {REMINDER_OPTIONS.map((option) => (
-                  <TouchableOpacity
-                    key={option.label}
-                    style={[
-                      styles.reminderButton,
-                      {backgroundColor: colors.inputBackground},
-                      reminder === option.value && [styles.reminderButtonSelected, {backgroundColor: colors.primary}],
-                    ]}
-                    onPress={() => setReminder(option.value)}>
-                    <Text style={[
-                      styles.reminderButtonText,
-                      {color: colors.text},
-                      reminder === option.value && styles.reminderButtonTextSelected,
-                    ]}>
-                      {t(option.label)}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-
-            {/* Repeat is always shown. */}
-            <View style={[styles.optionRow, {marginTop: 12}]}>
-              <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
-                <View style={[styles.titleIconBox, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="repeat-outline" size={12} color={colors.textSecondary} /></View>
-                <Text style={[styles.optionRowLabel, {color: colors.textSecondary}]}>{t('repeat')}</Text>
-              </View>
-              <View style={styles.optionRowChips}>
-                {([{label: 'repeatNone', value: 'none'}, {label: 'repeatDaily', value: 'daily'}, {label: 'repeatWeekly', value: 'weekly'}, {label: 'repeatMonthly', value: 'monthly'}] as const).map((option) => (
-                  <TouchableOpacity
-                    key={option.value}
-                    style={[
-                      styles.reminderButton,
-                      {backgroundColor: colors.inputBackground},
-                      recurrence === option.value && [styles.reminderButtonSelected, {backgroundColor: colors.primary}],
-                    ]}
-                    onPress={() => setRecurrence(option.value)}>
-                    <Text style={[
-                      styles.reminderButtonText,
-                      {color: colors.text},
-                      recurrence === option.value && styles.reminderButtonTextSelected,
-                    ]}>
-                      {t(option.label)}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-          </View>
-
-          {/* Photo lifelog — only for an already-saved event (needs an id). */}
-          {isEditing && editingEvent?.id && (
-            <EventPhotoSection eventId={editingEvent.id} />
-          )}
-
-          {!isEditing && !isCopying && (
-            <TouchableOpacity
-              style={styles.templateSaveLink}
-              onPress={async () => {
-                const durationMs = endDate.getTime() - startDate.getTime();
-                const durationMinutes = Math.round(durationMs / (1000 * 60));
-                await addTemplate({
-                  title: title.trim() || t('noTitle'),
-                  durationMinutes: Math.max(durationMinutes, 30),
-                  color: selectedColor,
-                  reminder,
-                });
-                Alert.alert(t('saved'), t('templateSaved'));
-              }}>
-              <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
-                <Ionicons name="bookmark-outline" size={14} color={colors.primary} />
-                <Text style={[styles.templateSaveLinkText, {color: colors.primary}]}>{t('saveAsTemplate')}</Text>
-              </View>
-            </TouchableOpacity>
           )}
 
           <View style={styles.bottomButtonsRow}>
+            {!isEditing && !isCopying && (
+              <TouchableOpacity
+                style={[styles.templateButtonBottom, {borderColor: colors.primary}]}
+                onPress={async () => {
+                  const durationMs = endDate.getTime() - startDate.getTime();
+                  const durationMinutes = Math.round(durationMs / (1000 * 60));
+                  await addTemplate({
+                    title: title.trim() || t('noTitle'),
+                    durationMinutes: Math.max(durationMinutes, 30),
+                    color: selectedColor,
+                    reminder,
+                  });
+                  Alert.alert(t('saved'), t('templateSaved'));
+                }}>
+                <Text
+                  style={[styles.copyButtonBottomText, {color: colors.primary}]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit>
+                  {t('saveAsTemplateBtn')}
+                </Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity
               style={[styles.copyButtonBottom, {borderColor: colors.primary}]}
               onPress={handleShowCopyCalendar}>
-              <Text style={[styles.copyButtonBottomText, {color: colors.primary}]}>{t('copy')}</Text>
+              <Text
+                style={[styles.copyButtonBottomText, {color: colors.primary}]}
+                numberOfLines={1}
+                adjustsFontSizeToFit>
+                {t('copy')}
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.saveButtonBottom, {backgroundColor: colors.primary}]}
               onPress={handleSave}>
-              <Text style={styles.saveButtonBottomText}>{t('save')}</Text>
+              <Text style={styles.saveButtonBottomText} numberOfLines={1} adjustsFontSizeToFit>{t('save')}</Text>
             </TouchableOpacity>
           </View>
 
@@ -1947,6 +2012,16 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
               minuteInterval={5}
             />
           </View>
+        )}
+        {saveSuccess && (
+          <SuccessOverlay
+            color={selectedColor}
+            onDone={() => {
+              setSaveSuccess(false);
+              handleClose();
+              onEventAdded();
+            }}
+          />
         )}
       </KeyboardAvoidingView>
       <JobsManagerModal
@@ -2215,6 +2290,13 @@ const styles = StyleSheet.create({
     gap: 6,
     marginTop: 10,
   },
+  payDetailToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 4,
+    marginBottom: 6,
+  },
   breakInput: {
     width: 64,
     height: 36,
@@ -2470,39 +2552,40 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '600',
   },
-  templateSaveLink: {
-    alignItems: 'center',
-    paddingVertical: 6,
-    marginBottom: 8,
-  },
-  templateSaveLinkText: {
-    fontSize: 13,
-    fontWeight: '500',
-  },
   bottomButtonsRow: {
     flexDirection: 'row',
-    gap: 10,
-    marginTop: 16,
-    marginBottom: 12,
+    gap: 8,
+    marginTop: 10,
+    marginBottom: 8,
     paddingHorizontal: 16,
   },
   copyButtonBottom: {
     flex: 1,
     borderRadius: 9,
-    paddingVertical: 11,
+    paddingVertical: 9,
     alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+  },
+  templateButtonBottom: {
+    flex: 1,
+    borderRadius: 9,
+    paddingVertical: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1.5,
   },
   copyButtonBottomText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
   },
   saveButtonBottom: {
-    flex: 2,
+    flex: 1.6,
     backgroundColor: '#007AFF',
     borderRadius: 9,
-    paddingVertical: 11,
+    paddingVertical: 9,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   saveButtonBottomText: {
     fontSize: 15,

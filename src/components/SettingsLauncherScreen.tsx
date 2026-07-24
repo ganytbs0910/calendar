@@ -10,6 +10,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import DeviceInfo from 'react-native-device-info';
 
 import {useTheme} from '../theme/ThemeContext';
+import {useTranslation} from 'react-i18next';
 import {resetAllHints} from './OneTimeHint';
 
 interface RowProps {
@@ -57,6 +58,7 @@ const SettingsLauncherScreen: React.FC<Props> = ({
   onOpenJobs,
 }) => {
   const {colors} = useTheme();
+  const {t} = useTranslation();
   let version = '';
   try {
     version = DeviceInfo.getVersion();
@@ -73,74 +75,74 @@ const SettingsLauncherScreen: React.FC<Props> = ({
 
   return (
     <ScrollView style={{flex: 1, backgroundColor: colors.background}} contentContainerStyle={styles.content}>
-      <Text style={[styles.screenTitle, {color: colors.text}]}>設定</Text>
+      <Text style={[styles.screenTitle, {color: colors.text}]}>{t('settings')}</Text>
 
-      <Section title="共有・調整">
+      <Section title={t('settingsSectionShare')}>
         <Row
           colors={colors}
           icon="share-social-outline"
           tint="#34C759"
-          label="空き日を共有"
-          sublabel="今月の空いてる日を画像でLINEに送る"
+          label={t('setShareLabel')}
+          sublabel={t('setShareSub')}
           onPress={onOpenShareAvail}
         />
         <Row
           colors={colors}
           icon="people-outline"
           tint="#FF9500"
-          label="日程調整（みんなで決める）"
-          sublabel="候補日を出して行ける日をまとめる"
+          label={t('setPollLabel')}
+          sublabel={t('setPollSub')}
           onPress={onOpenPoll}
           isLast
         />
       </Section>
 
-      <Section title="バイト・給料">
+      <Section title={t('settingsSectionWork')}>
         <Row
           colors={colors}
           icon="cash-outline"
           tint="#FF2D92"
-          label="バイト先・時給の設定"
-          sublabel="シフトの自動給料計算に使います"
+          label={t('setJobsLabel')}
+          sublabel={t('setJobsSub')}
           onPress={onOpenJobs}
         />
         <Row
           colors={colors}
           icon="stats-chart-outline"
           tint="#007AFF"
-          label="統計"
-          sublabel="月の労働時間・給料・活動サマリー"
+          label={t('setStatsLabel')}
+          sublabel={t('setStatsSub')}
           onPress={onOpenStats}
         />
         <Row
           colors={colors}
           icon="trending-up-outline"
           tint="#FF3B30"
-          label="年収の壁"
-          sublabel="今年の収入と壁までの残りを確認"
+          label={t('setIncomeWallLabel')}
+          sublabel={t('setIncomeWallSub')}
           onPress={onOpenIncomeWall}
           isLast
         />
       </Section>
 
-      <Section title="ヘルプ">
+      <Section title={t('settingsSectionHelp')}>
         <Row
           colors={colors}
           icon="bulb-outline"
           tint="#FFCC00"
-          label="使い方ガイドをもう一度見る"
-          sublabel="各画面の使い方ヒントを最初から表示します"
+          label={t('setGuideLabel')}
+          sublabel={t('setGuideSub')}
           onPress={() => {
             Alert.alert(
-              '使い方ガイドを表示',
-              'タスク・週ビュー・予定追加などの使い方ヒントを、もう一度表示しますか？',
+              t('setGuideAlertTitle'),
+              t('setGuideAlertMsg'),
               [
-                {text: 'キャンセル', style: 'cancel'},
+                {text: t('cancel'), style: 'cancel'},
                 {
-                  text: '表示する',
+                  text: t('setGuideConfirm'),
                   onPress: async () => {
                     await resetAllHints();
-                    Alert.alert('準備しました', 'タスクタブや週ビューなどを開くとヒントが表示されます。');
+                    Alert.alert(t('setGuideDoneTitle'), t('setGuideDoneMsg'));
                   },
                 },
               ],
@@ -150,20 +152,20 @@ const SettingsLauncherScreen: React.FC<Props> = ({
         />
       </Section>
 
-      <Section title="アプリ設定">
+      <Section title={t('settingsSectionApp')}>
         <Row
           colors={colors}
           icon="settings-outline"
           tint={colors.textSecondary}
-          label="詳細設定"
-          sublabel="テーマ・ロック・通知・睡眠・データ管理など"
+          label={t('setDetailLabel')}
+          sublabel={t('setDetailSub')}
           onPress={onOpenSettings}
           isLast
         />
       </Section>
 
       <Text style={[styles.footer, {color: colors.textTertiary}]}>
-        {version ? `バージョン ${version}` : ''}
+        {version ? t('setVersion', {v: version}) : ''}
       </Text>
       <View style={{height: 40}} />
     </ScrollView>
@@ -183,4 +185,6 @@ const styles = StyleSheet.create({
   footer: {fontSize: 12, textAlign: 'center', marginTop: 4},
 });
 
-export default SettingsLauncherScreen;
+// Memoised: App re-renders on every tab switch, and without this each
+// tab's whole subtree would re-render even while hidden.
+export default React.memo(SettingsLauncherScreen);

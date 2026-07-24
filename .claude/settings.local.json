@@ -157,7 +157,11 @@
       "Bash(xcrun simctl *)",
       "Bash(node *)",
       "Read(//Library/Fonts/**)",
-      "Read(//System/Library/AssetsV2/**)"
+      "Read(//System/Library/AssetsV2/**)",
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Bash(node_modules/.bin/eslint . --ext .ts,.tsx)",
+      "Bash(node_modules/.bin/eslint App.tsx src/components/AddEventModal.tsx src/components/StatsScreen.tsx src/services/statisticsService.ts src/services/eventWageService.ts src/components/EventDetailModal.tsx)",
+      "Bash(node_modules/.bin/eslint src/components/StatsScreen.tsx)"
     ],
     "defaultMode": "bypassPermissions"
   }

@@ -20,11 +20,11 @@ struct UpcomingEventsProvider: TimelineProvider {
 
     func placeholder(in context: Context) -> UpcomingEventsEntry {
         UpcomingEventsEntry(date: Date(), dayGroups: [
-            DayGroup(id: "today", label: "今日", events: [
-                EventItem(id: "1", title: "ミーティング", startDate: Date(), endDate: Date().addingTimeInterval(3600), colorHex: "#007AFF", isAllDay: false),
+            DayGroup(id: "today", label: wloc("今日", "Today"), events: [
+                EventItem(id: "1", title: wloc("ミーティング", "Meeting"), startDate: Date(), endDate: Date().addingTimeInterval(3600), colorHex: "#007AFF", isAllDay: false),
             ]),
-            DayGroup(id: "tomorrow", label: "明日", events: [
-                EventItem(id: "2", title: "ランチ", startDate: Date().addingTimeInterval(86400), endDate: Date().addingTimeInterval(90000), colorHex: "#FF3B30", isAllDay: false),
+            DayGroup(id: "tomorrow", label: wloc("明日", "Tomorrow"), events: [
+                EventItem(id: "2", title: wloc("ランチ", "Lunch"), startDate: Date().addingTimeInterval(86400), endDate: Date().addingTimeInterval(90000), colorHex: "#FF3B30", isAllDay: false),
             ]),
         ])
     }
@@ -67,7 +67,7 @@ struct UpcomingEventsProvider: TimelineProvider {
 
         var groups: [DayGroup] = []
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ja_JP")
+        formatter.locale = widgetLocale
 
         for dayOffset in 0..<days {
             guard let dayStart = cal.date(byAdding: .day, value: dayOffset, to: startOfToday),
@@ -81,9 +81,9 @@ struct UpcomingEventsProvider: TimelineProvider {
 
             let label: String
             if dayOffset == 0 {
-                label = "今日"
+                label = wloc("今日", "Today")
             } else if dayOffset == 1 {
-                label = "明日"
+                label = wloc("明日", "Tomorrow")
             } else {
                 formatter.dateFormat = "M/d (E)"
                 label = formatter.string(from: dayStart)
@@ -92,7 +92,7 @@ struct UpcomingEventsProvider: TimelineProvider {
             let items = dayEvents.prefix(5).map { event in
                 EventItem(
                     id: event.eventIdentifier ?? UUID().uuidString,
-                    title: event.title ?? "(タイトルなし)",
+                    title: event.title ?? wloc("(タイトルなし)", "(No title)"),
                     startDate: event.startDate,
                     endDate: event.endDate,
                     colorHex: event.calendar.cgColor.flatMap { UIColor(cgColor: $0).toHex() } ?? "#007AFF",
@@ -116,7 +116,7 @@ struct UpcomingEventsWidgetView: View {
         VStack(alignment: .leading, spacing: 6) {
             // Header
             HStack {
-                Text("今後の予定")
+                Text(wloc("今後の予定", "Upcoming"))
                     .font(.system(size: 13, weight: .bold))
                 Spacer()
                 Text(daysLabel)
@@ -126,7 +126,7 @@ struct UpcomingEventsWidgetView: View {
 
             if entry.dayGroups.isEmpty {
                 Spacer()
-                Text("予定なし")
+                Text(wloc("予定なし", "No events"))
                     .font(.system(size: 13))
                     .foregroundColor(.secondary)
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -144,7 +144,7 @@ struct UpcomingEventsWidgetView: View {
     }
 
     private var daysLabel: String {
-        family == .systemLarge ? "7日間" : "3日間"
+        family == .systemLarge ? wloc("7日間", "7 days") : wloc("3日間", "3 days")
     }
 
     @ViewBuilder
@@ -165,7 +165,7 @@ struct UpcomingEventsWidgetView: View {
                         Text(event.title)
                             .font(.system(size: 12, weight: .medium))
                             .lineLimit(1)
-                        Text(event.isAllDay ? "終日" : formatTime(event.startDate))
+                        Text(event.isAllDay ? wloc("終日", "All-day") : formatTime(event.startDate))
                             .font(.system(size: 9))
                             .foregroundColor(.secondary)
                     }
@@ -173,7 +173,7 @@ struct UpcomingEventsWidgetView: View {
             }
 
             if group.events.count > maxEvents {
-                Text("他 \(group.events.count - maxEvents)件")
+                Text(wloc("他 \(group.events.count - maxEvents)件", "\(group.events.count - maxEvents) more"))
                     .font(.system(size: 9))
                     .foregroundColor(.secondary)
                     .padding(.leading, 8)
@@ -207,8 +207,8 @@ struct UpcomingEventsWidget: Widget {
                     .background()
             }
         }
-        .configurationDisplayName("今後の予定")
-        .description("複数日にわたる予定を表示します")
+        .configurationDisplayName(wloc("今後の予定", "Upcoming"))
+        .description(wloc("複数日にわたる予定を表示します", "Shows events across multiple days"))
         .supportedFamilies([.systemMedium, .systemLarge])
     }
 }

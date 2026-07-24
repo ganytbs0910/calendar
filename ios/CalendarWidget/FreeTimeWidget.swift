@@ -59,7 +59,7 @@ struct FreeTimeWidgetEntryView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 4) {
                 Image(systemName: "cup.and.saucer.fill").font(.system(size: 11)).foregroundColor(.green)
-                Text("今日の空き時間").font(.system(size: 10, weight: .semibold)).foregroundColor(.secondary)
+                Text(wloc("今日の空き時間", "Free time today")).font(.system(size: 10, weight: .semibold)).foregroundColor(.secondary)
             }
             Text(durationText(entry.freeMinutes))
                 .font(.system(size: 30, weight: .heavy))
@@ -71,7 +71,7 @@ struct FreeTimeWidgetEntryView: View {
                 }
             }
             .frame(height: 8)
-            Text("予定 \(durationText(entry.busyMinutes))").font(.system(size: 9)).foregroundColor(.secondary)
+            Text(wloc("予定 \(durationText(entry.busyMinutes))", "Busy \(durationText(entry.busyMinutes))")).font(.system(size: 9)).foregroundColor(.secondary)
             Spacer(minLength: 0)
         }
         .padding(12)
@@ -80,9 +80,9 @@ struct FreeTimeWidgetEntryView: View {
     private func durationText(_ minutes: Int) -> String {
         let h = minutes / 60
         let m = minutes % 60
-        if h > 0 && m > 0 { return "\(h)時間\(m)分" }
-        if h > 0 { return "\(h)時間" }
-        return "\(m)分"
+        if h > 0 && m > 0 { return wloc("\(h)時間\(m)分", "\(h)h \(m)m") }
+        if h > 0 { return wloc("\(h)時間", "\(h)h") }
+        return wloc("\(m)分", "\(m)m")
     }
 }
 
@@ -96,8 +96,8 @@ struct FreeTimeWidget: Widget {
                 FreeTimeWidgetEntryView(entry: entry).padding().background()
             }
         }
-        .configurationDisplayName("今日の空き時間")
-        .description("今日これからの空き時間を表示します")
+        .configurationDisplayName(wloc("今日の空き時間", "Free time today"))
+        .description(wloc("今日これからの空き時間を表示します", "Shows your remaining free time today"))
         .supportedFamilies([.systemSmall])
     }
 }

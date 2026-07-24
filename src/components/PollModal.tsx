@@ -32,14 +32,15 @@ import {
   tally,
   updatePoll,
 } from '../services/pollService';
+import {useTranslation} from 'react-i18next';
 import OneTimeHint from './OneTimeHint';
 
-const WD = ['日', '月', '火', '水', '木', '金', '土'];
 const pad = (n: number) => String(n).padStart(2, '0');
 const mkKey = (y: number, m: number, d: number) => `${y}-${pad(m + 1)}-${pad(d)}`;
-const keyLabel = (k: string): string => {
+// `wd` is the localized weekday-name array (t('weekdaysSingle')).
+const keyLabel = (k: string, wd: string[]): string => {
   const [y, m, d] = k.split('-').map(n => parseInt(n, 10));
-  return `${m}/${d}(${WD[new Date(y, m - 1, d).getDay()]})`;
+  return `${m}/${d}(${wd[new Date(y, m - 1, d).getDay()]})`;
 };
 
 interface Props {
@@ -52,6 +53,9 @@ type Mode = 'list' | 'create' | 'detail';
 
 const PollModal: React.FC<Props> = ({visible, onClose, initialDate}) => {
   const {colors} = useTheme();
+  const {t} = useTranslation();
+  const wd = t('weekdaysSingle', {returnObjects: true}) as unknown as string[];
+  const months = t('monthNames', {returnObjects: true}) as unknown as string[];
   const [mode, setMode] = useState<Mode>('list');
   const [polls, setPolls] = useState<Poll[]>([]);
   const [selected, setSelected] = useState<Poll | null>(null);
@@ -119,7 +123,7 @@ const PollModal: React.FC<Props> = ({visible, onClose, initialDate}) => {
 
   const saveCreate = useCallback(async () => {
     if (picked.size === 0) {
-      Alert.alert('候補日を選んでください', 'カレンダーで日付をタップすると候補になります。');
+      Alert.alert(t('pollPickDatesTitle'), t('pollPickDatesMsg'));
       return;
     }
     const poll = await createPoll(title, Array.from(picked));
@@ -130,7 +134,7 @@ const PollModal: React.FC<Props> = ({visible, onClose, initialDate}) => {
 
   const onAddAttendee = useCallback(() => {
     if (!selectedRef.current) return;
-    Alert.prompt?.('参加者を追加', '名前を入力', name => {
+    Alert.prompt?.(t('pollAddAttendeeTitle'), t('pollAddAttendeeMsg'), name => {
       const cur = selectedRef.current;
       if (name == null || !cur) return;
       applySelected(addAttendee(cur, name));
@@ -149,19 +153,19 @@ const PollModal: React.FC<Props> = ({visible, onClose, initialDate}) => {
   const onShare = useCallback(async () => {
     if (!selected) return;
     const {tallies, bestKey} = tally(selected);
-    const lines = tallies.map(t => `${keyLabel(t.dateKey)}　○${t.yes} △${t.maybe} ✕${t.no}`);
-    const best = bestKey ? `\n\n👑 今のところ ${keyLabel(bestKey)} が有力！` : '';
+    const lines = tallies.map(x => `${keyLabel(x.dateKey, wd)}　○${x.yes} △${x.maybe} ✕${x.no}`);
+    const best = bestKey ? `\n\n${t('pollShareBest', {day: keyLabel(bestKey, wd)})}` : '';
     await Share.share({
-      message: `📋 ${selected.title}\n候補日：\n${lines.join('\n')}${best}\n\n空いてる日を教えて！`,
+      message: t('pollShareMsg', {title: selected.title, lines: lines.join('\n'), best}),
     }).catch(() => {});
   }, [selected]);
 
   const onDeletePoll = useCallback(
     (p: Poll) => {
-      Alert.alert('削除', `「${p.title}」を削除しますか？`, [
-        {text: 'キャンセル', style: 'cancel'},
+      Alert.alert(t('delete'), t('pollDeleteMsg', {title: p.title}), [
+        {text: t('cancel'), style: 'cancel'},
         {
-          text: '削除',
+          text: t('delete'),
           style: 'destructive',
           onPress: async () => setPolls(await deletePoll(p.id)),
         },
@@ -187,7 +191,7 @@ const PollModal: React.FC<Props> = ({visible, onClose, initialDate}) => {
   const renderHeader = (titleText: string, onBack?: () => void, right?: React.ReactNode) => (
     <View style={[s.header, {borderBottomColor: colors.border}]}>
       <TouchableOpacity onPress={onBack ?? onClose} style={s.headerBtn}>
-        <Text style={[s.headerBtnText, {color: colors.primary}]}>{onBack ? '戻る' : '閉じる'}</Text>
+        <Text style={[s.headerBtnText, {color: colors.primary}]}>{onBack ? t('back') : t('close')}</Text>
       </TouchableOpacity>
       <Text style={[s.headerTitle, {color: colors.text}]} numberOfLines={1}>{titleText}</Text>
       <View style={s.headerBtn}>{right}</View>
@@ -199,22 +203,22 @@ const PollModal: React.FC<Props> = ({visible, onClose, initialDate}) => {
       <SafeAreaView style={[s.container, {backgroundColor: colors.background}]}>
         {mode === 'list' && (
           <>
-            {renderHeader('日程調整')}
+            {renderHeader(t('setPollLabel'))}
             <ScrollView contentContainerStyle={s.content}>
               <Text style={[s.lead, {color: colors.textSecondary}]}>
-                候補日を出して、みんなの「行ける日」をまとめましょう。候補はLINEで共有、回答は手元で集計できます。
+                {t('pollLead')}
               </Text>
               <OneTimeHint
                 hintKey="pollIntro"
                 icon="people-outline"
-                title="日程調整の使い方"
-                message="「新しい調整を作る」で候補日を選び、参加者ごとにセルをタップして○△✕を記録。作った調整は長押しで削除できます。"
+                title={t('hintPollTitle')}
+                message={t('hintPollBody')}
                 style={{marginBottom: 12}}
               />
               {polls.length === 0 ? (
                 <View style={[s.empty, {backgroundColor: colors.surface, borderColor: colors.border}]}>
                   <Ionicons name="people-outline" size={28} color={colors.textTertiary} />
-                  <Text style={[s.emptyText, {color: colors.textSecondary}]}>まだ調整はありません</Text>
+                  <Text style={[s.emptyText, {color: colors.textSecondary}]}>{t('pollEmpty')}</Text>
                 </View>
               ) : (
                 polls.map(p => {
@@ -231,7 +235,7 @@ const PollModal: React.FC<Props> = ({visible, onClose, initialDate}) => {
                       <View style={{flex: 1}}>
                         <Text style={[s.pollTitle, {color: colors.text}]} numberOfLines={1}>{p.title}</Text>
                         <Text style={[s.pollMeta, {color: colors.textTertiary}]}>
-                          候補{p.candidates.length}日・参加{p.attendees.length}人{bestKey ? `・有力 ${keyLabel(bestKey)}` : ''}
+                          {t('pollMetaCount', {c: p.candidates.length, a: p.attendees.length})}{bestKey ? t('pollBestSuffix', {day: keyLabel(bestKey, wd)}) : ''}
                         </Text>
                       </View>
                       <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
@@ -243,7 +247,7 @@ const PollModal: React.FC<Props> = ({visible, onClose, initialDate}) => {
             <View style={s.actions}>
               <TouchableOpacity style={[s.primaryBtn, {backgroundColor: colors.primary}]} onPress={startCreate}>
                 <Ionicons name="add" size={20} color={colors.onPrimary} />
-                <Text style={[s.primaryBtnText, {color: colors.onPrimary}]}>新しい調整を作る</Text>
+                <Text style={[s.primaryBtnText, {color: colors.onPrimary}]}>{t('pollNewBtn')}</Text>
               </TouchableOpacity>
             </View>
           </>
@@ -251,26 +255,26 @@ const PollModal: React.FC<Props> = ({visible, onClose, initialDate}) => {
 
         {mode === 'create' && (
           <>
-            {renderHeader('候補日を選ぶ', () => setMode('list'))}
+            {renderHeader(t('pollCreateTitle'), () => setMode('list'))}
             <ScrollView contentContainerStyle={s.content}>
               <TextInput
                 style={[s.input, {color: colors.text, backgroundColor: colors.inputBackground, borderColor: colors.border}]}
                 value={title}
                 onChangeText={setTitle}
-                placeholder="例：サークルの飲み会"
+                placeholder={t('pollTitlePlaceholder')}
                 placeholderTextColor={colors.textTertiary}
               />
               <View style={s.monthNav}>
                 <TouchableOpacity onPress={() => setMonth(new Date(y, m - 1, 1))} style={s.navBtn}>
                   <Ionicons name="chevron-back" size={22} color={colors.primary} />
                 </TouchableOpacity>
-                <Text style={[s.monthLabel, {color: colors.text}]}>{y}年 {m + 1}月</Text>
+                <Text style={[s.monthLabel, {color: colors.text}]}>{t('yearMonthFormat', {year: y, month: months[m]})}</Text>
                 <TouchableOpacity onPress={() => setMonth(new Date(y, m + 1, 1))} style={s.navBtn}>
                   <Ionicons name="chevron-forward" size={22} color={colors.primary} />
                 </TouchableOpacity>
               </View>
               <View style={s.weekRow}>
-                {WD.map((w, i) => (
+                {wd.map((w, i) => (
                   <Text key={w} style={[s.weekCell, {color: i === 0 ? colors.error : i === 6 ? '#007AFF' : colors.textTertiary}]}>{w}</Text>
                 ))}
               </View>
@@ -297,13 +301,13 @@ const PollModal: React.FC<Props> = ({visible, onClose, initialDate}) => {
               </View>
               <TouchableOpacity style={[s.ghostBtn, {borderColor: colors.primary}]} onPress={seedFreeDays}>
                 <Ionicons name="sparkles-outline" size={15} color={colors.primary} />
-                <Text style={[s.ghostText, {color: colors.primary}]}>空いてる週末を候補に追加</Text>
+                <Text style={[s.ghostText, {color: colors.primary}]}>{t('pollSeedWeekends')}</Text>
               </TouchableOpacity>
-              <Text style={[s.pickedNote, {color: colors.textTertiary}]}>選択中：{picked.size}日</Text>
+              <Text style={[s.pickedNote, {color: colors.textTertiary}]}>{t('pollPickedCount', {count: picked.size})}</Text>
             </ScrollView>
             <View style={s.actions}>
               <TouchableOpacity style={[s.primaryBtn, {backgroundColor: colors.primary}]} onPress={saveCreate}>
-                <Text style={[s.primaryBtnText, {color: colors.onPrimary}]}>この候補で作成</Text>
+                <Text style={[s.primaryBtnText, {color: colors.onPrimary}]}>{t('pollCreateBtn')}</Text>
               </TouchableOpacity>
             </View>
           </>
@@ -323,20 +327,20 @@ const PollModal: React.FC<Props> = ({visible, onClose, initialDate}) => {
             )}
             <ScrollView contentContainerStyle={s.content}>
               <Text style={[s.lead, {color: colors.textSecondary}]}>
-                セルをタップで ○→△→✕。LINEで集めた返事を入れていけば、有力日が分かります。
+                {t('pollDetailLead')}
               </Text>
-              <DetailGrid poll={selected} colors={colors} onCycle={onCycle} onAddAttendee={onAddAttendee} />
+              <DetailGrid poll={selected} colors={colors} onCycle={onCycle} onAddAttendee={onAddAttendee} t={t} wd={wd} />
               <View style={[s.serverNote, {backgroundColor: colors.surface, borderColor: colors.border}]}>
                 <Ionicons name="information-circle-outline" size={16} color={colors.textTertiary} />
                 <Text style={[s.serverNoteText, {color: colors.textTertiary}]}>
-                  相手がアプリ不要で回答できる共有リンクは今後対応予定（サーバ連携）。今は候補を共有して手元で集計するスタイルです。
+                  {t('pollServerNote')}
                 </Text>
               </View>
             </ScrollView>
             <View style={s.actions}>
               <TouchableOpacity style={[s.primaryBtn, {backgroundColor: colors.primary}]} onPress={onShare}>
                 <Ionicons name="share-outline" size={18} color={colors.onPrimary} />
-                <Text style={[s.primaryBtnText, {color: colors.onPrimary}]}>候補をLINEで共有</Text>
+                <Text style={[s.primaryBtnText, {color: colors.onPrimary}]}>{t('pollShareBtn')}</Text>
               </TouchableOpacity>
             </View>
           </>
@@ -352,7 +356,9 @@ const DetailGrid: React.FC<{
   colors: any;
   onCycle: (attendeeId: string, dateKey: string) => void;
   onAddAttendee: () => void;
-}> = ({poll, colors, onCycle, onAddAttendee}) => {
+  t: (key: string, opts?: any) => string;
+  wd: string[];
+}> = ({poll, colors, onCycle, onAddAttendee, t, wd}) => {
   const s = makeStyles(colors);
   const {tallies, bestKey} = tally(poll);
   const mark = (v?: string) => (v === 'yes' ? '○' : v === 'maybe' ? '△' : v === 'no' ? '✕' : '・');
@@ -363,7 +369,7 @@ const DetailGrid: React.FC<{
       <View>
         {/* header row */}
         <View style={s.gridRow}>
-          <View style={[s.dateCol, s.gridHeadCell]}><Text style={[s.gridHead, {color: colors.textSecondary}]}>候補 \ 人</Text></View>
+          <View style={[s.dateCol, s.gridHeadCell]}><Text style={[s.gridHead, {color: colors.textSecondary}]}>{t('pollGridHead')}</Text></View>
           {poll.attendees.map(a => (
             <View key={a.id} style={[s.attCol, s.gridHeadCell]}>
               <Text style={[s.gridHead, {color: colors.text}]} numberOfLines={1}>{a.name}</Text>
@@ -375,13 +381,13 @@ const DetailGrid: React.FC<{
         </View>
         {/* candidate rows */}
         {poll.candidates.map(k => {
-          const t = tallies.find(x => x.dateKey === k)!;
+          const row = tallies.find(x => x.dateKey === k)!;
           const best = k === bestKey;
           return (
             <View key={k} style={[s.gridRow, best && {backgroundColor: 'rgba(52,199,89,0.12)'}]}>
               <View style={[s.dateCol, s.gridCell]}>
-                <Text style={[s.dateText, {color: colors.text}]}>{keyLabel(k)}</Text>
-                <Text style={[s.tallyText, {color: colors.textTertiary}]}>○{t.yes} △{t.maybe} ✕{t.no}{best ? ' 👑' : ''}</Text>
+                <Text style={[s.dateText, {color: colors.text}]}>{keyLabel(k, wd)}</Text>
+                <Text style={[s.tallyText, {color: colors.textTertiary}]}>○{row.yes} △{row.maybe} ✕{row.no}{best ? ' 👑' : ''}</Text>
               </View>
               {poll.attendees.map(a => (
                 <TouchableOpacity key={a.id} style={[s.attCol, s.gridCell]} onPress={() => onCycle(a.id, k)}>
@@ -393,7 +399,7 @@ const DetailGrid: React.FC<{
           );
         })}
         {poll.attendees.length === 0 && (
-          <Text style={[s.addHint, {color: colors.textTertiary}]}>右上の人＋アイコンで参加者を追加</Text>
+          <Text style={[s.addHint, {color: colors.textTertiary}]}>{t('pollAddHint')}</Text>
         )}
       </View>
     </ScrollView>

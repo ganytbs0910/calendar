@@ -64,6 +64,23 @@ export const getAllEventPhotoCounts = async (): Promise<Record<string, number>> 
   return counts;
 };
 
+export interface EventPhotoEntry extends EventPhoto {
+  eventId: string;
+}
+
+/** Every attached photo across all events, newest first — for the gallery tab. */
+export const getAllEventPhotos = async (): Promise<EventPhotoEntry[]> => {
+  const map = await loadMap();
+  const all: EventPhotoEntry[] = [];
+  for (const eventId of Object.keys(map)) {
+    for (const p of map[eventId] ?? []) {
+      all.push({...p, eventId});
+    }
+  }
+  all.sort((a, b) => (a.addedAt < b.addedAt ? 1 : a.addedAt > b.addedAt ? -1 : 0));
+  return all;
+};
+
 /** Copy a picked image into the sandbox and attach it to the event. */
 export const addEventPhoto = async (eventId: string, srcUri: string): Promise<EventPhoto[]> =>
   withLock(async () => {

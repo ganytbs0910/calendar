@@ -1,5 +1,24 @@
 import SwiftUI
 import UIKit
+import Foundation
+
+// MARK: - Widget localization
+//
+// The widget is a separate process and can't read the app's in-app language
+// override, so it follows the *device* language (matching the app's "Auto"
+// default): Japanese device → Japanese, everything else → English.
+private let widgetIsJa: Bool = (Locale.preferredLanguages.first ?? Locale.current.identifier).hasPrefix("ja")
+
+/// Pick the string for the device language (ja or en fallback).
+func wloc(_ ja: String, _ en: String) -> String { widgetIsJa ? ja : en }
+
+/// Locale for date formatters — follows the device.
+let widgetLocale: Locale = Locale.autoupdatingCurrent
+
+/// Compact weekday header symbols, localized (Sun-first, index 0 = Sunday).
+let widgetWeekdaySymbols: [String] = widgetIsJa
+    ? ["日", "月", "火", "水", "木", "金", "土"]
+    : ["S", "M", "T", "W", "T", "F", "S"]
 
 // MARK: - Color from Hex
 extension Color {

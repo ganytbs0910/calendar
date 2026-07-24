@@ -8,6 +8,7 @@
 // for confirmation, so heuristic misses are cheap to fix.
 
 import {DayOfWeek, Intention, IntentionKind, TimeWindow} from './types';
+import i18n from '../i18n/i18n';
 
 const PALETTE = ['#007AFF', '#34C759', '#FF9500', '#AF52DE', '#FF2D92', '#5AC8FA', '#FFCC00'];
 
@@ -84,27 +85,29 @@ const priorityOf = (frag: string, base: number): number => {
   return base;
 };
 
-// A small lexicon to pull a clean short title out of a fragment.
-const TITLE_LEXICON: {re: RegExp; title: string; tag: string}[] = [
-  {re: /大学|授業|講義|ゼミ|クラス|lecture|class/i, title: '大学', tag: 'study'},
-  {re: /バイト|アルバイト|勤務|シフト|part.?time/i, title: 'バイト', tag: 'work'},
-  {re: /レポート|課題|宿題|提出|assignment|report/i, title: 'レポート', tag: 'work'},
-  {re: /深い作業|ディープワーク|集中|deep work/i, title: '深い作業', tag: 'focus'},
-  {re: /筋トレ|ジム|トレーニング|運動|ワークアウト|workout|gym|exercise/i, title: '筋トレ', tag: 'exercise'},
-  {re: /ランニング|ジョギング|走|run/i, title: 'ランニング', tag: 'exercise'},
-  {re: /勉強|学習|study/i, title: '勉強', tag: 'study'},
-  {re: /読書|本を読|read/i, title: '読書', tag: 'study'},
-  {re: /夕飯|夕食|晩ご?飯|ディナー|dinner/i, title: '夕飯', tag: 'meal'},
-  {re: /昼ご?飯|ランチ|lunch/i, title: 'ランチ', tag: 'meal'},
-  {re: /リリース|release|公開|ローンチ|launch/i, title: 'リリース', tag: 'work'},
-  {re: /開発|実装|コーディング|build|develop/i, title: '開発', tag: 'work'},
-  {re: /執筆|ブログ|記事|write/i, title: '執筆', tag: 'work'},
-  {re: /掃除|片付け|clean/i, title: '掃除', tag: 'chore'},
-  {re: /買い物|買物|shopping/i, title: '買い物', tag: 'errand'},
-  {re: /移動|通勤|外出|commute|travel/i, title: '移動', tag: 'errand'},
-  {re: /散歩|walk/i, title: '散歩', tag: 'exercise'},
-  {re: /家族|family/i, title: '家族の時間', tag: 'social'},
-  {re: /彼女|彼氏|恋人|デート|date|partner/i, title: '大切な人との時間', tag: 'social'},
+// A small lexicon to pull a clean short title out of a fragment. `titleKey` is
+// resolved through i18n at parse time so titles follow the app's language
+// (English input like "part-time job" no longer produces a Japanese title).
+const TITLE_LEXICON: {re: RegExp; titleKey: string; tag: string}[] = [
+  {re: /大学|授業|講義|ゼミ|クラス|university|college|lecture|class/i, titleKey: 'lexSchool', tag: 'study'},
+  {re: /バイト|アルバイト|勤務|シフト|part.?time|part.?time job/i, titleKey: 'lexPartTime', tag: 'work'},
+  {re: /レポート|課題|宿題|提出|assignment|homework|report/i, titleKey: 'lexReport', tag: 'work'},
+  {re: /深い作業|ディープワーク|集中|deep work/i, titleKey: 'lexDeepWork', tag: 'focus'},
+  {re: /筋トレ|ジム|トレーニング|運動|ワークアウト|workout|gym|exercise/i, titleKey: 'lexWorkout', tag: 'exercise'},
+  {re: /ランニング|ジョギング|走|running|jog|run/i, titleKey: 'lexRunning', tag: 'exercise'},
+  {re: /勉強|学習|study|studying/i, titleKey: 'lexStudy', tag: 'study'},
+  {re: /読書|本を読|reading|read/i, titleKey: 'lexReading', tag: 'study'},
+  {re: /夕飯|夕食|晩ご?飯|ディナー|dinner/i, titleKey: 'lexDinner', tag: 'meal'},
+  {re: /昼ご?飯|ランチ|lunch/i, titleKey: 'lexLunch', tag: 'meal'},
+  {re: /リリース|release|公開|ローンチ|launch/i, titleKey: 'lexRelease', tag: 'work'},
+  {re: /開発|実装|コーディング|coding|build|develop/i, titleKey: 'lexDev', tag: 'work'},
+  {re: /執筆|ブログ|記事|writing|write/i, titleKey: 'lexWriting', tag: 'work'},
+  {re: /掃除|片付け|cleaning|clean/i, titleKey: 'lexCleaning', tag: 'chore'},
+  {re: /買い物|買物|shopping|groceries/i, titleKey: 'lexShopping', tag: 'errand'},
+  {re: /移動|通勤|外出|commute|travel/i, titleKey: 'lexCommute', tag: 'errand'},
+  {re: /散歩|walk/i, titleKey: 'lexWalk', tag: 'exercise'},
+  {re: /家族|family/i, titleKey: 'lexFamily', tag: 'social'},
+  {re: /彼女|彼氏|恋人|デート|date|partner/i, titleKey: 'lexPartner', tag: 'social'},
 ];
 
 const cleanTitle = (frag: string): string => {
@@ -217,7 +220,7 @@ const parseFragment = (raw: string, idx: number, now: Date): Intention | null =>
   else if (win || days) kind = 'fixed';
   else kind = 'recurring';
 
-  const title = lex ? lex.title : cleanTitle(frag) || `予定${idx + 1}`;
+  const title = lex ? i18n.t(lex.titleKey) : cleanTitle(frag) || i18n.t('agentUntitled', {n: idx + 1});
   const tag = lex?.tag;
   // Work/baito gets the canonical work-blue so the 年収の壁 / pay features apply.
   const color = tag === 'work' ? '#007AFF' : PALETTE[idx % PALETTE.length];
@@ -268,7 +271,9 @@ const parseFragment = (raw: string, idx: number, now: Date): Intention | null =>
 /** Split a declaration into fragments and parse each. */
 export const parseIntentions = (text: string, now: Date = new Date()): Intention[] => {
   const fragments = text
-    .split(/[。\n．;；]+|、(?=[^、]{6,})/) // sentence-ish boundaries; keep short commas joined
+    // sentence-ish boundaries; also split on an ASCII period + space so English
+    // "…16:00. Part-time…" becomes two fragments (times like 10:00 are untouched).
+    .split(/[。\n．;；]+|\.\s+|、(?=[^、]{6,})/)
     .map(s => s.trim())
     .filter(Boolean);
   const out: Intention[] = [];

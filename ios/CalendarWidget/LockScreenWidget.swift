@@ -16,7 +16,7 @@ struct LockScreenProvider: TimelineProvider {
     func placeholder(in context: Context) -> LockScreenEntry {
         LockScreenEntry(
             date: Date(),
-            nextEvent: EventItem(id: "1", title: "ミーティング", startDate: Date().addingTimeInterval(3600), endDate: Date().addingTimeInterval(7200), colorHex: "#007AFF", isAllDay: false),
+            nextEvent: EventItem(id: "1", title: wloc("ミーティング", "Meeting"), startDate: Date().addingTimeInterval(3600), endDate: Date().addingTimeInterval(7200), colorHex: "#007AFF", isAllDay: false),
             freeMinutes: 180
         )
     }
@@ -94,7 +94,7 @@ struct LockScreenProvider: TimelineProvider {
 
         return EventItem(
             id: next.eventIdentifier ?? UUID().uuidString,
-            title: next.title ?? "(タイトルなし)",
+            title: next.title ?? wloc("(タイトルなし)", "(No title)"),
             startDate: next.startDate,
             endDate: next.endDate,
             colorHex: next.calendar.cgColor.flatMap { UIColor(cgColor: $0).toHex() } ?? "#007AFF",
@@ -153,7 +153,7 @@ struct LockScreenCircularView: View {
 
     private var weekdayString: String {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ja_JP")
+        formatter.locale = widgetLocale
         formatter.dateFormat = "E"
         return formatter.string(from: entry.date)
     }
@@ -185,13 +185,13 @@ struct LockScreenRectangularView: View {
                         .lineLimit(1)
                 }
             } else {
-                Text("予定なし")
+                Text(wloc("予定なし", "No events"))
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
             }
 
             if entry.freeMinutes > 0 {
-                Text("今日の空き \(freeText)")
+                Text(wloc("今日の空き \(freeText)", "\(freeText) free today"))
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
             }
@@ -202,15 +202,15 @@ struct LockScreenRectangularView: View {
     private var freeText: String {
         let h = entry.freeMinutes / 60
         let m = entry.freeMinutes % 60
-        if h > 0 && m > 0 { return "\(h)時間\(m)分" }
-        if h > 0 { return "\(h)時間" }
-        return "\(m)分"
+        if h > 0 && m > 0 { return wloc("\(h)時間\(m)分", "\(h)h \(m)m") }
+        if h > 0 { return wloc("\(h)時間", "\(h)h") }
+        return wloc("\(m)分", "\(m)m")
     }
 
     private var dateString: String {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ja_JP")
-        formatter.dateFormat = "M月d日 (E)"
+        formatter.locale = widgetLocale
+        formatter.dateFormat = wloc("M月d日 (E)", "MMM d (E)")
         return formatter.string(from: entry.date)
     }
 
@@ -230,7 +230,7 @@ struct LockScreenInlineView: View {
         if let event = entry.nextEvent {
             Text("\(formatTime(event.startDate)) \(event.title)")
         } else {
-            Text("予定なし")
+            Text(wloc("予定なし", "No events"))
         }
     }
 
@@ -249,8 +249,8 @@ struct LockScreenWidget: Widget {
         StaticConfiguration(kind: kind, provider: LockScreenProvider()) { entry in
             LockScreenEntryViewWrapper(entry: entry)
         }
-        .configurationDisplayName("ロック画面")
-        .description("ロック画面に日付と次の予定を表示します")
+        .configurationDisplayName(wloc("ロック画面", "Lock Screen"))
+        .description(wloc("ロック画面に日付と次の予定を表示します", "Shows the date and next event on the lock screen"))
         .supportedFamilies(lockScreenFamilies)
     }
 

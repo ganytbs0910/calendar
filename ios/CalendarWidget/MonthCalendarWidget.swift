@@ -81,7 +81,7 @@ struct MonthCalendarProvider: TimelineProvider {
 struct MonthCalendarWidgetView: View {
     let entry: MonthCalendarEntry
 
-    private let weekdaySymbols = ["日", "月", "火", "水", "木", "金", "土"]
+    private let weekdaySymbols = widgetWeekdaySymbols
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 0), count: 7)
 
     var body: some View {
@@ -113,8 +113,8 @@ struct MonthCalendarWidgetView: View {
 
     private var headerText: String {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ja_JP")
-        formatter.dateFormat = "yyyy年M月"
+        formatter.locale = widgetLocale
+        formatter.dateFormat = wloc("yyyy年M月", "MMM yyyy")
         return formatter.string(from: entry.date)
     }
 
@@ -227,8 +227,8 @@ struct MonthCalendarWidget: Widget {
                     .background()
             }
         }
-        .configurationDisplayName("月間カレンダー")
-        .description("月のカレンダーを表示します")
+        .configurationDisplayName(wloc("月間カレンダー", "Month"))
+        .description(wloc("月のカレンダーを表示します", "Shows a monthly calendar"))
         .supportedFamilies([.systemLarge])
     }
 }

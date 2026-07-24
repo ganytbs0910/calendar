@@ -33,7 +33,10 @@ export const LANGUAGES = [
 ];
 
 function getDeviceLanguage(): string {
-  let deviceLang = 'ja';
+  // English is the universal fallback for a worldwide install: Japanese is used
+  // only when we can actually detect the device is Japanese (below). This keeps
+  // Japanese users on Japanese while foreigners never get an unexpected JP UI.
+  let deviceLang = 'en';
   try {
     if (Platform.OS === 'ios') {
       const settings = NativeModules.SettingsManager?.settings;
@@ -42,10 +45,10 @@ function getDeviceLanguage(): string {
         deviceLang = langs[0];
       }
     } else {
-      deviceLang = NativeModules.I18nManager?.localeIdentifier || 'ja';
+      deviceLang = NativeModules.I18nManager?.localeIdentifier || 'en';
     }
   } catch {
-    deviceLang = 'ja';
+    deviceLang = 'en';
   }
 
   // Map device language to supported language
@@ -62,7 +65,8 @@ function getDeviceLanguage(): string {
   if (deviceLang.startsWith('th')) return 'th';
   if (deviceLang.startsWith('id') || deviceLang.startsWith('in')) return 'id';
 
-  return 'ja';
+  // Unsupported device language → English, the international default.
+  return 'en';
 }
 
 i18n.use(initReactI18next).init({
@@ -80,7 +84,9 @@ i18n.use(initReactI18next).init({
     id: {translation: id},
   },
   lng: getDeviceLanguage(),
-  fallbackLng: 'ja',
+  // Any missing key resolves to English, not Japanese — a foreign user should
+  // never see stray Japanese text.
+  fallbackLng: 'en',
   interpolation: {
     escapeValue: false,
   },
