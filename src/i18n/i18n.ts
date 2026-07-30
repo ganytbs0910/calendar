@@ -38,9 +38,14 @@ function getDeviceLanguage(): string {
   // Japanese users on Japanese while foreigners never get an unexpected JP UI.
   let deviceLang = 'en';
   try {
-    if (Platform.OS === 'ios') {
-      const settings = NativeModules.SettingsManager?.settings;
-      const langs = settings?.AppleLanguages;
+    // Hermes' Intl is the only source that survives the New Architecture: there
+    // SettingsManager.settings.AppleLanguages and I18nManager.localeIdentifier
+    // both come back null, which silently pinned every device to English.
+    const intlLocale = Intl?.DateTimeFormat?.().resolvedOptions?.().locale;
+    if (intlLocale) {
+      deviceLang = intlLocale;
+    } else if (Platform.OS === 'ios') {
+      const langs = NativeModules.SettingsManager?.settings?.AppleLanguages;
       if (langs && langs.length > 0) {
         deviceLang = langs[0];
       }
@@ -114,6 +119,18 @@ export async function setAppLanguage(code: string) {
   } else {
     i18n.changeLanguage(code);
   }
+}
+
+// Label of the language actually in effect. With 'auto' the stored code says
+// nothing about what the user is reading, so resolve through i18n's active
+// language and show that name instead of a generic "Auto".
+export function getActiveLanguageLabel(): string {
+  const active = i18n.language;
+  return (
+    LANGUAGES.find(l => l.code === active)?.label ||
+    LANGUAGES.find(l => l.code === getDeviceLanguage())?.label ||
+    'English'
+  );
 }
 
 export async function getSavedLanguageCode(): Promise<string> {

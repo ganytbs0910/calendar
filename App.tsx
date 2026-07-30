@@ -108,7 +108,7 @@ import {
 } from './src/services/lockService';
 import {useTranslation} from 'react-i18next';
 import './src/i18n/i18n';
-import {loadSavedLanguage, setAppLanguage, getSavedLanguageCode, LANGUAGES} from './src/i18n/i18n';
+import {loadSavedLanguage, setAppLanguage, getSavedLanguageCode, getActiveLanguageLabel, LANGUAGES} from './src/i18n/i18n';
 
 const adUnitId = __DEV__ ? TestIds.ADAPTIVE_BANNER : 'ca-app-pub-4317478239934902/3522055335';
 
@@ -1720,7 +1720,7 @@ function AppContent() {
                           onPress={() => setShowLanguageModal(true)}>
                           <Text style={styles.settingsItemLabel}>{t('language')}</Text>
                           <Text style={styles.settingsItemLink}>
-                            {selectedLanguage === 'auto' ? t('languageAuto') : LANGUAGES.find(l => l.code === selectedLanguage)?.label || selectedLanguage} →
+                            {selectedLanguage === 'auto' ? getActiveLanguageLabel() : LANGUAGES.find(l => l.code === selectedLanguage)?.label || selectedLanguage} →
                           </Text>
                         </TouchableOpacity>
                       </View>
@@ -2130,7 +2130,7 @@ function AppContent() {
                   setShowLanguageModal(false);
                 }}>
                 <Text style={styles.settingsItemLabel}>
-                  {lang.code === 'auto' ? t('languageAuto') : lang.label}
+                  {lang.code === 'auto' ? `${getActiveLanguageLabel()} — ${t('languageAuto')}` : lang.label}
                 </Text>
                 {selectedLanguage === lang.code && (
                   <Text style={{fontSize: 18, color: colors.primary}}>✓</Text>
