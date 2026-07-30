@@ -27,6 +27,15 @@ export const PRODUCT_IDS = {
 const SUBSCRIPTION_IDS = [PRODUCT_IDS.monthly, PRODUCT_IDS.yearly];
 const PRODUCT_IDS_LIST = [PRODUCT_IDS.lifetime];
 
+// The first auto-renewable subscription of an app can only be submitted
+// attached to a version, and getting that group approved is a separate round of
+// review. Ship the non-consumable alone first: with this false the paywall
+// never mentions a subscription and the store is never asked for one. Flip it
+// back to true once monthly/yearly are approved in App Store Connect — no other
+// code has to change. Restore still accepts subscription IDs so anyone who buys
+// one later keeps working.
+export const SUBSCRIPTIONS_ENABLED = false;
+
 export type IAPProduct = {
   productId: string;
   localizedPrice: string;
@@ -63,10 +72,18 @@ export const fetchProducts = async (): Promise<{
   products: Product[];
 }> => {
   try {
-    const [subs, prods] = await Promise.all([
-      getSubscriptions({skus: SUBSCRIPTION_IDS}).catch(() => [] as Subscription[]),
-      getProducts({skus: PRODUCT_IDS_LIST}).catch(() => [] as Product[]),
-    ]);
+    // These two must NOT overlap. The iOS module keeps only the latest
+    // SKProductsRequest (LatestPromiseKeeper) and rejects any in-flight one with
+    // E_CANCELED, so running them in Promise.all silently dropped whichever
+    // started first — the subscriptions — and left only the lifetime product.
+    const subs = SUBSCRIPTIONS_ENABLED
+      ? await getSubscriptions({skus: SUBSCRIPTION_IDS}).catch(
+          () => [] as Subscription[],
+        )
+      : ([] as Subscription[]);
+    const prods = await getProducts({skus: PRODUCT_IDS_LIST}).catch(
+      () => [] as Product[],
+    );
     return {subscriptions: subs, products: prods};
   } catch {
     return {subscriptions: [], products: []};

@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		FEEDFACE0000000000000101 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = FEEDFACE0000000000000100 /* InfoPlist.strings */; };
 		0E1D0D7152584FE8846D873C /* MaterialIcons.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 5F74B955903D4D73B4C2C8D2 /* MaterialIcons.ttf */; };
 		115F4B4FA4A744A0A570864D /* MaterialCommunityIcons.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 1C3A8E5606914592BC5CF0E4 /* MaterialCommunityIcons.ttf */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
@@ -46,6 +45,7 @@
 		CF4CBCBED7C645C6B17E9B5D /* Feather.ttf in Resources */ = {isa = PBXBuildFile; fileRef = D5B33E85FED04F8786A6E584 /* Feather.ttf */; };
 		EE49548B1CED4FFD91A3AF32 /* FontAwesome.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A37EB5089E4945B38B738DC4 /* FontAwesome.ttf */; };
 		FECEFA682C094B9BA9D0FA73 /* FontAwesome6_Brands.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 8DA1990219194C468BE6AD46 /* FontAwesome6_Brands.ttf */; };
+		FEEDFACE0000000000000101 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = FEEDFACE0000000000000100 /* InfoPlist.strings */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -73,17 +73,6 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		FEEDFACE0000000000000001 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "en"; path = "CalendarApp/en.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
-		FEEDFACE0000000000000002 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "ja"; path = "CalendarApp/ja.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
-		FEEDFACE0000000000000003 /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "de"; path = "CalendarApp/de.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
-		FEEDFACE0000000000000004 /* es */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "es"; path = "CalendarApp/es.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
-		FEEDFACE0000000000000005 /* fr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "fr"; path = "CalendarApp/fr.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
-		FEEDFACE0000000000000006 /* id */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "id"; path = "CalendarApp/id.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
-		FEEDFACE0000000000000007 /* ko */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "ko"; path = "CalendarApp/ko.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
-		FEEDFACE0000000000000008 /* pt */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "pt"; path = "CalendarApp/pt.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
-		FEEDFACE0000000000000009 /* th */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "th"; path = "CalendarApp/th.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
-		FEEDFACE000000000000000A /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "CalendarApp/zh-Hans.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
-		FEEDFACE000000000000000B /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "CalendarApp/zh-Hant.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		074CFC655B14406A9BB215F7 /* Octicons.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = Octicons.ttf; path = "../node_modules/react-native-vector-icons/Fonts/Octicons.ttf"; sourceTree = "<group>"; };
 		13B07F961A680F5B00A75B9A /* CalendarApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CalendarApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = CalendarApp/Images.xcassets; sourceTree = "<group>"; };
@@ -128,6 +117,18 @@
 		E5F2A6C46B08C7AF84226782 /* Pods-CalendarApp.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-CalendarApp.release.xcconfig"; path = "Target Support Files/Pods-CalendarApp/Pods-CalendarApp.release.xcconfig"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F6553340766342FBAB95FCF2 /* FontAwesome6_Solid.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = FontAwesome6_Solid.ttf; path = "../node_modules/react-native-vector-icons/Fonts/FontAwesome6_Solid.ttf"; sourceTree = "<group>"; };
+		FEEDFACE0000000000000001 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = CalendarApp/en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		FEEDFACE0000000000000002 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = CalendarApp/ja.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		FEEDFACE0000000000000003 /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = CalendarApp/de.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		FEEDFACE0000000000000004 /* es */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = es; path = CalendarApp/es.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		FEEDFACE0000000000000005 /* fr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = fr; path = CalendarApp/fr.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		FEEDFACE0000000000000006 /* id */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = id; path = CalendarApp/id.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		FEEDFACE0000000000000007 /* ko */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ko; path = CalendarApp/ko.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		FEEDFACE0000000000000008 /* pt */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = pt; path = CalendarApp/pt.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		FEEDFACE0000000000000009 /* th */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = th; path = CalendarApp/th.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		FEEDFACE000000000000000A /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "CalendarApp/zh-Hans.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
+		FEEDFACE000000000000000B /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "CalendarApp/zh-Hant.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
+		FEEDFACE0000000000000200 /* CalendarApp.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = CalendarApp.storekit; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -184,6 +185,7 @@
 		83CBB9F61A601CBA00E9B192 = {
 			isa = PBXGroup;
 			children = (
+				FEEDFACE0000000000000200 /* CalendarApp.storekit */,
 				13B07FAE1A68108700A75B9A /* CalendarApp */,
 				CA10C1012CA456740066AA21 /* CalendarWidget */,
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
@@ -334,8 +336,8 @@
 				ko,
 				pt,
 				th,
-				zh-Hans,
-				zh-Hant,
+				"zh-Hans",
+				"zh-Hant",
 			);
 			mainGroup = 83CBB9F61A601CBA00E9B192;
 			productRefGroup = 83CBBA001A601CBA00E9B192 /* Products */;
@@ -543,7 +545,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 13;
 				DEVELOPMENT_TEAM = Q7LL83CXZC;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = CalendarApp/Info.plist;
@@ -573,7 +575,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 13;
 				DEVELOPMENT_TEAM = Q7LL83CXZC;
 				INFOPLIST_FILE = CalendarApp/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
@@ -748,7 +750,7 @@
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 13;
 				DEVELOPMENT_TEAM = Q7LL83CXZC;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = CalendarWidget/Info.plist;
@@ -776,7 +778,7 @@
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 13;
 				DEVELOPMENT_TEAM = Q7LL83CXZC;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = CalendarWidget/Info.plist;

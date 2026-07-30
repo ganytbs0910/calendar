@@ -1,4 +1,4 @@
-import React, {useState, useEffect, useCallback} from 'react';
+import React, {useState, useEffect, useCallback, useMemo} from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   Alert,
   Dimensions,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
 import {useTheme} from '../theme/ThemeContext';
 import {usePremium} from '../context/PremiumContext';
@@ -21,10 +22,17 @@ import {
   buyProduct,
   restorePurchases,
   setupPurchaseListeners,
+  SUBSCRIPTIONS_ENABLED,
 } from '../services/iapService';
 import type {Subscription, Product} from 'react-native-iap';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
+
+// Apple's standard EULA. Replace only if a custom agreement is registered in
+// App Store Connect. PRIVACY_URL must match the Privacy Policy URL on the
+// App Store product page — App Review compares them.
+const TERMS_URL = 'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/';
+const PRIVACY_URL = 'https://ganytbs0910.github.io/ideal-calendar-support/privacy-policy.html';
 
 interface PaywallScreenProps {
   visible: boolean;
@@ -39,11 +47,33 @@ const PLAN_TO_SKU: Record<PlanType, string> = {
   lifetime: PRODUCT_IDS.lifetime,
 };
 
+const ALL_PLANS: {type: PlanType; titleKey: string; subKey: string; badgeKey?: string}[] = [
+  {type: 'monthly', titleKey: 'monthlyPlan', subKey: 'perMonth'},
+  {type: 'yearly', titleKey: 'yearlyPlan', subKey: 'perYear', badgeKey: 'yearlySaving'},
+  {type: 'lifetime', titleKey: 'lifetime', subKey: 'oneTime', badgeKey: 'releaseSale'},
+];
+
+// While subscriptions are switched off the lifetime purchase is the whole
+// offer — see SUBSCRIPTIONS_ENABLED.
+const OFFERED_PLANS = ALL_PLANS.filter(
+  plan => SUBSCRIPTIONS_ENABLED || plan.type === 'lifetime',
+);
+
+const DEFAULT_PLAN: PlanType = SUBSCRIPTIONS_ENABLED ? 'yearly' : 'lifetime';
+
+// Debug-only placeholders. Keep in sync with App Store Connect pricing so the
+// dev layout matches what ships.
+const DEV_PREVIEW_PRICES: Record<PlanType, string> = {
+  monthly: '¥400',
+  yearly: '¥2,400',
+  lifetime: '¥8,000',
+};
+
 export const PaywallScreen: React.FC<PaywallScreenProps> = ({visible, onClose}) => {
   const {colors} = useTheme();
   const {setPremium} = usePremium();
   const {t} = useTranslation();
-  const [selectedPlan, setSelectedPlan] = useState<PlanType>('yearly');
+  const [selectedPlan, setSelectedPlan] = useState<PlanType>(DEFAULT_PLAN);
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
@@ -104,6 +134,30 @@ export const PaywallScreen: React.FC<PaywallScreenProps> = ({visible, onClose}) 
     return null;
   }, [subscriptions, products]);
 
+  // Only offer plans the store actually returned. A product that is not yet
+  // approved (or not submitted) must never be referenced in the UI — App Review
+  // rejects the build for it under Guideline 2.1(b).
+  //
+  // Debug builds fill in placeholder pricing instead, so the full three-plan
+  // layout stays reviewable on a simulator with no StoreKit products. __DEV__
+  // is false in Release, so App Review only ever sees live products.
+  const availablePlans = useMemo(
+    () =>
+      OFFERED_PLANS.map(plan => ({
+        ...plan,
+        price: getPrice(PLAN_TO_SKU[plan.type]) ?? (__DEV__ ? DEV_PREVIEW_PRICES[plan.type] : null),
+      })).filter(plan => plan.price !== null),
+    [getPrice],
+  );
+
+  // Keep the selection pointing at a plan that is actually purchasable.
+  useEffect(() => {
+    if (isLoading || availablePlans.length === 0) return;
+    if (!availablePlans.some(p => p.type === selectedPlan)) {
+      setSelectedPlan(availablePlans[0].type);
+    }
+  }, [availablePlans, isLoading, selectedPlan]);
+
   const handlePurchase = async () => {
     const sku = PLAN_TO_SKU[selectedPlan];
     setIsPurchasing(true);
@@ -140,12 +194,6 @@ export const PaywallScreen: React.FC<PaywallScreenProps> = ({visible, onClose}) 
 
   if (!visible) return null;
 
-  const plans: {type: PlanType; title: string; fallbackPrice: string; sub: string; badge?: string}[] = [
-    {type: 'monthly', title: t('monthlyPlan'), fallbackPrice: '¥400', sub: t('perMonth')},
-    {type: 'yearly', title: t('yearlyPlan'), fallbackPrice: '¥2,400', sub: t('perYear'), badge: t('yearlySaving')},
-    {type: 'lifetime', title: t('lifetime'), fallbackPrice: '¥8,000', sub: t('oneTime'), badge: t('releaseSale')},
-  ];
-
   return (
     <SafeAreaView style={[styles.container, {backgroundColor: colors.background}]}>
       <View style={styles.header}>
@@ -178,62 +226,75 @@ export const PaywallScreen: React.FC<PaywallScreenProps> = ({visible, onClose}) 
 
         {isLoading ? (
           <ActivityIndicator size="large" color={colors.primary} style={{marginVertical: 40}} />
+        ) : availablePlans.length === 0 ? (
+          <Text style={[styles.unavailable, {color: colors.textSecondary}]}>
+            {t('plansUnavailable')}
+          </Text>
         ) : (
           <View style={styles.plans}>
-            {plans.map(plan => {
-              const realPrice = getPrice(PLAN_TO_SKU[plan.type]);
-              return (
-                <TouchableOpacity
-                  key={plan.type}
-                  style={[
-                    styles.planCard,
-                    {
-                      borderColor: selectedPlan === plan.type ? colors.primary : colors.border,
-                      backgroundColor: selectedPlan === plan.type ? `${colors.primary}10` : colors.surface,
-                    },
-                  ]}
-                  onPress={() => setSelectedPlan(plan.type)}>
-                  {plan.badge && (
-                    <View style={[styles.planBadge, {backgroundColor: colors.primary}]}>
-                      <Text style={styles.planBadgeText}>{plan.badge}</Text>
-                    </View>
-                  )}
-                  <Text style={[styles.planTitle, {color: colors.text}]}>{plan.title}</Text>
-                  <View style={{flexDirection: 'row', alignItems: 'baseline'}}>
-                    <Text style={[styles.planPrice, {color: colors.text}]}>
-                      {realPrice || plan.fallbackPrice}
-                    </Text>
-                    <Text style={[styles.planSub, {color: colors.textSecondary}]}>{plan.sub}</Text>
+            {availablePlans.map(plan => (
+              <TouchableOpacity
+                key={plan.type}
+                style={[
+                  styles.planCard,
+                  {
+                    borderColor: selectedPlan === plan.type ? colors.primary : colors.border,
+                    backgroundColor: selectedPlan === plan.type ? `${colors.primary}10` : colors.surface,
+                  },
+                ]}
+                onPress={() => setSelectedPlan(plan.type)}>
+                {plan.badgeKey && (
+                  <View style={[styles.planBadge, {backgroundColor: colors.primary}]}>
+                    <Text style={styles.planBadgeText}>{t(plan.badgeKey)}</Text>
                   </View>
-                  {selectedPlan === plan.type && (
-                    <View style={[styles.selectedIndicator, {backgroundColor: colors.primary}]}>
-                      <Text style={{color: '#fff', fontSize: 12, fontWeight: '700'}}>✓</Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-              );
-            })}
+                )}
+                <Text style={[styles.planTitle, {color: colors.text}]}>{t(plan.titleKey)}</Text>
+                <View style={{flexDirection: 'row', alignItems: 'baseline'}}>
+                  <Text style={[styles.planPrice, {color: colors.text}]}>{plan.price}</Text>
+                  <Text style={[styles.planSub, {color: colors.textSecondary}]}>{t(plan.subKey)}</Text>
+                </View>
+                {selectedPlan === plan.type && (
+                  <View style={[styles.selectedIndicator, {backgroundColor: colors.primary}]}>
+                    <Text style={{color: '#fff', fontSize: 12, fontWeight: '700'}}>✓</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            ))}
           </View>
         )}
 
-        <TouchableOpacity
-          style={[styles.purchaseBtn, {backgroundColor: colors.primary, opacity: isPurchasing || isLoading ? 0.6 : 1}]}
-          onPress={handlePurchase}
-          disabled={isPurchasing || isLoading}>
-          {isPurchasing ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.purchaseBtnText}>{t('startPremium')}</Text>
-          )}
-        </TouchableOpacity>
+        {(isLoading || availablePlans.length > 0) && (
+          <TouchableOpacity
+            style={[styles.purchaseBtn, {backgroundColor: colors.primary, opacity: isPurchasing || isLoading ? 0.6 : 1}]}
+            onPress={handlePurchase}
+            disabled={isPurchasing || isLoading}>
+            {isPurchasing ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.purchaseBtnText}>{t('startPremium')}</Text>
+            )}
+          </TouchableOpacity>
+        )}
 
         <TouchableOpacity onPress={handleRestore} style={styles.restoreBtn} disabled={isPurchasing}>
           <Text style={[styles.restoreText, {color: colors.textTertiary}]}>{t('restorePurchase')}</Text>
         </TouchableOpacity>
 
         <Text style={[styles.legal, {color: colors.textTertiary}]}>
-          {t('subscriptionNote')}
+          {t(SUBSCRIPTIONS_ENABLED ? 'subscriptionNote' : 'lifetimeNote')}
         </Text>
+
+        {/* Guideline 3.1.2 requires functional Terms of Use (EULA) and Privacy
+            Policy links on the screen that offers the purchase. */}
+        <View style={styles.legalLinks}>
+          <TouchableOpacity onPress={() => Linking.openURL(TERMS_URL)}>
+            <Text style={[styles.legalLink, {color: colors.textTertiary}]}>{t('termsOfUse')}</Text>
+          </TouchableOpacity>
+          <Text style={[styles.legalLink, {color: colors.textTertiary}]}>·</Text>
+          <TouchableOpacity onPress={() => Linking.openURL(PRIVACY_URL)}>
+            <Text style={[styles.legalLink, {color: colors.textTertiary}]}>{t('privacyPolicy')}</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -293,6 +354,23 @@ const styles = StyleSheet.create({
   plans: {
     gap: 10,
     marginBottom: 20,
+  },
+  unavailable: {
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginVertical: 32,
+  },
+  legalLinks: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+  },
+  legalLink: {
+    fontSize: 11,
+    textDecorationLine: 'underline',
   },
   planCard: {
     borderWidth: 2,

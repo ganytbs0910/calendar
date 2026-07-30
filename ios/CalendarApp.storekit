@@ -1,0 +1,123 @@
+{
+  "identifier" : "A1B2C3D4-0000-4000-8000-000000000001",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "displayPrice" : "8000",
+      "familyShareable" : false,
+      "internalID" : "6762102047",
+      "localizations" : [
+        {
+          "description" : "一度の購入でプレミアム機能をすべて永続利用できます。",
+          "displayName" : "プレミアム 買い切り",
+          "locale" : "ja_JP"
+        },
+        {
+          "description" : "Unlock all Premium features with one payment.",
+          "displayName" : "Premium Lifetime",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.calendarapp.premium.lifetime",
+      "referenceName" : "Premium Lifetime",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+    "_applicationInternalID" : "6752285051",
+    "_developerTeamID" : "",
+    "_failTransactionsEnabled" : false,
+    "_lastSynchronizedDate" : 0,
+    "_locale" : "ja_JP",
+    "_storefront" : "JPN",
+    "_storeKitErrors" : [
+
+    ]
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "21500001",
+      "localizations" : [
+        {
+          "description" : "プレミアム",
+          "displayName" : "プレミアム",
+          "locale" : "ja_JP"
+        },
+        {
+          "description" : "Premium",
+          "displayName" : "Premium",
+          "locale" : "en_US"
+        }
+      ],
+      "name" : "Premium",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "400",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "6762102445",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "毎月更新。プレミアム機能をすべて使えます。",
+              "displayName" : "プレミアム 月額",
+              "locale" : "ja_JP"
+            },
+            {
+              "description" : "All Premium features, renewed monthly.",
+              "displayName" : "Premium Monthly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.calendarapp.premium.monthly2",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "月額プラン",
+          "subscriptionGroupID" : "21500001",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "2400",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "6762102450",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "1年ごとに更新。プレミアム機能をすべて使えます。",
+              "displayName" : "プレミアム 年額",
+              "locale" : "ja_JP"
+            },
+            {
+              "description" : "All Premium features, renewed yearly.",
+              "displayName" : "Premium Yearly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.calendarapp.premium.yearly",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Premium Yearly",
+          "subscriptionGroupID" : "21500001",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}
