@@ -129,3 +129,18 @@ dependencies {
         implementation jscFlavor
     }
 }
+
+// desugar<Variant>FileDependencies dexes local file dependencies. This module
+// has none (there is no app/libs), so the task writes nothing and its output
+// directory never appears — but mergeExtDex<Variant> still declares that
+// directory as a required input. Gradle 9 promoted "input directory missing"
+// from a warning to a build failure, which broke every from-scratch release
+// build. Create the empty directory the consumer is waiting for.
+tasks.matching { it.name ==~ /^desugar.*FileDependencies$/ }.configureEach {
+    // The task is a no-op here, so it would otherwise go UP-TO-DATE and skip
+    // the fixup on any build where app/build was wiped.
+    outputs.upToDateWhen { false }
+    doLast {
+        outputs.files.each { it.mkdirs() }
+    }
+}
