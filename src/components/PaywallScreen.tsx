@@ -23,8 +23,8 @@ import {
   restorePurchases,
   setupPurchaseListeners,
   SUBSCRIPTIONS_ENABLED,
+  type IAPProduct,
 } from '../services/iapService';
-import type {Subscription, Product} from 'react-native-iap';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
@@ -76,8 +76,7 @@ export const PaywallScreen: React.FC<PaywallScreenProps> = ({visible, onClose}) 
   const [selectedPlan, setSelectedPlan] = useState<PlanType>(DEFAULT_PLAN);
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [storeProducts, setStoreProducts] = useState<IAPProduct[]>([]);
 
   // Initialize IAP and fetch products
   useEffect(() => {
@@ -92,10 +91,9 @@ export const PaywallScreen: React.FC<PaywallScreenProps> = ({visible, onClose}) 
         return;
       }
 
-      const {subscriptions: subs, products: prods} = await fetchProducts();
+      const fetched = await fetchProducts();
       if (!mounted) return;
-      setSubscriptions(subs);
-      setProducts(prods);
+      setStoreProducts(fetched);
       setIsLoading(false);
 
       // Listen for purchase events
@@ -126,13 +124,11 @@ export const PaywallScreen: React.FC<PaywallScreenProps> = ({visible, onClose}) 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
-  const getPrice = useCallback((sku: string): string | null => {
-    const sub = subscriptions.find(s => s.productId === sku);
-    if (sub) return (sub as any).localizedPrice || (sub as any).price;
-    const prod = products.find(p => p.productId === sku);
-    if (prod) return prod.localizedPrice;
-    return null;
-  }, [subscriptions, products]);
+  const getPrice = useCallback(
+    (sku: string): string | null =>
+      storeProducts.find(p => p.id === sku)?.displayPrice ?? null,
+    [storeProducts],
+  );
 
   // Only offer plans the store actually returned. A product that is not yet
   // approved (or not submitted) must never be referenced in the UI — App Review

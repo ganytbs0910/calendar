@@ -1,20 +1,16 @@
-import {Platform} from 'react-native';
 import {
   initConnection,
   endConnection,
-  getProducts,
-  getSubscriptions,
+  fetchProducts as fetchStoreProducts,
   requestPurchase,
-  requestSubscription,
   finishTransaction,
   getAvailablePurchases,
   purchaseUpdatedListener,
   purchaseErrorListener,
-  type ProductPurchase,
-  type SubscriptionPurchase,
+  type Purchase,
   type PurchaseError,
-  type Subscription,
-  type Product,
+  type ProductSubscription,
+  type AndroidSubscriptionOfferInput,
 } from 'react-native-iap';
 
 // Product IDs - must match App Store Connect
@@ -36,12 +32,19 @@ const PRODUCT_IDS_LIST = [PRODUCT_IDS.lifetime];
 // one later keeps working.
 export const SUBSCRIPTIONS_ENABLED = false;
 
+// What the paywall needs, flattened. Keeping the store's own shapes inside this
+// module means a library upgrade doesn't reach into the UI — the last one
+// renamed productId/localizedPrice to id/displayPrice.
 export type IAPProduct = {
-  productId: string;
-  localizedPrice: string;
+  id: string;
+  displayPrice: string;
   title: string;
   description: string;
 };
+
+// Android needs an offer token to start a subscription purchase, and it is only
+// available on the product the store returned. Hold on to the last fetch.
+let cachedSubscriptions: ProductSubscription[] = [];
 
 let purchaseUpdateSubscription: ReturnType<typeof purchaseUpdatedListener> | null = null;
 let purchaseErrorSubscription: ReturnType<typeof purchaseErrorListener> | null = null;
@@ -67,39 +70,61 @@ export const endIAP = () => {
   endConnection().catch(() => {});
 };
 
-export const fetchProducts = async (): Promise<{
-  subscriptions: Subscription[];
-  products: Product[];
-}> => {
+const toIAPProduct = (p: {
+  id: string;
+  displayPrice: string;
+  title: string;
+  description: string;
+}): IAPProduct => ({
+  id: p.id,
+  displayPrice: p.displayPrice,
+  title: p.title,
+  description: p.description,
+});
+
+export const fetchProducts = async (): Promise<IAPProduct[]> => {
   try {
     // These two must NOT overlap. The iOS module keeps only the latest
     // SKProductsRequest (LatestPromiseKeeper) and rejects any in-flight one with
     // E_CANCELED, so running them in Promise.all silently dropped whichever
     // started first — the subscriptions — and left only the lifetime product.
     const subs = SUBSCRIPTIONS_ENABLED
-      ? await getSubscriptions({skus: SUBSCRIPTION_IDS}).catch(
-          () => [] as Subscription[],
-        )
-      : ([] as Subscription[]);
-    const prods = await getProducts({skus: PRODUCT_IDS_LIST}).catch(
-      () => [] as Product[],
-    );
-    return {subscriptions: subs, products: prods};
+      ? ((await fetchStoreProducts({
+          skus: SUBSCRIPTION_IDS,
+          type: 'subs',
+        }).catch(() => [])) as ProductSubscription[] | null) ?? []
+      : [];
+    cachedSubscriptions = subs;
+
+    const prods =
+      (await fetchStoreProducts({skus: PRODUCT_IDS_LIST, type: 'in-app'}).catch(
+        () => [],
+      )) ?? [];
+
+    return [...subs, ...prods].map(toIAPProduct);
   } catch {
-    return {subscriptions: [], products: []};
+    return [];
   }
 };
 
 export const buySubscription = async (sku: string): Promise<void> => {
   try {
-    if (Platform.OS === 'ios') {
-      await requestSubscription({sku});
-    } else {
-      await requestSubscription({
-        sku,
-        subscriptionOffers: [{sku, offerToken: ''}],
-      });
-    }
+    // Every offer of the plan is passed through; Google picks the one the user
+    // is eligible for. An empty list means the product was never fetched, which
+    // the store rejects rather than silently charging the wrong price.
+    const offers: AndroidSubscriptionOfferInput[] = (
+      cachedSubscriptions.find(s => s.id === sku)?.subscriptionOffers ?? []
+    )
+      .filter(offer => offer.offerTokenAndroid)
+      .map(offer => ({sku, offerToken: offer.offerTokenAndroid as string}));
+
+    await requestPurchase({
+      type: 'subs',
+      request: {
+        apple: {sku},
+        google: {skus: [sku], subscriptionOffers: offers},
+      },
+    });
   } catch (e) {
     // Surface the error to the caller so the UI can show an alert. The native
     // module sometimes rejects with strings, so normalize to Error.
@@ -110,7 +135,10 @@ export const buySubscription = async (sku: string): Promise<void> => {
 
 export const buyProduct = async (sku: string): Promise<void> => {
   try {
-    await requestPurchase({sku});
+    await requestPurchase({
+      type: 'in-app',
+      request: {apple: {sku}, google: {skus: [sku]}},
+    });
   } catch (e) {
     if (e instanceof Error) throw e;
     throw new Error(typeof e === 'string' ? e : 'Purchase request failed');
@@ -134,7 +162,7 @@ export const restorePurchases = async (): Promise<boolean> => {
 };
 
 export const setupPurchaseListeners = (
-  onPurchaseSuccess: (purchase: ProductPurchase | SubscriptionPurchase) => void,
+  onPurchaseSuccess: (purchase: Purchase) => void,
   onPurchaseError: (error: PurchaseError) => void,
 ) => {
   // Remove existing listeners

@@ -2,6 +2,15 @@
   "extends": "@react-native/typescript-config",
   "compilerOptions": {
     "types": ["jest"],
+    "paths": {
+      // react-native-iap's exports map points the "react-native" condition at
+      // its raw src/*.ts, so this config's customConditions make tsc compile the
+      // library itself — and it does not typecheck standalone (it expects DOM
+      // and node globals it never declares). Point tsc at the shipped
+      // declarations instead, which skipLibCheck then covers. Metro still
+      // resolves through the exports map, so runtime is unaffected.
+      "react-native-iap": ["./node_modules/react-native-iap/lib/typescript/src/index.d.ts"],
+    },
   },
   "include": ["**/*.ts", "**/*.tsx"],
   "exclude": ["**/node_modules", "**/Pods"]
