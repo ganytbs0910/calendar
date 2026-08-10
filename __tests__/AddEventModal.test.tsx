@@ -12,6 +12,8 @@ jest.mock('react-native-calendar-events', () => ({
     {id: '1', title: 'Default', isPrimary: true, allowsModifications: true},
   ]),
   saveEvent: jest.fn().mockResolvedValue('event-id'),
+  // The modal looks up the day's existing events to suggest a slot.
+  fetchAllEvents: jest.fn().mockResolvedValue([]),
 }));
 
 // Mock DateTimePicker
@@ -111,9 +113,11 @@ describe('AddEventModal', () => {
       );
     });
 
+    // Duration is picked from presets (DURATION_OPTIONS), not the "+5分"
+    // nudge buttons this test was originally written against.
     const tree = component!.toJSON();
-    expect(JSON.stringify(tree)).toContain('+5分');
-    expect(JSON.stringify(tree)).toContain('+1時間');
+    expect(JSON.stringify(tree)).toContain('30分');
+    expect(JSON.stringify(tree)).toContain('1時間');
   });
 
 });

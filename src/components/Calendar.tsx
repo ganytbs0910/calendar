@@ -4,7 +4,7 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  Dimensions,
+  useWindowDimensions,
   ScrollView,
   FlatList,
   Alert,
@@ -23,14 +23,12 @@ import {fetchWeather, WeatherDay} from '../services/weatherService';
 import {useTheme} from '../theme/ThemeContext';
 import {useTranslation} from 'react-i18next';
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
-const CALENDAR_GRID_WIDTH = SCREEN_WIDTH - 24; // Container has paddingHorizontal: 12
-// Container has paddingHorizontal: 12 (both sides = 24) total
-const DAY_WIDTH = Math.floor((SCREEN_WIDTH - 24) / 7);
 const MONTH_ANCHOR = 120; // Center index for infinite-like scrolling
-const SCREEN_HEIGHT = Dimensions.get('window').height;
-// Calculate day height to fill screen (subtract header, weekday row, margins, safe area)
-const CALENDAR_AVAILABLE_HEIGHT = SCREEN_HEIGHT - 280;
+// Container has paddingHorizontal: 12 (both sides = 24) total. The real grid
+// width is measured at runtime — see gridWidth — because the app runs in a
+// resizable window on iPad; these only seed the first paint.
+const GRID_HORIZONTAL_PADDING = 24;
+const HEIGHT_CHROME = 280; // header, weekday row, margins, safe area, tab bar
 const EVENT_BAR_HEIGHT = 36; // Height of multi-day event bar
 const DAY_NUMBER_HEIGHT = 20; // Space for day number
 
@@ -50,12 +48,75 @@ interface CalendarProps {
   fullscreenMode?: boolean;
   /** When set, only events whose resolved color matches are rendered. */
   filterColor?: string | null;
+  /**
+   * Bulk-selection mode: tapping an event marks it instead of opening it, and
+   * the gestures that would compete for the same tap (day sheet, drag-to-move,
+   * date-range drag) are suspended.
+   */
+  selectionMode?: boolean;
+  /** Keys from eventOccurrenceKey — one entry per selected occurrence. */
+  selectedEventKeys?: ReadonlySet<string>;
+  onToggleEventSelection?: (event: CalendarEventReadable) => void;
 }
 
 export interface CalendarRef {
   refreshEvents: () => void;
   goToToday: () => void;
 }
+
+/**
+ * Identifies one *occurrence*, not one event.
+ *
+ * Every occurrence of a recurring series carries the same id — occurrenceDate
+ * is what tells them apart. Keying a selection by id alone would make tapping
+ * one week's shift mark every week's, and delete the whole series with it.
+ */
+export const eventOccurrenceKey = (event: CalendarEventReadable): string =>
+  `${event.id}::${event.occurrenceDate ?? event.startDate ?? ''}`;
+
+/** A multi-day event's span within one week row, and the row it stacks on. */
+type MultiDayBar = {
+  event: CalendarEventReadable;
+  startDayIndex: number;
+  endDayIndex: number;
+  rowIndex: number;
+};
+
+/** Everything a month page derives from its month and events — see getPageModel. */
+type PageModel = {
+  days: Array<{day: number; isCurrentMonth: boolean; date: Date | null}>;
+  weeks: number;
+  getEventsForDate: (date: Date) => CalendarEventReadable[];
+  multiDayByWeek: MultiDayBar[][];
+};
+
+/**
+ * The first and last calendar day an event occupies, inclusive, as midnights.
+ *
+ * All-day events from iCal/EventKit end at next-day 00:00, so the end is pulled
+ * back a millisecond before the day is taken — without that they read as one
+ * day longer than they are. Every place that maps an event onto day cells must
+ * go through here; having the adjustment in some of them and not others is what
+ * made all-day bars overhang by a day.
+ *
+ * Returns null for events missing either endpoint, so callers can skip them.
+ */
+const eventDayRange = (
+  event: CalendarEventReadable,
+): {firstDay: Date; lastDay: Date} | null => {
+  if (!event.startDate || !event.endDate) return null;
+
+  const start = new Date(event.startDate);
+  let end = new Date(event.endDate);
+  if (event.allDay && end.getHours() === 0 && end.getMinutes() === 0 && end.getSeconds() === 0) {
+    end = new Date(end.getTime() - 1);
+  }
+
+  return {
+    firstDay: new Date(start.getFullYear(), start.getMonth(), start.getDate()),
+    lastDay: new Date(end.getFullYear(), end.getMonth(), end.getDate()),
+  };
+};
 
 // Wraps the month grid in a vertical ScrollView when fullscreen mode is on,
 // so days with many events can grow tall and the user can scroll.
@@ -64,9 +125,13 @@ const ConditionalScroll: React.FC<{fullscreen: boolean; children: React.ReactNod
     ? <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{paddingBottom: 80}} nestedScrollEnabled>{children}</ScrollView>
     : <>{children}</>;
 
-export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, onDateDoubleSelect, onEventPress, onDateRangeSelect, onMonthChange, hasPermission: hasPermissionProp, fullscreenMode, filterColor}, ref) => {
+export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, onDateDoubleSelect, onEventPress, onDateRangeSelect, onMonthChange, hasPermission: hasPermissionProp, fullscreenMode, filterColor, selectionMode, selectedEventKeys, onToggleEventSelection}, ref) => {
   const {colors} = useTheme();
   const {t} = useTranslation();
+  // Seeds for the first paint only; both are replaced by the measured grid
+  // below as soon as it lays out. The window is resizable on iPad, so nothing
+  // may be derived from a size captured once.
+  const {width: windowWidth, height: windowHeight} = useWindowDimensions();
   const [today, setToday] = useState(() => new Date());
 
   // Update 'today' when the date changes (e.g. app stays open past midnight)
@@ -145,11 +210,14 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
 
   const fetchEventsRef = useRef<(forceRefresh?: boolean) => void>(() => {});
   const getMonthKeyRef = useRef<(year: number, month: number) => string>((y, m) => `${y}-${m}`);
-  const dayHeightRef = useRef(Math.floor(CALENDAR_AVAILABLE_HEIGHT / 5));
+  const dayHeightRef = useRef(Math.floor((windowHeight - HEIGHT_CHROME) / 5));
   // Actual space available for the grid, measured at runtime so the last week
-  // never gets clipped by the tab bar (the SCREEN_HEIGHT - 280 constant is only
-  // a first-paint fallback and is wrong on some devices).
-  const [gridHeight, setGridHeight] = useState(CALENDAR_AVAILABLE_HEIGHT);
+  // never gets clipped by the tab bar (the window-derived value is only a
+  // first-paint fallback and is wrong on some devices).
+  const [gridHeight, setGridHeight] = useState(windowHeight - HEIGHT_CHROME);
+  // Same story horizontally: month pages, day cells and the touch-to-date math
+  // are all sized from this, so it must follow window resizes.
+  const [gridWidth, setGridWidth] = useState(windowWidth - GRID_HORIZONTAL_PADDING);
 
   // FlatList month paging
   const monthListRef = useRef<FlatList>(null);
@@ -168,6 +236,19 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
   useEffect(() => { dragEndDateRef.current = dragEndDate; }, [dragEndDate]);
   useEffect(() => { onMonthChange?.(currentDate); }, [currentDate, onMonthChange]);
 
+  // A width change re-lays out every month page, which leaves the pager resting
+  // between two of them. Snap back to the month that is actually selected.
+  useEffect(() => {
+    const cur = currentDateRef.current;
+    const idx =
+      MONTH_ANCHOR +
+      (cur.getFullYear() - baseDate.getFullYear()) * 12 +
+      (cur.getMonth() - baseDate.getMonth());
+    monthListRef.current?.scrollToIndex({index: idx, animated: false});
+    // Only re-snap when the page width changes; normal paging scrolls itself.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gridWidth]);
+
   // Get date from touch position (uses ref to avoid stale closure)
   const getDateFromPosition = useCallback((pageX: number, pageY: number): Date | null => {
     const layout = gridLayoutRef.current;
@@ -178,7 +259,10 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
 
     if (x < 0 || y < 0 || x > layout.width || y > layout.height) return null;
 
-    const dayIndex = Math.floor(x / DAY_WIDTH);
+    // Derive the column from the grid's own measured width. Using a width
+    // captured at startup would map the touch to the wrong day after an iPad
+    // window resize.
+    const dayIndex = Math.min(6, Math.floor((x / layout.width) * 7));
     const weekIndex = Math.floor(y / dayHeightRef.current);
     const cellIndex = weekIndex * 7 + dayIndex;
 
@@ -221,6 +305,22 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       longPressTimer.current = null;
     }
   }, []);
+
+  // A tap on an event marks it while bulk-selection is on, and opens it
+  // otherwise. Events the calendar has no id for can't be tracked in the
+  // selection, so they stay inert rather than looking selectable.
+  const handleEventTap = useCallback((event: CalendarEventReadable) => {
+    if (selectionMode) {
+      if (event.id) onToggleEventSelection?.(event);
+      return;
+    }
+    onEventPress?.(event);
+  }, [selectionMode, onToggleEventSelection, onEventPress]);
+
+  const isEventSelected = useCallback(
+    (event: CalendarEventReadable) => !!(event.id && selectedEventKeys?.has(eventOccurrenceKey(event))),
+    [selectedEventKeys],
+  );
 
   const panResponder = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => false,
@@ -510,6 +610,13 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       await Promise.all(
         monthsToFetch.map(({year: y, month: m}) => fetchMonthEvents(y, m))
       );
+      // Adjacent months have just landed in eventsCache, which is a ref and so
+      // cannot trigger a render on its own. Bump the version that everything
+      // derived from it keys off — a page rendered while its month was still
+      // unfetched would otherwise stay empty until some other change bumped it.
+      // Nothing here depends on cacheVersion, so this cannot re-enter: the next
+      // call finds the months cached and fetches nothing.
+      setCacheVersion(v => v + 1);
     }
   }, [hasPermission, fetchMonthEvents, getMonthKey]);
 
@@ -679,18 +786,11 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
     const map = new Map<string, CalendarEventReadable[]>();
 
     events.forEach(event => {
-      if (!event.startDate || !event.endDate) return;
-      const eventStart = new Date(event.startDate);
-      let eventEnd = new Date(event.endDate);
+      const range = eventDayRange(event);
+      if (!range) return;
 
-      // All-day events from iCal/EventKit have endDate = next day 00:00.
-      // Subtract 1ms so the loop stops on the actual last day.
-      if (event.allDay && eventEnd.getHours() === 0 && eventEnd.getMinutes() === 0 && eventEnd.getSeconds() === 0) {
-        eventEnd = new Date(eventEnd.getTime() - 1);
-      }
-
-      const currentDate = new Date(eventStart.getFullYear(), eventStart.getMonth(), eventStart.getDate());
-      const endDate = new Date(eventEnd.getFullYear(), eventEnd.getMonth(), eventEnd.getDate());
+      const currentDate = new Date(range.firstDay);
+      const endDate = range.lastDay;
 
       while (currentDate <= endDate) {
         const dateKey = `${currentDate.getFullYear()}-${currentDate.getMonth()}-${currentDate.getDate()}`;
@@ -712,6 +812,132 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
     },
     [eventsByDate],
   );
+
+  // Everything a month page needs that depends only on the month and its
+  // events, computed once per month instead of on every page render.
+  //
+  // eventsByDate above indexes only the month in view, but the FlatList keeps
+  // three pages mounted, so the page path used to re-derive all of this inline
+  // — re-filtering the month's event list for all 42 day cells, twice over.
+  // Months are built lazily; the whole cache is dropped when the events or the
+  // colour filter change. eventsCache is a ref, so cacheVersion is the signal.
+  //
+  // Layout (page height, row heights) deliberately stays out of here: it
+  // depends on gridHeight, which changes independently of the events.
+  const getPageModel = useMemo(() => {
+    const byMonth = new Map<string, PageModel>();
+
+    const buildEventIndex = (monthKey: string) => {
+      const index = new Map<string, CalendarEventReadable[]>();
+      for (const event of eventsCache.current.get(monthKey) ?? []) {
+        const range = eventDayRange(event);
+        if (!range) continue;
+
+        // Apply the user-calendar filter on the resolved event colour.
+        if (filterColor) {
+          const resolved = (event.id && eventColors[event.id]) || event.calendar?.color;
+          if (resolved?.toUpperCase() !== filterColor.toUpperCase()) continue;
+        }
+
+        const day = new Date(range.firstDay);
+        const {lastDay} = range;
+        while (day <= lastDay) {
+          const dateKey = `${day.getFullYear()}-${day.getMonth()}-${day.getDate()}`;
+          const bucket = index.get(dateKey);
+          if (bucket) bucket.push(event);
+          else index.set(dateKey, [event]);
+          day.setDate(day.getDate() + 1);
+        }
+      }
+      return index;
+    };
+
+    // Lay multi-day bars out into rows per week, so bars that overlap in time
+    // stack instead of colliding.
+    const buildMultiDayByWeek = (
+      days: ReturnType<typeof getCalendarDaysForMonth>,
+      weeks: number,
+      eventsForDate: (d: Date) => CalendarEventReadable[],
+    ) => {
+      const byWeek: MultiDayBar[][] = [];
+      for (let wi = 0; wi < weeks; wi++) {
+        const weekDays = days.slice(wi * 7, (wi + 1) * 7);
+        const bars: MultiDayBar[] = [];
+        const daySlots: number[][] = Array.from({length: 7}, () => []);
+        const seen = new Set<string>();
+
+        // Precompute each column's midnight once, instead of per candidate bar.
+        const columnDays = weekDays.map(item => {
+          if (!item.date) return null;
+          const d = new Date(item.date);
+          d.setHours(0, 0, 0, 0);
+          return d.getTime();
+        });
+
+        weekDays.forEach(item => {
+          if (!item.date) return;
+          for (const ev of eventsForDate(item.date)) {
+            if (!ev.id) continue;
+            if (seen.has(ev.id)) continue;
+
+            const range = eventDayRange(ev);
+            if (!range) continue;
+
+            const from = range.firstDay.getTime(), to = range.lastDay.getTime();
+            const isMulti = ev.allDay || from !== to;
+            if (!isMulti) continue;
+            seen.add(ev.id);
+            let startIdx = -1, endIdx = -1;
+            for (let k = 0; k < 7; k++) {
+              const col = columnDays[k];
+              if (col === null) continue;
+              if (col >= from && col <= to) {
+                if (startIdx === -1) startIdx = k;
+                endIdx = k;
+              }
+            }
+            if (startIdx < 0) continue;
+
+            let rowIndex = 0;
+            for (;;) {
+              let free = true;
+              for (let k = startIdx; k <= endIdx; k++) {
+                if (daySlots[k].includes(rowIndex)) { free = false; break; }
+              }
+              if (free) break;
+              rowIndex++;
+            }
+            for (let k = startIdx; k <= endIdx; k++) daySlots[k].push(rowIndex);
+            bars.push({event: ev, startDayIndex: startIdx, endDayIndex: endIdx, rowIndex});
+          }
+        });
+
+        byWeek.push(bars);
+      }
+      return byWeek;
+    };
+
+    return (year: number, month: number): PageModel => {
+      const monthKey = `${year}-${month}`;
+      const cached = byMonth.get(monthKey);
+      if (cached) return cached;
+
+      const days = getCalendarDaysForMonth(year, month);
+      const weeks = Math.ceil(days.length / 7);
+      const eventIndex = buildEventIndex(monthKey);
+      const getEvents = (d: Date) =>
+        eventIndex.get(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`) ?? [];
+
+      const model: PageModel = {
+        days,
+        weeks,
+        getEventsForDate: getEvents,
+        multiDayByWeek: buildMultiDayByWeek(days, weeks, getEvents),
+      };
+      byMonth.set(monthKey, model);
+      return model;
+    };
+  }, [cacheVersion, filterColor, eventColors, getCalendarDaysForMonth]);
 
   // Get the next upcoming event (for when today has no remaining events)
   const nextUpcomingEvent = useMemo(() => {
@@ -1055,8 +1281,9 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
         <View
           style={styles.gridWrapper}
           onLayout={(e) => {
-            const h = e.nativeEvent.layout.height;
+            const {height: h, width: w} = e.nativeEvent.layout;
             if (h > 0 && Math.abs(h - gridHeight) > 1) setGridHeight(h);
+            if (w > 0 && Math.abs(w - gridWidth) > 1) setGridWidth(w);
           }}>
         <FlatList
           ref={monthListRef}
@@ -1066,12 +1293,13 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
           pagingEnabled
           showsHorizontalScrollIndicator={false}
           initialScrollIndex={MONTH_ANCHOR}
-          getItemLayout={(_, index) => ({length: CALENDAR_GRID_WIDTH, offset: CALENDAR_GRID_WIDTH * index, index})}
+          getItemLayout={(_, index) => ({length: gridWidth, offset: gridWidth * index, index})}
+          extraData={gridWidth}
           windowSize={3}
           maxToRenderPerBatch={1}
           removeClippedSubviews
           onMomentumScrollEnd={(e) => {
-            const idx = Math.floor(e.nativeEvent.contentOffset.x / CALENDAR_GRID_WIDTH + 0.5);
+            const idx = Math.floor(e.nativeEvent.contentOffset.x / gridWidth + 0.5);
             const {year, month} = getMonthForIndex(idx);
             const cur = currentDateRef.current;
             if (year !== cur.getFullYear() || month !== cur.getMonth()) {
@@ -1086,89 +1314,18 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
           style={{height: gridHeight}}
           renderItem={({index: pageIndex}) => {
             const {year: pageYear, month: pageMonth} = getMonthForIndex(pageIndex);
-            const pageDays = getCalendarDaysForMonth(pageYear, pageMonth);
-            const pageWeeks = Math.ceil(pageDays.length / 7);
+            const {
+              days: pageDays,
+              weeks: pageWeeks,
+              getEventsForDate: pageGetEventsForDate,
+              multiDayByWeek: pageMultiDayByWeek,
+            } = getPageModel(pageYear, pageMonth);
             const pageDayHeight = Math.floor(gridHeight / pageWeeks);
-
-            // Compute multi-day events for this page
-            const pageGetEventsForDate = (d: Date) => {
-              const key = `${d.getFullYear()}-${d.getMonth()}`;
-              const cached = eventsCache.current.get(key);
-              if (!cached) return [];
-              return cached.filter(event => {
-                if (!event.startDate || !event.endDate) return false;
-                // Apply user-calendar filter on the resolved event color.
-                if (filterColor) {
-                  const resolved = (event.id && eventColors[event.id]) || event.calendar?.color;
-                  if (resolved?.toUpperCase() !== filterColor.toUpperCase()) return false;
-                }
-                const s = new Date(event.startDate);
-                let e = new Date(event.endDate);
-                if (event.allDay && e.getHours() === 0 && e.getMinutes() === 0 && e.getSeconds() === 0) {
-                  e = new Date(e.getTime() - 1);
-                }
-                s.setHours(0, 0, 0, 0);
-                e.setHours(0, 0, 0, 0);
-                const dd = new Date(d);
-                dd.setHours(0, 0, 0, 0);
-                return dd >= s && dd <= e;
-              });
-            };
-
-            // Compute multi-day events by week for this page
-            const pageMultiDayByWeek: Array<Array<{event: CalendarEventReadable; startDayIndex: number; endDayIndex: number; rowIndex: number}>> = [];
-            for (let wi = 0; wi < pageWeeks; wi++) {
-              const wd = pageDays.slice(wi * 7, (wi + 1) * 7);
-              const weekEvents: Array<{event: CalendarEventReadable; startDayIndex: number; endDayIndex: number; rowIndex: number}> = [];
-              const daySlots: number[][] = Array.from({length: 7}, () => []);
-              const seen = new Set<string>();
-              wd.forEach((item, di) => {
-                if (!item.date) return;
-                const evts = pageGetEventsForDate(item.date);
-                evts.forEach(ev => {
-                  if (!ev.startDate || !ev.endDate || !ev.id) return;
-                  if (seen.has(ev.id)) return;
-                  const isMulti = ev.allDay || (() => {
-                    const s2 = new Date(ev.startDate!); const e2 = new Date(ev.endDate!);
-                    s2.setHours(0,0,0,0); e2.setHours(0,0,0,0);
-                    return s2.getTime() !== e2.getTime();
-                  })();
-                  if (!isMulti) return;
-                  seen.add(ev.id);
-                  const evS = new Date(ev.startDate); evS.setHours(0,0,0,0);
-                  const evE = new Date(ev.endDate); evE.setHours(0,0,0,0);
-                  let startIdx = -1, endIdx = -1;
-                  for (let k = 0; k < 7; k++) {
-                    const wdd = wd[k]?.date;
-                    if (!wdd) continue;
-                    const wdt = new Date(wdd); wdt.setHours(0,0,0,0);
-                    if (wdt >= evS && wdt <= evE) {
-                      if (startIdx === -1) startIdx = k;
-                      endIdx = k;
-                    }
-                  }
-                  if (startIdx >= 0) {
-                    let rowIndex = 0;
-                    while (true) {
-                      let ok = true;
-                      for (let k = startIdx; k <= endIdx; k++) {
-                        if (daySlots[k].includes(rowIndex)) { ok = false; break; }
-                      }
-                      if (ok) break;
-                      rowIndex++;
-                    }
-                    for (let k = startIdx; k <= endIdx; k++) daySlots[k].push(rowIndex);
-                    weekEvents.push({event: ev, startDayIndex: startIdx, endDayIndex: endIdx, rowIndex});
-                  }
-                });
-              });
-              pageMultiDayByWeek.push(weekEvents);
-            }
 
             return (
               <View
-                style={{width: CALENDAR_GRID_WIDTH, backgroundColor: colors.surface}}
-                {...(pageYear === currentYear && pageMonth === currentMonth ? panResponder.panHandlers : {})}
+                style={{width: gridWidth, backgroundColor: colors.surface}}
+                {...(!selectionMode && pageYear === currentYear && pageMonth === currentMonth ? panResponder.panHandlers : {})}
                 onLayout={pageYear === currentYear && pageMonth === currentMonth ? (e) => {
                   e.target.measure((_x, _y, width, height, pageX, pageY) => {
                     gridLayoutRef.current = {x: pageX, y: pageY, width, height};
@@ -1233,7 +1390,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                                 inDragRange && {backgroundColor: colors.dragRange},
                                 isEventDragTarget && {backgroundColor: colors.dragRange},
                               ]}
-                              onPress={() => handleDateSelect(item.date!)}
+                              onPress={selectionMode ? undefined : () => handleDateSelect(item.date!)}
                               accessibilityRole="button">
                               <View style={styles.dayHeader}>
                                 <Text style={[
@@ -1267,6 +1424,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                                   <View style={[styles.singleDayEventsContainer, {marginTop: multiDayOffset > 0 ? multiDayOffset + 2 : 2}]}>
                                     {visibleSingle.map(event => {
                                       const isDraggedEvent = isEventDragSource && draggingEvent?.event.id === event.id;
+                                      const selected = isEventSelected(event);
                                       return (
                                         <TouchableOpacity
                                           key={event.id}
@@ -1274,9 +1432,13 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                                             styles.singleDayEventBox,
                                             {backgroundColor: (event.id && eventColors[event.id]) || event.calendar?.color || colors.primary},
                                             isDraggedEvent && {opacity: 0.3},
+                                            // Fade what is not picked so the selection reads at a
+                                            // glance — the chips are too small for a checkbox.
+                                            selectionMode && !selected && styles.unselectedEvent,
+                                            selected && styles.selectedEvent,
                                           ]}
-                                          onPress={() => onEventPress?.(event)}
-                                          onLongPress={() => handleEventLongPress(event, item.date!)}
+                                          onPress={() => handleEventTap(event)}
+                                          onLongPress={selectionMode ? undefined : () => handleEventLongPress(event, item.date!)}
                                           delayLongPress={200}>
                                           <Text style={[styles.singleDayEventTime, {color: colors.onEvent}]}>
                                             {event.startDate && formatTimeCompact(event.startDate)}
@@ -1287,7 +1449,11 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                                           <Text style={[styles.singleDayEventTitle, {color: colors.onEvent}]} numberOfLines={1} ellipsizeMode="clip">
                                             {event.title}
                                           </Text>
-                                          {!!(event.id && eventPhotos[event.id]) && (
+                                          {selected ? (
+                                            <View style={[styles.selectedBadge, {backgroundColor: colors.onEvent}]}>
+                                              <Ionicons name="checkmark" size={9} color={(event.id && eventColors[event.id]) || event.calendar?.color || colors.primary} />
+                                            </View>
+                                          ) : !!(event.id && eventPhotos[event.id]) && (
                                             <View style={styles.photoBadge}>
                                               <Ionicons name="camera" size={10} color="#fff" />
                                             </View>
@@ -1315,8 +1481,9 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                         {/* 連続予定バー */}
                         {pageMultiDayByWeek[weekIndex]?.map((mdEvent, mdIdx) => {
                           const evColor = (mdEvent.event.id && eventColors[mdEvent.event.id]) || mdEvent.event.calendar?.color || colors.primary;
-                          const left = mdEvent.startDayIndex * DAY_WIDTH;
-                          const width = (mdEvent.endDayIndex - mdEvent.startDayIndex + 1) * DAY_WIDTH - 2;
+                          const dayWidth = gridWidth / 7;
+                          const left = mdEvent.startDayIndex * dayWidth;
+                          const width = (mdEvent.endDayIndex - mdEvent.startDayIndex + 1) * dayWidth - 2;
                           // Position multi-day bars below the day number row (top of cell)
                           // so they no longer compete with single-day events for the cell's bottom space.
                           const posStyle = {top: DAY_NUMBER_HEIGHT + 2 + mdEvent.rowIndex * (EVENT_BAR_HEIGHT + 2)};
@@ -1328,12 +1495,23 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                           const isFirstDay = evStart && firstWeekDay && evStart.getFullYear() === firstWeekDay.getFullYear() && evStart.getMonth() === firstWeekDay.getMonth() && evStart.getDate() === firstWeekDay.getDate();
                           const isLastDay = evEnd && lastWeekDay && evEnd.getFullYear() === lastWeekDay.getFullYear() && evEnd.getMonth() === lastWeekDay.getMonth() && evEnd.getDate() === lastWeekDay.getDate();
 
+                          const mdSelected = isEventSelected(mdEvent.event);
+
                           return (
                             <TouchableOpacity
                               key={`md-${mdEvent.event.id}-${mdIdx}`}
-                              style={{position: 'absolute', left: left + (isFirstDay ? 1 : 0), ...posStyle, width: width - (isFirstDay ? 1 : 0) - (isLastDay ? 1 : 0), height: EVENT_BAR_HEIGHT - 2, backgroundColor: evColor + 'CC', borderTopLeftRadius: isFirstDay ? 6 : 0, borderBottomLeftRadius: isFirstDay ? 6 : 0, borderTopRightRadius: isLastDay ? 6 : 0, borderBottomRightRadius: isLastDay ? 6 : 0, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 2, paddingVertical: 2, zIndex: 10}}
+                              style={[
+                                {position: 'absolute', left: left + (isFirstDay ? 1 : 0), ...posStyle, width: width - (isFirstDay ? 1 : 0) - (isLastDay ? 1 : 0), height: EVENT_BAR_HEIGHT - 2, backgroundColor: evColor + 'CC', borderTopLeftRadius: isFirstDay ? 6 : 0, borderBottomLeftRadius: isFirstDay ? 6 : 0, borderTopRightRadius: isLastDay ? 6 : 0, borderBottomRightRadius: isLastDay ? 6 : 0, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 2, paddingVertical: 2, zIndex: 10},
+                                selectionMode && !mdSelected && styles.unselectedEvent,
+                                mdSelected && styles.selectedEvent,
+                              ]}
                               activeOpacity={0.7}
-                              onPress={() => onEventPress?.(mdEvent.event)}>
+                              onPress={() => handleEventTap(mdEvent.event)}>
+                              {mdSelected && (
+                                <View style={[styles.selectedBadge, {backgroundColor: colors.onEvent}]}>
+                                  <Ionicons name="checkmark" size={9} color={evColor} />
+                                </View>
+                              )}
                               {isFirstDay && evStart && !mdEvent.event.allDay && (
                                 <Text style={[styles.singleDayEventTime, {color: colors.onEvent}]}>{formatTimeCompact(mdEvent.event.startDate!)}</Text>
                               )}
@@ -1552,7 +1730,7 @@ const styles = StyleSheet.create({
     borderColor: '#e0e0e0',
   },
   weekdayCell: {
-    width: DAY_WIDTH,
+    width: `${100 / 7}%`,
     alignItems: 'center',
     paddingVertical: 3,
     borderRightWidth: 0.5,
@@ -1584,7 +1762,8 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   dayCell: {
-    width: DAY_WIDTH,
+    // A seventh of the week row, so cells follow the measured grid width.
+    width: `${100 / 7}%`,
     alignItems: 'center',
     paddingTop: 2,
     borderRightWidth: 0.5,
@@ -1703,6 +1882,27 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.9)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  // Bulk-selection states. The chips are only a few millimetres tall, so the
+  // signal is the contrast between picked and not-picked rather than a control
+  // drawn inside each chip.
+  unselectedEvent: {
+    opacity: 0.35,
+  },
+  selectedEvent: {
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  selectedBadge: {
+    position: 'absolute',
+    top: 1,
+    right: 1,
+    width: 13,
+    height: 13,
+    borderRadius: 6.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
   },
   singleDayEventTime: {
     fontSize: 9,

@@ -23,14 +23,13 @@ export const PRODUCT_IDS = {
 const SUBSCRIPTION_IDS = [PRODUCT_IDS.monthly, PRODUCT_IDS.yearly];
 const PRODUCT_IDS_LIST = [PRODUCT_IDS.lifetime];
 
-// The first auto-renewable subscription of an app can only be submitted
-// attached to a version, and getting that group approved is a separate round of
-// review. Ship the non-consumable alone first: with this false the paywall
-// never mentions a subscription and the store is never asked for one. Flip it
-// back to true once monthly/yearly are approved in App Store Connect — no other
-// code has to change. Restore still accepts subscription IDs so anyone who buys
-// one later keeps working.
-export const SUBSCRIPTIONS_ENABLED = false;
+// The first auto-renewable subscription of an app can only be submitted attached
+// to a version, so the non-consumable shipped alone first. Now that the
+// subscription group exists, the paywall asks the store for monthly/yearly again.
+// This only makes them *eligible* to appear: the paywall still drops any plan the
+// store returned no price for, so a subscription that is still "Waiting for
+// Review" simply doesn't render. Restore accepts subscription IDs either way.
+export const SUBSCRIPTIONS_ENABLED = true;
 
 // What the paywall needs, flattened. Keeping the store's own shapes inside this
 // module means a library upgrade doesn't reach into the UI — the last one

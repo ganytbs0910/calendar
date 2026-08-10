@@ -1,4 +1,4 @@
-import React, {useState, useRef, useMemo, useCallback} from 'react';
+import React, {useState, useRef, useMemo, useCallback, useEffect} from 'react';
 import {
   View,
   Text,
@@ -6,7 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
-  Dimensions,
+  useWindowDimensions,
   NativeSyntheticEvent,
   NativeScrollEvent,
 } from 'react-native';
@@ -15,8 +15,6 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import {useTheme} from '../theme/ThemeContext';
 import {ThemeColors} from '../theme/colors';
 import {requestNotificationPermission} from '../services/notificationService';
-
-const {width: SCREEN_WIDTH} = Dimensions.get('window');
 
 interface OnboardingModalProps {
   visible: boolean;
@@ -31,6 +29,11 @@ const OnboardingModal: React.FC<OnboardingModalProps> = ({visible, onClose}) => 
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const scrollRef = useRef<ScrollView>(null);
   const [page, setPage] = useState(0);
+  // Paging has to agree with the pager's real width. The window is resizable on
+  // iPad, so measure the ScrollView instead of freezing a width at module load;
+  // the window width is only the first-paint estimate.
+  const {width: windowWidth} = useWindowDimensions();
+  const [pagerWidth, setPagerWidth] = useState(windowWidth);
 
   const slides = [
     {icon: 'calendar-outline', color: '#007AFF', title: t('onbWelcomeTitle'), body: t('onbWelcomeBody')},
@@ -41,9 +44,18 @@ const OnboardingModal: React.FC<OnboardingModalProps> = ({visible, onClose}) => 
   ];
 
   const onScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const p = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
+    if (pagerWidth <= 0) return;
+    const p = Math.round(e.nativeEvent.contentOffset.x / pagerWidth);
     if (p !== page) setPage(p);
-  }, [page]);
+  }, [page, pagerWidth]);
+
+  // A resize leaves the offset pointing between slides — snap back to the
+  // current one so the pager never rests on a seam.
+  useEffect(() => {
+    scrollRef.current?.scrollTo({x: page * pagerWidth, animated: false});
+    // Only re-snap on width changes; paging itself already scrolls.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pagerWidth]);
 
   const isLast = page >= slides.length - 1;
   const next = async () => {
@@ -53,7 +65,7 @@ const OnboardingModal: React.FC<OnboardingModalProps> = ({visible, onClose}) => 
       onClose();
       return;
     }
-    scrollRef.current?.scrollTo({x: (page + 1) * SCREEN_WIDTH, animated: true});
+    scrollRef.current?.scrollTo({x: (page + 1) * pagerWidth, animated: true});
   };
 
   return (
@@ -70,9 +82,13 @@ const OnboardingModal: React.FC<OnboardingModalProps> = ({visible, onClose}) => 
           pagingEnabled
           showsHorizontalScrollIndicator={false}
           onScroll={onScroll}
+          onLayout={e => {
+            const w = e.nativeEvent.layout.width;
+            if (w > 0 && Math.abs(w - pagerWidth) > 1) setPagerWidth(w);
+          }}
           scrollEventThrottle={16}>
           {slides.map((s, i) => (
-            <View key={i} style={styles.slide}>
+            <View key={i} style={[styles.slide, {width: pagerWidth}]}>
               <View style={[styles.iconCircle, {backgroundColor: s.color + '1A'}]}>
                 <Ionicons name={s.icon} size={64} color={s.color} />
               </View>
@@ -98,7 +114,7 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   container: {flex: 1, backgroundColor: colors.background, paddingBottom: 40},
   skipRow: {alignItems: 'flex-end', paddingHorizontal: 20, paddingTop: 16, height: 48, justifyContent: 'center'},
   skip: {fontSize: 15, color: colors.textSecondary},
-  slide: {width: SCREEN_WIDTH, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 36, gap: 24},
+  slide: {alignItems: 'center', justifyContent: 'center', paddingHorizontal: 36, gap: 24},
   iconCircle: {width: 140, height: 140, borderRadius: 70, alignItems: 'center', justifyContent: 'center', marginBottom: 8},
   title: {fontSize: 24, fontWeight: '800', color: colors.text, textAlign: 'center'},
   body: {fontSize: 15, color: colors.textSecondary, textAlign: 'center', lineHeight: 22},

@@ -7,7 +7,7 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
-  Dimensions,
+  useWindowDimensions,
   Share,
   TextInput,
 } from 'react-native';
@@ -18,8 +18,6 @@ import {ThemeColors} from '../theme/colors';
 import {usePremium} from '../context/PremiumContext';
 import {PaywallScreen} from './PaywallScreen';
 import {fetchStats, getMonthRange, StatsBundle, getIncomeThresholds, setIncomeThresholds} from '../services/statisticsService';
-
-const SCREEN_WIDTH = Dimensions.get('window').width;
 
 interface StatsScreenProps {
   visible: boolean;
@@ -611,7 +609,10 @@ const Heatmap: React.FC<HeatmapProps> = ({matrix, weekdayLabels, isDark, primary
       if (v > max) max = v;
     }
   }
-  const cellW = (SCREEN_WIDTH - 32 - 24 - 24) / 24;
+  // Read at render time, not module load: on iPad the app runs in a resizable
+  // window, so a width captured at startup goes stale.
+  const {width: screenWidth} = useWindowDimensions();
+  const cellW = (screenWidth - 32 - 24 - 24) / 24;
   const cellH = 14;
 
   const intensityColor = (v: number) => {

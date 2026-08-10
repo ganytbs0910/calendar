@@ -8,7 +8,7 @@ import {
   TextInput,
   Animated,
   PanResponder,
-  Dimensions,
+  useWindowDimensions,
   Keyboard,
   Platform,
   TouchableWithoutFeedback,
@@ -31,10 +31,7 @@ import {
 } from '../services/taskService';
 import {getPinnedEventIds, togglePinnedEvent} from '../services/pinnedEventService';
 
-const SCREEN_HEIGHT = Dimensions.get('window').height;
-const SCREEN_WIDTH = Dimensions.get('window').width;
 const BOTTOM_SHEET_MIN = 60;
-const BOTTOM_SHEET_MAX = SCREEN_HEIGHT * 0.5;
 
 const DURATION_OPTIONS: {label: string; value: number}[] = [
   {label: 'duration5min', value: 5},
@@ -118,6 +115,11 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
 }, ref) => {
   const {colors, isDark} = useTheme();
   const {t} = useTranslation();
+
+  // The window is resizable on iPad, so anything derived from its size has to
+  // be read at render time rather than captured once at module load.
+  const {width: screenWidth, height: screenHeight} = useWindowDimensions();
+  const sheetMax = screenHeight * 0.5;
 
   const dateKey = useMemo(() => getDateKey(date), [date]);
 
@@ -210,22 +212,34 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
   // ── Sheet height animation ──
   const sheetAnim = useRef(new Animated.Value(BOTTOM_SHEET_MIN)).current;
   const sheetOffset = useRef(BOTTOM_SHEET_MIN);
+  // The responder is built once, so it reads the expanded height through a ref
+  // that follows the current window instead of closing over the first value.
+  const sheetMaxRef = useRef(sheetMax);
+  sheetMaxRef.current = sheetMax;
   const sheetPanResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dy) > 5,
       onPanResponderMove: (_, gs) => {
-        const next = Math.max(BOTTOM_SHEET_MIN, Math.min(BOTTOM_SHEET_MAX, sheetOffset.current - gs.dy));
+        const next = Math.max(BOTTOM_SHEET_MIN, Math.min(sheetMaxRef.current, sheetOffset.current - gs.dy));
         sheetAnim.setValue(next);
       },
       onPanResponderRelease: (_, gs) => {
         const next = sheetOffset.current - gs.dy;
-        const target = next > (BOTTOM_SHEET_MIN + BOTTOM_SHEET_MAX) / 2 ? BOTTOM_SHEET_MAX : BOTTOM_SHEET_MIN;
+        const target = next > (BOTTOM_SHEET_MIN + sheetMaxRef.current) / 2 ? sheetMaxRef.current : BOTTOM_SHEET_MIN;
         sheetOffset.current = target;
         Animated.spring(sheetAnim, {toValue: target, useNativeDriver: false, bounciness: 4}).start();
       },
     })
   ).current;
+
+  // A window that got shorter can leave the sheet taller than its new maximum.
+  useEffect(() => {
+    if (sheetOffset.current > sheetMax) {
+      sheetOffset.current = sheetMax;
+      sheetAnim.setValue(sheetMax);
+    }
+  }, [sheetMax, sheetAnim]);
 
   // ── Swipe-to-delete ──
   const swipedItemIdRef = useRef<string | null>(null);
@@ -813,7 +827,15 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
           <View style={[styles.addOverlay, {backgroundColor: 'rgba(0,0,0,0.5)', paddingBottom: keyboardHeight}]}>
             <View style={styles.addKeyboardWrap}>
               <TouchableWithoutFeedback>
-                <View style={[styles.addCard, {backgroundColor: colors.surface}]}>
+                <View
+                  style={[
+                    styles.addCard,
+                    {
+                      backgroundColor: colors.surface,
+                      width: screenWidth - 48,
+                      maxHeight: screenHeight * 0.8,
+                    },
+                  ]}>
                   <ScrollView
                     keyboardShouldPersistTaps="handled"
                     showsVerticalScrollIndicator={false}>
@@ -1300,8 +1322,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   addCard: {
-    width: SCREEN_WIDTH - 48,
-    maxHeight: SCREEN_HEIGHT * 0.8,
     borderRadius: 16,
     padding: 20,
     shadowColor: '#000',

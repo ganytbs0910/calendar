@@ -1,6 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const STORAGE_KEY = '@sleep_settings';
+// Set when the user dismisses the first-run setup with "later". Without it the
+// prompt has no memory and reappears on every launch, which is what makes an
+// otherwise skippable modal feel mandatory.
+const DEFERRED_KEY = '@sleep_settings_deferred';
 
 export interface DayTimeSetting {
   wakeUpHour: number;   // 0-23
@@ -62,6 +66,25 @@ export const getSleepSettings = async (): Promise<SleepSettings | null> => {
 export const saveSleepSettings = async (settings: SleepSettings): Promise<void> => {
   try {
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+  } catch {
+    // Save failed silently
+  }
+};
+
+/** True once the user has dismissed the first-run setup with "later". */
+export const isSleepSetupDeferred = async (): Promise<boolean> => {
+  try {
+    return (await AsyncStorage.getItem(DEFERRED_KEY)) === '1';
+  } catch {
+    // Treat a read failure as "not deferred" — worst case the user sees the
+    // prompt once more, which beats silently losing the feature.
+    return false;
+  }
+};
+
+export const deferSleepSetup = async (): Promise<void> => {
+  try {
+    await AsyncStorage.setItem(DEFERRED_KEY, '1');
   } catch {
     // Save failed silently
   }

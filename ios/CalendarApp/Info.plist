@@ -302,10 +302,11 @@
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
+	<!-- Portrait-only on iPad too, matching iPhone. Note this does not
+	     guarantee a full-height container: on iPadOS 26 the app still runs in a
+	     resizable window, so the paywall stays scrollable (see PaywallScreen). -->
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>

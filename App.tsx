@@ -1,4 +1,4 @@
-import React, {useCallback, useState, useRef, useEffect} from 'react';
+import React, {useCallback, useState, useRef, useEffect, useMemo} from 'react';
 import {
   Animated,
   StatusBar,
@@ -20,10 +20,10 @@ import {
 } from 'react-native';
 import {SafeAreaProvider, SafeAreaView, useSafeAreaInsets} from 'react-native-safe-area-context';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
-import Calendar, {CalendarRef} from './src/components/Calendar';
+import Calendar, {CalendarRef, eventOccurrenceKey} from './src/components/Calendar';
 import WeekView, {WeekViewRef} from './src/components/WeekView';
-import AddEventModal, {removeEventColor} from './src/components/AddEventModal';
-import {removeAllEventPhotos} from './src/services/eventPhotoService';
+import AddEventModal, {removeEventColor, getEventColor, setEventColor} from './src/components/AddEventModal';
+import {removeAllEventPhotos, reassignEventPhotos} from './src/services/eventPhotoService';
 import EventDetailModal from './src/components/EventDetailModal';
 import {UndoToast, UndoAction} from './src/components/UndoToast';
 import UpdateAvailableModal from './src/components/UpdateAvailableModal';
@@ -38,11 +38,13 @@ import {ThemeProvider, useTheme} from './src/theme/ThemeContext';
 import {ACCENTS, AccentKey} from './src/theme/colors';
 import {PremiumProvider, usePremium} from './src/context/PremiumContext';
 import {PaywallScreen} from './src/components/PaywallScreen';
+import {TERMS_URL, PRIVACY_URL, openLegalLink} from './src/utils/legalLinks';
 import StatsScreen from './src/components/StatsScreen';
 import PhotosScreen from './src/components/PhotosScreen';
 import LocalCalendarsScreen from './src/components/localcal/LocalCalendarsScreen';
 import AgentScreen from './src/components/AgentScreen';
 import OneTimeHint from './src/components/OneTimeHint';
+import ScreenOverlay from './src/components/ScreenOverlay';
 import ShareAvailabilityModal from './src/components/ShareAvailabilityModal';
 import PollModal from './src/components/PollModal';
 import SettingsLauncherScreen from './src/components/SettingsLauncherScreen';
@@ -68,6 +70,8 @@ import {
   getSleepSettings,
   saveSleepSettings,
   getDefaultSettings,
+  isSleepSetupDeferred,
+  deferSleepSetup,
 } from './src/services/sleepSettingsService';
 import {EventTemplate, getTemplates, deleteTemplate} from './src/services/templateService';
 import {EventHistoryEntry} from './src/services/eventHistoryService';
@@ -160,14 +164,18 @@ type ViewMode = 'month' | 'week';
 // Stable no-op, so memoised children don't see a new prop each render.
 const NOOP = () => {};
 
-type TabKey = 'home' | 'tasks' | 'stats' | 'localcal' | 'photos' | 'settings';
+/** Undo window for a bulk delete — longer than the single-event default. */
+const BULK_UNDO_DURATION_MS = 12000;
+
+// The tab bar carries only what the app is *for*: the calendar, the intentions
+// that fill it, and the time/pay those add up to. Settings, my-calendars and
+// photos are real features but sit off that axis, so they open as full screens
+// from the header gear / Settings rather than holding a permanent slot.
+type TabKey = 'home' | 'tasks' | 'stats';
 const TABS: {key: TabKey; labelKey: string; icon: string; iconOutline: string}[] = [
   {key: 'home', labelKey: 'tabHome', icon: 'home', iconOutline: 'home-outline'},
   {key: 'tasks', labelKey: 'tabTasks', icon: 'checkbox', iconOutline: 'checkbox-outline'},
   {key: 'stats', labelKey: 'tabStats', icon: 'stats-chart', iconOutline: 'stats-chart-outline'},
-  {key: 'localcal', labelKey: 'tabLocalCal', icon: 'albums', iconOutline: 'albums-outline'},
-  {key: 'photos', labelKey: 'tabPhotos', icon: 'images', iconOutline: 'images-outline'},
-  {key: 'settings', labelKey: 'tabSettings', icon: 'settings', iconOutline: 'settings-outline'},
 ];
 
 // Sleep Setup Modal with weekday/weekend tabs
@@ -294,9 +302,14 @@ const SleepSetupModal = ({
             <Text style={styles.sleepSetupSaveBtnText}>{t('save')}</Text>
           </TouchableOpacity>
 
+          {/* On first run there is nothing to cancel back to, so the escape
+              hatch is framed as "later" — the calendar is usable without this,
+              and blocking it behind a mandatory modal costs first-run users. */}
           {onCancel && (
             <TouchableOpacity style={styles.sleepSetupCancelBtn} onPress={onCancel}>
-              <Text style={styles.sleepSetupCancelBtnText}>{t('cancel')}</Text>
+              <Text style={styles.sleepSetupCancelBtnText}>
+                {currentSettings ? t('cancel') : t('sleepSetupLater')}
+              </Text>
             </TouchableOpacity>
           )}
         </View>
@@ -313,6 +326,11 @@ function AppContent() {
   const [selectedLanguage, setSelectedLanguage] = useState('auto');
   const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  // Former tabs, now full-screen destinations: Settings opens from the header
+  // gear, the other two from inside Settings.
+  const [showSettingsScreen, setShowSettingsScreen] = useState(false);
+  const [showLocalCal, setShowLocalCal] = useState(false);
+  const [showPhotos, setShowPhotos] = useState(false);
   const [showJobsManager, setShowJobsManager] = useState(false);
   const [showPaywall, setShowPaywall] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -334,7 +352,12 @@ function AppContent() {
   const openShareAvail = useCallback(() => setShowShareAvail(true), []);
   const openPoll = useCallback(() => setShowPoll(true), []);
   const openSettingsModal = useCallback(() => setShowSettingsModal(true), []);
-  const openStats = useCallback(() => setShowStats(true), []);
+  const openSettingsScreen = useCallback(() => setShowSettingsScreen(true), []);
+  const closeSettingsScreen = useCallback(() => setShowSettingsScreen(false), []);
+  const openLocalCal = useCallback(() => setShowLocalCal(true), []);
+  const closeLocalCal = useCallback(() => setShowLocalCal(false), []);
+  const openPhotos = useCallback(() => setShowPhotos(true), []);
+  const closePhotos = useCallback(() => setShowPhotos(false), []);
   const openIncomeWall = useCallback(() => setShowIncomeWall(true), []);
   const openJobs = useCallback(() => setShowJobsManager(true), []);
   // Once the launch settles, mount the remaining tabs in the background so the
@@ -355,7 +378,6 @@ function AppContent() {
   const [searchResults, setSearchResults] = useState<CalendarEventReadable[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showSleepSetup, setShowSleepSetup] = useState(false);
-  const [showStats, setShowStats] = useState(false);
   const [showIncomeWall, setShowIncomeWall] = useState(false);
   const [sleepSettings, setSleepSettings] = useState<SleepSettings | null>(null);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
@@ -578,15 +600,18 @@ function AppContent() {
     return () => sub.remove();
   }, [lockEnabled]);
 
-  // Load sleep settings on mount, show setup if not configured
+  // Load sleep settings on mount, and prompt for setup the first time only.
+  // Once the user has said "later" the prompt stays away — it can still be
+  // reached from the week view and from Settings.
   useEffect(() => {
-    getSleepSettings().then(settings => {
+    (async () => {
+      const settings = await getSleepSettings();
       if (settings) {
         setSleepSettings(settings);
-      } else {
-        setShowSleepSetup(true);
+        return;
       }
-    });
+      if (!(await isSleepSetupDeferred())) setShowSleepSetup(true);
+    })();
   }, []);
 
   const handleSaveSleepSettings = useCallback(async (settings: SleepSettings) => {
@@ -598,6 +623,13 @@ function AppContent() {
   const openSleepSettings = useCallback(() => {
     setShowSleepSetup(true);
   }, []);
+
+  // Dismissing without saving. On first run that also records the deferral, so
+  // the prompt doesn't come back on the next launch.
+  const dismissSleepSetup = useCallback(() => {
+    setShowSleepSetup(false);
+    if (!sleepSettings) deferSleepSetup().catch(() => {});
+  }, [sleepSettings]);
 
   const handleSleepSettingsChange = useCallback(async (settings: SleepSettings) => {
     await saveSleepSettings(settings);
@@ -930,6 +962,80 @@ function AppContent() {
     refreshAllViews();
   }, [refreshAllViews]);
 
+  // Re-create events that were just deleted. Shared by the single-event undo
+  // and the bulk-delete undo, so both restore exactly the same fields.
+  //
+  // The calendar cannot resurrect an event — saveEvent mints a NEW id — so
+  // anything the app keyed to the old id (custom colour, attached photos) has
+  // to be carried across by hand. Deleting no longer discards those; that is
+  // deferred to discardDeletedEventData once undo is no longer possible.
+  const restoreEvents = useCallback(async (
+    events: CalendarEventReadable[],
+    {recreateSeries = false}: {recreateSeries?: boolean} = {},
+  ) => {
+    try {
+      const calendars = await RNCalendarEvents.findCalendars();
+      const writableCalendars = calendars.filter(cal => cal.allowsModifications);
+      const defaultCalendar = writableCalendars.find(cal => cal.isPrimary) || writableCalendars[0];
+      if (!defaultCalendar) return;
+
+      for (const eventData of events) {
+        if (!eventData.startDate || !eventData.endDate) continue;
+
+        const eventConfig: any = {
+          calendarId: eventData.calendar?.id || defaultCalendar.id,
+          startDate: eventData.startDate,
+          endDate: eventData.endDate,
+          allDay: eventData.allDay || false,
+          location: eventData.location,
+          notes: eventData.notes,
+          url: eventData.url,
+          alarms: eventData.alarms,
+        };
+        // Only when the user deleted the whole series. Undoing a single
+        // occurrence must put back that one date — rebuilding a series here
+        // would conjure dozens of events the user never deleted.
+        //
+        // Even then this is approximate: the calendar hands back the frequency
+        // but never the original interval, count or end date, so the series is
+        // rebuilt as a plain weekly-style run of 52. See the note in the
+        // delete confirmation.
+        if (recreateSeries && eventData.recurrence) {
+          eventConfig.recurrenceRule = {
+            frequency: eventData.recurrence,
+            occurrence: 52,
+          };
+        }
+        const newId = await RNCalendarEvents.saveEvent(eventData.title || '', eventConfig);
+
+        const oldId = eventData.id;
+        if (newId && oldId && newId !== oldId) {
+          const color = await getEventColor(oldId).catch(() => null);
+          if (color) {
+            await setEventColor(newId, color).catch(() => {});
+            await removeEventColor(oldId).catch(() => {});
+          }
+          await reassignEventPhotos(oldId, newId).catch(() => {});
+        }
+      }
+      refreshAllViews();
+    } catch {
+      Alert.alert(t('error'), t('restoreFailed'));
+    }
+  }, [refreshAllViews]);
+
+  const clearUndoAction = useCallback(() => setUndoAction(null), []);
+
+  // The undo window has closed: now the colour and photos really can go. The
+  // photo files are unlinked here, which is why it must not run any earlier.
+  const discardDeletedEventData = useCallback((events: CalendarEventReadable[]) => {
+    for (const event of events) {
+      if (!event.id) continue;
+      removeEventColor(event.id).catch(() => {});
+      removeAllEventPhotos(event.id).catch(() => {});
+    }
+  }, []);
+
   const handleUndoableDelete = useCallback(async (
     eventData: CalendarEventReadable,
     deleteType: 'single' | 'future' | 'all',
@@ -937,61 +1043,157 @@ function AppContent() {
     if (!eventData.id) return;
 
     try {
-      // Perform the delete
+      // Perform the delete. The single/future variants need the occurrence
+      // they were invoked on — without exceptionDate the calendar has no way
+      // to tell which instance of the series was meant.
+      const exceptionDate = eventData.occurrenceDate ?? eventData.startDate;
       if (deleteType === 'all') {
         await RNCalendarEvents.removeEvent(eventData.id);
       } else if (deleteType === 'future') {
-        await RNCalendarEvents.removeEvent(eventData.id, {futureEvents: true});
+        await RNCalendarEvents.removeEvent(eventData.id, {exceptionDate, futureEvents: true});
       } else {
-        await RNCalendarEvents.removeEvent(eventData.id, {futureEvents: false});
-      }
-      // Clean up orphaned color setting (only for full deletes - single instance keeps its color for the series)
-      if (deleteType === 'all') {
-        removeEventColor(eventData.id).catch(() => {});
-        removeAllEventPhotos(eventData.id).catch(() => {});
+        await RNCalendarEvents.removeEvent(eventData.id, {exceptionDate, futureEvents: false});
       }
       cancelEventNotification(eventData.id).catch(() => {});
       refreshAllViews();
 
-      // Set up undo action
+      // The colour and photos stay put until the undo window closes — see
+      // discardDeletedEventData. Deleting a single instance of a series leaves
+      // the series (and so its colour and photos) alone either way.
+      const orphaned = deleteType === 'all' ? [eventData] : [];
+
       setUndoAction({
         message: t('eventDeleted', {title: eventData.title}),
-        onUndo: async () => {
-          try {
-            // Re-create the event
-            const calendars = await RNCalendarEvents.findCalendars();
-            const writableCalendars = calendars.filter(cal => cal.allowsModifications);
-            const defaultCalendar = writableCalendars.find(cal => cal.isPrimary) || writableCalendars[0];
-            if (!defaultCalendar) return;
-
-            const eventConfig: any = {
-              calendarId: eventData.calendar?.id || defaultCalendar.id,
-              startDate: eventData.startDate!,
-              endDate: eventData.endDate!,
-              allDay: eventData.allDay || false,
-              location: eventData.location,
-              notes: eventData.notes,
-              url: eventData.url,
-              alarms: eventData.alarms,
-            };
-            // Restore recurrence if it was a recurring event
-            if (eventData.recurrence) {
-              eventConfig.recurrenceRule = {
-                frequency: eventData.recurrence,
-                occurrence: 52,
-              };
-            }
-            await RNCalendarEvents.saveEvent(eventData.title || '', eventConfig);
-            refreshAllViews();
-          } catch {
-            Alert.alert(t('error'), t('restoreFailed'));
-          }
-        },
+        onUndo: () => restoreEvents([eventData], {recreateSeries: deleteType === 'all'}),
+        onExpire: () => discardDeletedEventData(orphaned),
       });
     } catch {
       Alert.alert(t('error'), t('deleteFailed'));
     }
-  }, [refreshAllViews]);
+  }, [refreshAllViews, restoreEvents, discardDeletedEventData]);
+
+  // --- Bulk delete -------------------------------------------------------
+  // The whole event is kept, not just its id: once it is deleted the calendar
+  // can no longer tell us what it was, and undo has to re-create it.
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedForDelete, setSelectedForDelete] = useState<Map<string, CalendarEventReadable>>(new Map());
+
+  const selectedEventKeys = useMemo(
+    () => new Set(selectedForDelete.keys()),
+    [selectedForDelete],
+  );
+
+  const toggleEventSelection = useCallback((event: CalendarEventReadable) => {
+    if (!event.id) return;
+    const key = eventOccurrenceKey(event);
+    setSelectedForDelete(prev => {
+      const next = new Map(prev);
+      if (next.has(key)) next.delete(key);
+      else next.set(key, event);
+      return next;
+    });
+  }, []);
+
+  // A normal month cell shows at most two events and folds the rest into a
+  // "全N件" label, which would make the folded ones impossible to tap and so
+  // impossible to select. Fullscreen lays every event out, so selection turns
+  // it on and hands the view back exactly as it was on the way out.
+  const fullscreenBeforeSelection = useRef<boolean | null>(null);
+
+  const enterSelectionMode = useCallback(() => {
+    setFullscreenMonth(prev => {
+      fullscreenBeforeSelection.current = prev;
+      return true;
+    });
+    setSelectionMode(true);
+  }, []);
+
+  const exitSelectionMode = useCallback(() => {
+    setSelectionMode(false);
+    setSelectedForDelete(new Map());
+    if (fullscreenBeforeSelection.current !== null) {
+      setFullscreenMonth(fullscreenBeforeSelection.current);
+      fullscreenBeforeSelection.current = null;
+    }
+  }, []);
+
+  const runBulkDelete = useCallback(async (events: CalendarEventReadable[]) => {
+    // Delete one at a time and remember what actually went through, so a
+    // failure part-way leaves undo offering exactly the events that are gone.
+    const deleted: CalendarEventReadable[] = [];
+    for (const event of events) {
+      if (!event.id) continue;
+      try {
+        if (event.recurrence) {
+          // Take only the occurrence that was tapped. Plain removeEvent would
+          // drop the entire series, including dates nowhere near this month.
+          await RNCalendarEvents.removeEvent(event.id, {
+            exceptionDate: event.occurrenceDate ?? event.startDate,
+            futureEvents: false,
+          });
+        } else {
+          await RNCalendarEvents.removeEvent(event.id);
+          cancelEventNotification(event.id).catch(() => {});
+        }
+        deleted.push(event);
+      } catch {
+        // Keep going; the count reported below reflects what survived.
+      }
+    }
+
+    exitSelectionMode();
+    refreshAllViews();
+
+    if (deleted.length === 0) {
+      Alert.alert(t('error'), t('deleteFailed'));
+      return;
+    }
+    if (deleted.length < events.length) {
+      Alert.alert(t('error'), t('bulkDeletePartial', {
+        deleted: deleted.length,
+        failed: events.length - deleted.length,
+      }));
+    }
+
+    setUndoAction({
+      message: t('bulkDeleted', {count: deleted.length}),
+      onUndo: () => restoreEvents(deleted),
+      onExpire: () => discardDeletedEventData(deleted),
+      // Noticing that a whole batch went and reaching for undo takes longer
+      // than it does for one event.
+      durationMs: BULK_UNDO_DURATION_MS,
+    });
+  }, [exitSelectionMode, refreshAllViews, restoreEvents, discardDeletedEventData, t]);
+
+  const handleBulkDelete = useCallback(() => {
+    const events = [...selectedForDelete.values()];
+    if (events.length === 0) return;
+
+    // The count is now honest — only the tapped occurrences go. What is still
+    // worth saying is that undoing one of them brings it back as a standalone
+    // event rather than stitching it back into the series.
+    const recurringCount = events.filter(e => e.recurrence).length;
+
+    Alert.alert(
+      t('bulkDeleteTitle'),
+      recurringCount > 0
+        ? t('bulkDeleteConfirmRecurring', {count: events.length, recurring: recurringCount})
+        : t('bulkDeleteConfirm', {count: events.length}),
+      [
+        {text: t('cancel'), style: 'cancel'},
+        {
+          text: t('delete'),
+          style: 'destructive',
+          onPress: () => { runBulkDelete(events); },
+        },
+      ],
+    );
+  }, [selectedForDelete, runBulkDelete, t]);
+
+  // Selection only makes sense on the month grid, which is where the taps go.
+  useEffect(() => {
+    if (viewMode !== 'month' && selectionMode) exitSelectionMode();
+  }, [viewMode, selectionMode, exitSelectionMode]);
 
   const toggleViewMode = useCallback(() => {
     setViewMode(prev => prev === 'month' ? 'week' : 'month');
@@ -1101,13 +1303,10 @@ function AppContent() {
               accessibilityRole="button">
               <SearchIcon size={18} color={colors.primary} />
             </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.iconBtn}
-              onPress={() => setShowStats(true)}
-              accessibilityLabel={t('statsLabel')}
-              accessibilityRole="button">
-              <Ionicons name="stats-chart-outline" size={20} color={colors.primary} />
-            </TouchableOpacity>
+            {/* No stats icon here: the Stats tab is the single entry point.
+                It used to be reachable from three places at once (this icon,
+                the tab, and a Settings row), which is what made the header
+                crowded without adding anything. */}
             {viewMode === 'month' && (
               <TouchableOpacity
                 style={styles.iconBtn}
@@ -1115,6 +1314,20 @@ function AppContent() {
                 accessibilityLabel={t('fullscreenToggle')}
                 accessibilityRole="button">
                 <Ionicons name={fullscreenMonth ? 'contract-outline' : 'expand-outline'} size={20} color={colors.primary} />
+              </TouchableOpacity>
+            )}
+            {viewMode === 'month' && (
+              <TouchableOpacity
+                style={styles.iconBtn}
+                onPress={() => (selectionMode ? exitSelectionMode() : enterSelectionMode())}
+                accessibilityLabel={t('bulkDeleteMode')}
+                accessibilityRole="button"
+                accessibilityState={{selected: selectionMode}}>
+                <Ionicons
+                  name={selectionMode ? 'checkmark-circle' : 'checkmark-circle-outline'}
+                  size={20}
+                  color={colors.primary}
+                />
               </TouchableOpacity>
             )}
           </View>
@@ -1142,6 +1355,13 @@ function AppContent() {
               accessibilityHint={t('addEventHint')}
               accessibilityRole="button">
               <Animated.Text style={[styles.addButtonText, {transform: [{scale: addBtnScale}]}]}>+</Animated.Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.iconBtn}
+              onPress={openSettingsScreen}
+              accessibilityLabel={t('settings')}
+              accessibilityRole="button">
+              <Ionicons name="settings-outline" size={20} color={colors.primary} />
             </TouchableOpacity>
           </View>
         </View>
@@ -1176,6 +1396,9 @@ function AppContent() {
               hasPermission={hasPermission}
               fullscreenMode={fullscreenMonth}
               filterColor={userCalendars.find(c => c.id === selectedCalendarId)?.color ?? null}
+              selectionMode={selectionMode}
+              selectedEventKeys={selectedEventKeys}
+              onToggleEventSelection={toggleEventSelection}
             />
         ) : (
           <WeekView
@@ -1191,6 +1414,28 @@ function AppContent() {
             filterColor={userCalendars.find(c => c.id === selectedCalendarId)?.color ?? null}
           />
         )}
+
+        {selectionMode && (
+          <View style={[styles.selectionBar, {backgroundColor: colors.surface, borderTopColor: colors.border}]}>
+            <TouchableOpacity onPress={exitSelectionMode} accessibilityRole="button">
+              <Text style={[styles.selectionCancel, {color: colors.primary}]}>{t('cancel')}</Text>
+            </TouchableOpacity>
+            <Text style={[styles.selectionCount, {color: colors.textSecondary}]}>
+              {t('selectedCount', {count: selectedForDelete.size})}
+            </Text>
+            <TouchableOpacity
+              style={[
+                styles.selectionDeleteBtn,
+                {backgroundColor: colors.error},
+                selectedForDelete.size === 0 && styles.selectionDeleteBtnDisabled,
+              ]}
+              onPress={handleBulkDelete}
+              disabled={selectedForDelete.size === 0}
+              accessibilityRole="button">
+              <Text style={styles.selectionDeleteText}>{t('delete')}</Text>
+            </TouchableOpacity>
+          </View>
+        )}
         </View>
 
         {visitedTabs.has('tasks') && (
@@ -1204,35 +1449,6 @@ function AppContent() {
             {/* 統計タブ: 活動サマリー・月の給料集計を表示。年収の壁は設定からのみ。
                 visible=タブ表示中のみ → 入るたびに最新化（年フェッチは省略済みで軽量）。 */}
             <StatsScreen embedded hideIncomeWall visible={activeTab === 'stats'} onClose={NOOP} initialDate={currentDate} />
-          </View>
-        )}
-
-        {visitedTabs.has('localcal') && (
-          <View style={[styles.tabPage, activeTab !== 'localcal' && styles.tabHidden]}>
-            {/* マイカレンダータブ: 端末内に独立保存するTimeTree風サブカレンダー。
-                メインのiCloudカレンダーとは完全分離。 */}
-            <LocalCalendarsScreen visible={activeTab === 'localcal'} />
-          </View>
-        )}
-
-        {visitedTabs.has('photos') && (
-          <View style={[styles.tabPage, activeTab !== 'photos' && styles.tabHidden]}>
-            {/* 写真タブ: 全イベントに添付した写真を月ごとにまとめて表示。
-                visible=表示中のみ → 入るたびに最新化。 */}
-            <PhotosScreen visible={activeTab === 'photos'} />
-          </View>
-        )}
-
-        {visitedTabs.has('settings') && (
-          <View style={[styles.tabPage, activeTab !== 'settings' && styles.tabHidden]}>
-            <SettingsLauncherScreen
-              onOpenShareAvail={openShareAvail}
-              onOpenPoll={openPoll}
-              onOpenSettings={openSettingsModal}
-              onOpenStats={openStats}
-              onOpenIncomeWall={openIncomeWall}
-              onOpenJobs={openJobs}
-            />
           </View>
         )}
 
@@ -1735,6 +1951,17 @@ function AppContent() {
                           <Text style={styles.settingsItemLabel}>{t('build')}</Text>
                           <Text style={styles.settingsItemValue}>React Native 0.83</Text>
                         </View>
+                        {/* Guideline 3.1.2(c). Also on the Settings tab and the
+                            paywall itself — all three read the same constants,
+                            so the URL cannot drift between them. */}
+                        <TouchableOpacity style={styles.settingsItem} onPress={() => openLegalLink(TERMS_URL)}>
+                          <Text style={styles.settingsItemLabel}>{t('termsOfUse')}</Text>
+                          <Ionicons name="open-outline" size={16} color={colors.textTertiary} />
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.settingsItem} onPress={() => openLegalLink(PRIVACY_URL)}>
+                          <Text style={styles.settingsItemLabel}>{t('privacyPolicy')}</Text>
+                          <Ionicons name="open-outline" size={16} color={colors.textTertiary} />
+                        </TouchableOpacity>
                       </View>
 
                     </>
@@ -1960,7 +2187,6 @@ function AppContent() {
         </Modal>
 
         {/* Stats Screen */}
-        <StatsScreen visible={showStats} onClose={() => setShowStats(false)} initialDate={currentDate} hideIncomeWall />
         <StatsScreen visible={showIncomeWall} onClose={() => setShowIncomeWall(false)} initialDate={currentDate} onlyIncomeWall />
 
         {/* ① 空き日シェアカード */}
@@ -2077,7 +2303,7 @@ function AppContent() {
           visible={showSleepSetup}
           currentSettings={sleepSettings}
           onSave={handleSaveSleepSettings}
-          onCancel={sleepSettings ? () => setShowSleepSetup(false) : undefined}
+          onCancel={dismissSleepSetup}
           formatTimeDisplay={formatTimeDisplay}
         />
 
@@ -2104,6 +2330,33 @@ function AppContent() {
             );
           })}
         </View>
+
+        {/* Full-screen destinations. Rendered after the tab bar so they paint
+            above it, and in this order so my-calendars / photos — which open
+            from Settings — sit above Settings itself. */}
+        <ScreenOverlay visible={showSettingsScreen} onClose={closeSettingsScreen}>
+          <SettingsLauncherScreen
+            onOpenShareAvail={openShareAvail}
+            onOpenPoll={openPoll}
+            onOpenSettings={openSettingsModal}
+            onOpenIncomeWall={openIncomeWall}
+            onOpenJobs={openJobs}
+            onOpenLocalCal={openLocalCal}
+            onOpenPhotos={openPhotos}
+            onClose={closeSettingsScreen}
+          />
+        </ScreenOverlay>
+
+        <ScreenOverlay visible={showLocalCal} onClose={closeLocalCal}>
+          {/* 端末内に独立保存するTimeTree風サブカレンダー。
+              メインのiCloudカレンダーとは完全分離。 */}
+          <LocalCalendarsScreen visible={showLocalCal} onClose={closeLocalCal} />
+        </ScreenOverlay>
+
+        <ScreenOverlay visible={showPhotos} onClose={closePhotos}>
+          {/* 全イベントに添付した写真を月ごとにまとめて表示。 */}
+          <PhotosScreen visible={showPhotos} onClose={closePhotos} />
+        </ScreenOverlay>
       </SafeAreaView>
       {/* Language Selection Modal */}
       <Modal
@@ -2140,7 +2393,7 @@ function AppContent() {
           </ScrollView>
         </View>
       </Modal>
-      <UndoToast action={undoAction} onDismiss={() => setUndoAction(null)} />
+      <UndoToast action={undoAction} onDismiss={clearUndoAction} />
       {/* バナー広告の表示を一旦停止中。再開する場合は下のブロックのコメントを外す。
       {!__DEV__ && !isPremium && (
         <View style={styles.bannerContainer}>
@@ -2180,6 +2433,36 @@ const styles = StyleSheet.create({
   },
   tabHidden: {
     display: 'none',
+  },
+  // Bulk-delete action bar. Sits above the month grid's own content rather
+  // than over the tab bar, so switching tabs stays reachable.
+  selectionBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  selectionCancel: {
+    fontSize: 15,
+  },
+  selectionCount: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  selectionDeleteBtn: {
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  selectionDeleteBtnDisabled: {
+    opacity: 0.4,
+  },
+  selectionDeleteText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
   },
   bottomTabBar: {
     flexDirection: 'row',

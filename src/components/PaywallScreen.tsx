@@ -5,10 +5,9 @@ import {
   TouchableOpacity,
   StyleSheet,
   SafeAreaView,
+  ScrollView,
   Alert,
-  Dimensions,
   ActivityIndicator,
-  Linking,
 } from 'react-native';
 import {useTheme} from '../theme/ThemeContext';
 import {usePremium} from '../context/PremiumContext';
@@ -25,14 +24,7 @@ import {
   SUBSCRIPTIONS_ENABLED,
   type IAPProduct,
 } from '../services/iapService';
-
-const SCREEN_WIDTH = Dimensions.get('window').width;
-
-// Apple's standard EULA. Replace only if a custom agreement is registered in
-// App Store Connect. PRIVACY_URL must match the Privacy Policy URL on the
-// App Store product page — App Review compares them.
-const TERMS_URL = 'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/';
-const PRIVACY_URL = 'https://ganytbs0910.github.io/ideal-calendar-support/privacy-policy.html';
+import {TERMS_URL, PRIVACY_URL, openLegalLink} from '../utils/legalLinks';
 
 interface PaywallScreenProps {
   visible: boolean;
@@ -198,100 +190,110 @@ export const PaywallScreen: React.FC<PaywallScreenProps> = ({visible, onClose}) 
         </TouchableOpacity>
       </View>
 
-      <View style={styles.content}>
-        <Text style={[styles.title, {color: colors.text}]}>{t('upgradeToPremium')}</Text>
-        <Text style={[styles.subtitle, {color: colors.textSecondary}]}>
-          {t('premiumSubtitle')}
-        </Text>
-
-        <View style={styles.features}>
-          {[
-            t('featureMultipleJobs'),
-            t('featureShiftPremiums'),
-            t('featureIncomeWall'),
-            t('featureExportCsv'),
-            t('featureNoAds'),
-            t('featureCustomColors'),
-          ].map((f, i) => (
-            <View key={i} style={styles.featureRow}>
-              <Text style={{fontSize: 16, color: colors.primary}}>✓</Text>
-              <Text style={[styles.featureText, {color: colors.text}]}>{f}</Text>
-            </View>
-          ))}
-        </View>
-
-        {isLoading ? (
-          <ActivityIndicator size="large" color={colors.primary} style={{marginVertical: 40}} />
-        ) : availablePlans.length === 0 ? (
-          <Text style={[styles.unavailable, {color: colors.textSecondary}]}>
-            {t('plansUnavailable')}
+      {/* Guideline 4: on iPad the paywall can be laid out in a short container —
+          landscape, Split View, an iPadOS 26 resized window, or the pageSheet
+          that JobsManagerModal renders it inside. Centering without a scroll
+          view clipped the legal links off the bottom, so the content scrolls. */}
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}>
+        <View style={styles.content}>
+          <Text style={[styles.title, {color: colors.text}]}>{t('upgradeToPremium')}</Text>
+          <Text style={[styles.subtitle, {color: colors.textSecondary}]}>
+            {t('premiumSubtitle')}
           </Text>
-        ) : (
-          <View style={styles.plans}>
-            {availablePlans.map(plan => (
-              <TouchableOpacity
-                key={plan.type}
-                style={[
-                  styles.planCard,
-                  {
-                    borderColor: selectedPlan === plan.type ? colors.primary : colors.border,
-                    backgroundColor: selectedPlan === plan.type ? `${colors.primary}10` : colors.surface,
-                  },
-                ]}
-                onPress={() => setSelectedPlan(plan.type)}>
-                {plan.badgeKey && (
-                  <View style={[styles.planBadge, {backgroundColor: colors.primary}]}>
-                    <Text style={styles.planBadgeText}>{t(plan.badgeKey)}</Text>
-                  </View>
-                )}
-                <Text style={[styles.planTitle, {color: colors.text}]}>{t(plan.titleKey)}</Text>
-                <View style={{flexDirection: 'row', alignItems: 'baseline'}}>
-                  <Text style={[styles.planPrice, {color: colors.text}]}>{plan.price}</Text>
-                  <Text style={[styles.planSub, {color: colors.textSecondary}]}>{t(plan.subKey)}</Text>
-                </View>
-                {selectedPlan === plan.type && (
-                  <View style={[styles.selectedIndicator, {backgroundColor: colors.primary}]}>
-                    <Text style={{color: '#fff', fontSize: 12, fontWeight: '700'}}>✓</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
+
+          <View style={styles.features}>
+            {[
+              t('featureMultipleJobs'),
+              t('featureShiftPremiums'),
+              t('featureIncomeWall'),
+              t('featureExportCsv'),
+              t('featureNoAds'),
+              t('featureCustomColors'),
+            ].map((f, i) => (
+              <View key={i} style={styles.featureRow}>
+                <Text style={{fontSize: 16, color: colors.primary}}>✓</Text>
+                <Text style={[styles.featureText, {color: colors.text}]}>{f}</Text>
+              </View>
             ))}
           </View>
-        )}
 
-        {(isLoading || availablePlans.length > 0) && (
-          <TouchableOpacity
-            style={[styles.purchaseBtn, {backgroundColor: colors.primary, opacity: isPurchasing || isLoading ? 0.6 : 1}]}
-            onPress={handlePurchase}
-            disabled={isPurchasing || isLoading}>
-            {isPurchasing ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.purchaseBtnText}>{t('startPremium')}</Text>
-            )}
+          {isLoading ? (
+            <ActivityIndicator size="large" color={colors.primary} style={{marginVertical: 40}} />
+          ) : availablePlans.length === 0 ? (
+            <Text style={[styles.unavailable, {color: colors.textSecondary}]}>
+              {t('plansUnavailable')}
+            </Text>
+          ) : (
+            <View style={styles.plans}>
+              {availablePlans.map(plan => (
+                <TouchableOpacity
+                  key={plan.type}
+                  style={[
+                    styles.planCard,
+                    {
+                      borderColor: selectedPlan === plan.type ? colors.primary : colors.border,
+                      backgroundColor: selectedPlan === plan.type ? `${colors.primary}10` : colors.surface,
+                    },
+                  ]}
+                  onPress={() => setSelectedPlan(plan.type)}>
+                  {plan.badgeKey && (
+                    <View style={[styles.planBadge, {backgroundColor: colors.primary}]}>
+                      <Text style={styles.planBadgeText}>{t(plan.badgeKey)}</Text>
+                    </View>
+                  )}
+                  <Text style={[styles.planTitle, {color: colors.text}]}>{t(plan.titleKey)}</Text>
+                  <View style={{flexDirection: 'row', alignItems: 'baseline'}}>
+                    <Text style={[styles.planPrice, {color: colors.text}]}>{plan.price}</Text>
+                    <Text style={[styles.planSub, {color: colors.textSecondary}]}>{t(plan.subKey)}</Text>
+                  </View>
+                  {selectedPlan === plan.type && (
+                    <View style={[styles.selectedIndicator, {backgroundColor: colors.primary}]}>
+                      <Text style={{color: '#fff', fontSize: 12, fontWeight: '700'}}>✓</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+
+          {(isLoading || availablePlans.length > 0) && (
+            <TouchableOpacity
+              style={[styles.purchaseBtn, {backgroundColor: colors.primary, opacity: isPurchasing || isLoading ? 0.6 : 1}]}
+              onPress={handlePurchase}
+              disabled={isPurchasing || isLoading}>
+              {isPurchasing ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.purchaseBtnText}>{t('startPremium')}</Text>
+              )}
+            </TouchableOpacity>
+          )}
+
+          <TouchableOpacity onPress={handleRestore} style={styles.restoreBtn} disabled={isPurchasing}>
+            <Text style={[styles.restoreText, {color: colors.textTertiary}]}>{t('restorePurchase')}</Text>
           </TouchableOpacity>
-        )}
 
-        <TouchableOpacity onPress={handleRestore} style={styles.restoreBtn} disabled={isPurchasing}>
-          <Text style={[styles.restoreText, {color: colors.textTertiary}]}>{t('restorePurchase')}</Text>
-        </TouchableOpacity>
+          {/* Keyed off the selected plan, not SUBSCRIPTIONS_ENABLED: the lifetime
+              purchase does not auto-renew, so it must not carry the renewal note. */}
+          <Text style={[styles.legal, {color: colors.textTertiary}]}>
+            {t(selectedPlan === 'lifetime' ? 'lifetimeNote' : 'subscriptionNote')}
+          </Text>
 
-        <Text style={[styles.legal, {color: colors.textTertiary}]}>
-          {t(SUBSCRIPTIONS_ENABLED ? 'subscriptionNote' : 'lifetimeNote')}
-        </Text>
-
-        {/* Guideline 3.1.2 requires functional Terms of Use (EULA) and Privacy
-            Policy links on the screen that offers the purchase. */}
-        <View style={styles.legalLinks}>
-          <TouchableOpacity onPress={() => Linking.openURL(TERMS_URL)}>
-            <Text style={[styles.legalLink, {color: colors.textTertiary}]}>{t('termsOfUse')}</Text>
-          </TouchableOpacity>
-          <Text style={[styles.legalLink, {color: colors.textTertiary}]}>·</Text>
-          <TouchableOpacity onPress={() => Linking.openURL(PRIVACY_URL)}>
-            <Text style={[styles.legalLink, {color: colors.textTertiary}]}>{t('privacyPolicy')}</Text>
-          </TouchableOpacity>
+          {/* Guideline 3.1.2 requires functional Terms of Use (EULA) and Privacy
+              Policy links on the screen that offers the purchase. */}
+          <View style={styles.legalLinks}>
+            <TouchableOpacity onPress={() => openLegalLink(TERMS_URL)}>
+              <Text style={[styles.legalLink, {color: colors.textTertiary}]}>{t('termsOfUse')}</Text>
+            </TouchableOpacity>
+            <Text style={[styles.legalLink, {color: colors.textTertiary}]}>·</Text>
+            <TouchableOpacity onPress={() => openLegalLink(PRIVACY_URL)}>
+              <Text style={[styles.legalLink, {color: colors.textTertiary}]}>{t('privacyPolicy')}</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -318,10 +320,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  content: {
-    flex: 1,
-    paddingHorizontal: 24,
+  // Centers the card while it fits and lets it scroll once it does not.
+  scrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
+    paddingVertical: 16,
+  },
+  content: {
+    width: '100%',
+    // Keeps the plan cards and buttons a readable width on iPad instead of
+    // stretching them across the whole sheet.
+    maxWidth: 520,
+    alignSelf: 'center',
+    paddingHorizontal: 24,
   },
   title: {
     fontSize: 26,

@@ -7,7 +7,6 @@ import {
   StyleSheet,
   Alert,
   ScrollView,
-  Dimensions,
 } from 'react-native';
 import {CalendarEventReadable} from 'react-native-calendar-events';
 import RNCalendarEvents from 'react-native-calendar-events';
@@ -18,9 +17,6 @@ import {computeShiftPay, legalBreakMinutes} from '../services/statisticsService'
 import {useTheme} from '../theme/ThemeContext';
 import {useTranslation} from 'react-i18next';
 import EventPhotoSection from './EventPhotoSection';
-
-const SCREEN_WIDTH = Dimensions.get('window').width;
-const CALENDAR_DAY_WIDTH = Math.floor((SCREEN_WIDTH - 80) / 7);
 
 interface EventDetailModalProps {
   visible: boolean;
@@ -660,11 +656,15 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 20,
   },
   copyModalContent: {
     backgroundColor: '#fff',
     borderRadius: 16,
-    width: SCREEN_WIDTH - 40,
+    // Sized off the overlay rather than a startup window width, so it follows
+    // an iPad window resize instead of overflowing it.
+    width: '100%',
+    maxWidth: 420,
     padding: 16,
   },
   copyModalHeader: {
@@ -714,7 +714,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   copyCalendarWeekday: {
-    width: CALENDAR_DAY_WIDTH,
+    width: `${100 / 7}%`,
     textAlign: 'center',
     fontSize: 12,
     color: '#666',
@@ -725,11 +725,12 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   copyCalendarDay: {
-    width: CALENDAR_DAY_WIDTH,
-    height: CALENDAR_DAY_WIDTH,
+    // A seventh of the row, kept square, so the grid tracks the modal's width.
+    width: `${100 / 7}%`,
+    aspectRatio: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: CALENDAR_DAY_WIDTH / 2,
+    borderRadius: 999,
   },
   copyCalendarDayText: {
     fontSize: 16,

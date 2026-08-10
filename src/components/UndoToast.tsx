@@ -5,6 +5,14 @@ import {useTranslation} from 'react-i18next';
 export interface UndoAction {
   message: string;
   onUndo: () => Promise<void>;
+  /**
+   * Called once the window has closed without an undo — the point of no
+   * return. Anything the delete deferred so undo stayed possible (files,
+   * settings keyed to the old event) gets cleaned up here.
+   */
+  onExpire?: () => void;
+  /** Override the default window. Longer suits bulk actions. */
+  durationMs?: number;
 }
 
 interface UndoToastProps {
@@ -19,35 +27,49 @@ export const UndoToast: React.FC<UndoToastProps> = ({action, onDismiss}) => {
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(50)).current;
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Read from callbacks without making them part of the show effect's deps —
+  // the effect must run once per action, not once per parent render, or the
+  // auto-dismiss timer is restarted forever and the window never closes.
+  const onDismissRef = useRef(onDismiss);
+  useEffect(() => { onDismissRef.current = onDismiss; }, [onDismiss]);
+  const undoneRef = useRef(false);
 
   const dismiss = useCallback(() => {
     Animated.parallel([
       Animated.timing(opacity, {toValue: 0, duration: 200, useNativeDriver: true}),
       Animated.timing(translateY, {toValue: 50, duration: 200, useNativeDriver: true}),
-    ]).start(() => onDismiss());
-  }, [opacity, translateY, onDismiss]);
+    ]).start(() => onDismissRef.current());
+  }, [opacity, translateY]);
 
   useEffect(() => {
-    if (action) {
-      // Show
-      Animated.parallel([
-        Animated.timing(opacity, {toValue: 1, duration: 250, useNativeDriver: true}),
-        Animated.spring(translateY, {toValue: 0, useNativeDriver: true, tension: 100, friction: 10}),
-      ]).start();
+    if (!action) return;
 
-      // Auto-dismiss
-      timerRef.current = setTimeout(dismiss, TOAST_DURATION);
-    }
+    undoneRef.current = false;
+    Animated.parallel([
+      Animated.timing(opacity, {toValue: 1, duration: 250, useNativeDriver: true}),
+      Animated.spring(translateY, {toValue: 0, useNativeDriver: true, tension: 100, friction: 10}),
+    ]).start();
+
+    timerRef.current = setTimeout(dismiss, action.durationMs ?? TOAST_DURATION);
 
     return () => {
       if (timerRef.current) {
         clearTimeout(timerRef.current);
+        timerRef.current = null;
       }
+      // Whether the window ran out, the toast was replaced by a newer action,
+      // or the screen went away, the chance to undo is gone unless it was
+      // actually taken. Commit the deferred cleanup exactly once.
+      if (!undoneRef.current) action.onExpire?.();
     };
   }, [action, dismiss, opacity, translateY]);
 
   const handleUndo = useCallback(async () => {
-    if (timerRef.current) clearTimeout(timerRef.current);
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    undoneRef.current = true;
     if (action?.onUndo) {
       await action.onUndo();
     }

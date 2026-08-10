@@ -1,17 +1,25 @@
-// ── Settings tab — launcher for app-level actions & settings ────────────────
+// ── Settings screen — launcher for app-level actions & settings ─────────────
 //
 // Hosts what used to live in the header "・・・" overflow menu (share, poll,
-// detailed settings) plus display toggles, so the top bar stays clean and the
-// bottom Settings tab is the single home for configuration.
+// detailed settings) plus display toggles, so the top bar stays clean and this
+// screen is the single home for configuration.
+//
+// It used to be a bottom tab; settings is a low-frequency destination and did
+// not earn a permanent slot, so it now opens from the calendar header's gear.
+// It is deliberately still a plain View (not a Modal) — every row here opens a
+// Modal, and on iOS a modal presented from a modal is silently swallowed.
 
-import React from 'react';
+import React, {useState} from 'react';
 import {Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View} from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import DeviceInfo from 'react-native-device-info';
 
 import {useTheme} from '../theme/ThemeContext';
 import {useTranslation} from 'react-i18next';
+import {usePremium} from '../context/PremiumContext';
 import {resetAllHints} from './OneTimeHint';
+import {PaywallScreen} from './PaywallScreen';
+import {TERMS_URL, PRIVACY_URL, openLegalLink} from '../utils/legalLinks';
 
 interface RowProps {
   icon: string;
@@ -44,21 +52,28 @@ interface Props {
   onOpenShareAvail: () => void;
   onOpenPoll: () => void;
   onOpenSettings: () => void;
-  onOpenStats: () => void;
   onOpenIncomeWall: () => void;
   onOpenJobs: () => void;
+  onOpenLocalCal: () => void;
+  onOpenPhotos: () => void;
+  /** Dismisses the screen. Omitted when it is hosted somewhere it can't close. */
+  onClose?: () => void;
 }
 
 const SettingsLauncherScreen: React.FC<Props> = ({
   onOpenShareAvail,
   onOpenPoll,
   onOpenSettings,
-  onOpenStats,
   onOpenIncomeWall,
   onOpenJobs,
+  onOpenLocalCal,
+  onOpenPhotos,
+  onClose,
 }) => {
   const {colors} = useTheme();
   const {t} = useTranslation();
+  const {isPremium} = usePremium();
+  const [showPaywall, setShowPaywall] = useState(false);
   let version = '';
   try {
     version = DeviceInfo.getVersion();
@@ -74,107 +89,192 @@ const SettingsLauncherScreen: React.FC<Props> = ({
   );
 
   return (
-    <ScrollView style={{flex: 1, backgroundColor: colors.background}} contentContainerStyle={styles.content}>
-      <Text style={[styles.screenTitle, {color: colors.text}]}>{t('settings')}</Text>
+    <View style={styles.root}>
+      <ScrollView style={{flex: 1, backgroundColor: colors.background}} contentContainerStyle={styles.content}>
+        <View style={styles.titleRow}>
+          <Text style={[styles.screenTitle, {color: colors.text}]}>{t('settings')}</Text>
+          {onClose && (
+            <TouchableOpacity
+              onPress={onClose}
+              hitSlop={{top: 12, bottom: 12, left: 12, right: 12}}
+              accessibilityRole="button"
+              accessibilityLabel={t('close')}>
+              <Ionicons name="close" size={26} color={colors.textSecondary} />
+            </TouchableOpacity>
+          )}
+        </View>
 
-      <Section title={t('settingsSectionShare')}>
-        <Row
-          colors={colors}
-          icon="share-social-outline"
-          tint="#34C759"
-          label={t('setShareLabel')}
-          sublabel={t('setShareSub')}
-          onPress={onOpenShareAvail}
-        />
-        <Row
-          colors={colors}
-          icon="people-outline"
-          tint="#FF9500"
-          label={t('setPollLabel')}
-          sublabel={t('setPollSub')}
-          onPress={onOpenPoll}
-          isLast
-        />
-      </Section>
+        {/* Guideline 3.1.2(c): the purchase is reachable from Settings, and the
+            two legal links below sit on the same screen that leads to it. */}
+        <Section title={t('settingsSectionPremium')}>
+          {isPremium ? (
+            <Row
+              colors={colors}
+              icon="checkmark-circle"
+              tint="#34C759"
+              label={t('premiumActive')}
+              sublabel={t('unlimitedFeatures')}
+              right={<Ionicons name="checkmark" size={18} color="#34C759" />}
+              isLast
+            />
+          ) : (
+            <Row
+              colors={colors}
+              icon="sparkles"
+              tint="#AF52DE"
+              label={t('upgradeToPremium')}
+              sublabel={t('unlimitedFeatures')}
+              onPress={() => setShowPaywall(true)}
+              isLast
+            />
+          )}
+        </Section>
 
-      <Section title={t('settingsSectionWork')}>
-        <Row
-          colors={colors}
-          icon="cash-outline"
-          tint="#FF2D92"
-          label={t('setJobsLabel')}
-          sublabel={t('setJobsSub')}
-          onPress={onOpenJobs}
-        />
-        <Row
-          colors={colors}
-          icon="stats-chart-outline"
-          tint="#007AFF"
-          label={t('setStatsLabel')}
-          sublabel={t('setStatsSub')}
-          onPress={onOpenStats}
-        />
-        <Row
-          colors={colors}
-          icon="trending-up-outline"
-          tint="#FF3B30"
-          label={t('setIncomeWallLabel')}
-          sublabel={t('setIncomeWallSub')}
-          onPress={onOpenIncomeWall}
-          isLast
-        />
-      </Section>
+        <Section title={t('settingsSectionShare')}>
+          <Row
+            colors={colors}
+            icon="share-social-outline"
+            tint="#34C759"
+            label={t('setShareLabel')}
+            sublabel={t('setShareSub')}
+            onPress={onOpenShareAvail}
+          />
+          <Row
+            colors={colors}
+            icon="people-outline"
+            tint="#FF9500"
+            label={t('setPollLabel')}
+            sublabel={t('setPollSub')}
+            onPress={onOpenPoll}
+            isLast
+          />
+        </Section>
 
-      <Section title={t('settingsSectionHelp')}>
-        <Row
-          colors={colors}
-          icon="bulb-outline"
-          tint="#FFCC00"
-          label={t('setGuideLabel')}
-          sublabel={t('setGuideSub')}
-          onPress={() => {
-            Alert.alert(
-              t('setGuideAlertTitle'),
-              t('setGuideAlertMsg'),
-              [
-                {text: t('cancel'), style: 'cancel'},
-                {
-                  text: t('setGuideConfirm'),
-                  onPress: async () => {
-                    await resetAllHints();
-                    Alert.alert(t('setGuideDoneTitle'), t('setGuideDoneMsg'));
+        {/* Both used to be bottom tabs. They are real features but sit off the
+            app's core axis, so they live here rather than holding a permanent
+            slot next to the calendar. */}
+        <Section title={t('settingsSectionContent')}>
+          <Row
+            colors={colors}
+            icon="albums-outline"
+            tint="#5856D6"
+            label={t('tabLocalCal')}
+            sublabel={t('setLocalCalSub')}
+            onPress={onOpenLocalCal}
+          />
+          <Row
+            colors={colors}
+            icon="images-outline"
+            tint="#30B0C7"
+            label={t('tabPhotos')}
+            sublabel={t('setPhotosSub')}
+            onPress={onOpenPhotos}
+            isLast
+          />
+        </Section>
+
+        <Section title={t('settingsSectionWork')}>
+          <Row
+            colors={colors}
+            icon="cash-outline"
+            tint="#FF2D92"
+            label={t('setJobsLabel')}
+            sublabel={t('setJobsSub')}
+            onPress={onOpenJobs}
+          />
+          {/* Stats lives on its own tab; a row here would be the third entry
+              to the same screen. Only the income wall, which the tab hides,
+              still needs a launcher. */}
+          <Row
+            colors={colors}
+            icon="trending-up-outline"
+            tint="#FF3B30"
+            label={t('setIncomeWallLabel')}
+            sublabel={t('setIncomeWallSub')}
+            onPress={onOpenIncomeWall}
+            isLast
+          />
+        </Section>
+
+        <Section title={t('settingsSectionHelp')}>
+          <Row
+            colors={colors}
+            icon="bulb-outline"
+            tint="#FFCC00"
+            label={t('setGuideLabel')}
+            sublabel={t('setGuideSub')}
+            onPress={() => {
+              Alert.alert(
+                t('setGuideAlertTitle'),
+                t('setGuideAlertMsg'),
+                [
+                  {text: t('cancel'), style: 'cancel'},
+                  {
+                    text: t('setGuideConfirm'),
+                    onPress: async () => {
+                      await resetAllHints();
+                      Alert.alert(t('setGuideDoneTitle'), t('setGuideDoneMsg'));
+                    },
                   },
-                },
-              ],
-            );
-          }}
-          isLast
-        />
-      </Section>
+                ],
+              );
+            }}
+            isLast
+          />
+        </Section>
 
-      <Section title={t('settingsSectionApp')}>
-        <Row
-          colors={colors}
-          icon="settings-outline"
-          tint={colors.textSecondary}
-          label={t('setDetailLabel')}
-          sublabel={t('setDetailSub')}
-          onPress={onOpenSettings}
-          isLast
-        />
-      </Section>
+        <Section title={t('settingsSectionApp')}>
+          <Row
+            colors={colors}
+            icon="settings-outline"
+            tint={colors.textSecondary}
+            label={t('setDetailLabel')}
+            sublabel={t('setDetailSub')}
+            onPress={onOpenSettings}
+            isLast
+          />
+        </Section>
 
-      <Text style={[styles.footer, {color: colors.textTertiary}]}>
-        {version ? t('setVersion', {v: version}) : ''}
-      </Text>
-      <View style={{height: 40}} />
-    </ScrollView>
+        <Section title={t('settingsSectionLegal')}>
+          <Row
+            colors={colors}
+            icon="document-text-outline"
+            tint={colors.textSecondary}
+            label={t('termsOfUse')}
+            onPress={() => openLegalLink(TERMS_URL)}
+            right={<Ionicons name="open-outline" size={16} color={colors.textTertiary} />}
+          />
+          <Row
+            colors={colors}
+            icon="lock-closed-outline"
+            tint={colors.textSecondary}
+            label={t('privacyPolicy')}
+            onPress={() => openLegalLink(PRIVACY_URL)}
+            right={<Ionicons name="open-outline" size={16} color={colors.textTertiary} />}
+            isLast
+          />
+        </Section>
+
+        <Text style={[styles.footer, {color: colors.textTertiary}]}>
+          {version ? t('setVersion', {v: version}) : ''}
+        </Text>
+        <View style={{height: 40}} />
+      </ScrollView>
+
+      {/* Absolutely-positioned overlay rather than a Modal — the Settings tab
+          already lives inside one on iOS, and stacking modals there swallows
+          the presentation. Same pattern as StatsScreen. */}
+      <PaywallScreen visible={showPaywall} onClose={() => setShowPaywall(false)} />
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
+  // Positions the paywall overlay, which fills its parent absolutely.
+  root: {flex: 1},
   content: {padding: 16},
-  screenTitle: {fontSize: 24, fontWeight: '800', marginBottom: 16},
+  titleRow: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16},
+  screenTitle: {fontSize: 24, fontWeight: '800'},
   section: {marginBottom: 22},
   sectionTitle: {fontSize: 12, fontWeight: '700', marginBottom: 8, marginLeft: 4},
   card: {borderWidth: StyleSheet.hairlineWidth, borderRadius: 14, overflow: 'hidden'},

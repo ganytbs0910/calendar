@@ -112,6 +112,23 @@ export const removeEventPhoto = async (eventId: string, uri: string): Promise<Ev
     return map[eventId] ?? [];
   });
 
+/**
+ * Move an event's photos to a different event id, leaving the files alone.
+ *
+ * Undoing a delete cannot restore the original event — the calendar hands back
+ * a new id — so the photos have to follow it there. Copying via addEventPhoto
+ * would duplicate every file, hence this re-key.
+ */
+export const reassignEventPhotos = async (fromId: string, toId: string): Promise<void> =>
+  withLock(async () => {
+    const map = await loadMap();
+    const list = map[fromId];
+    if (!list || list.length === 0) return;
+    delete map[fromId];
+    map[toId] = [...(map[toId] ?? []), ...list];
+    await saveMap(map);
+  });
+
 /** When an event is deleted, drop its photos (and files). */
 export const removeAllEventPhotos = async (eventId: string): Promise<void> =>
   withLock(async () => {

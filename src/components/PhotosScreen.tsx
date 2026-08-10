@@ -28,6 +28,8 @@ import {getUserCalendars, resolveCalendarName} from '../services/userCalendarSer
 
 interface Props {
   visible: boolean;
+  /** Dismisses the screen. Omitted when hosted somewhere that can't close. */
+  onClose?: () => void;
 }
 
 type GroupMode = 'month' | 'event' | 'category';
@@ -49,7 +51,7 @@ interface Group {
 const OTHER_COLOR = '#8E8E93';
 const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
 
-const PhotosScreen: React.FC<Props> = ({visible}) => {
+const PhotosScreen: React.FC<Props> = ({visible, onClose}) => {
   const {colors} = useTheme();
   const {t} = useTranslation();
   const {width} = useWindowDimensions();
@@ -204,7 +206,18 @@ const PhotosScreen: React.FC<Props> = ({visible}) => {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>{t('tabPhotos')}</Text>
+        <View style={styles.headerLeft}>
+          {onClose && (
+            <TouchableOpacity
+              onPress={onClose}
+              hitSlop={{top: 12, bottom: 12, left: 12, right: 12}}
+              accessibilityRole="button"
+              accessibilityLabel={t('close')}>
+              <Ionicons name="chevron-back" size={24} color={colors.primary} />
+            </TouchableOpacity>
+          )}
+          <Text style={styles.headerTitle}>{t('tabPhotos')}</Text>
+        </View>
         {!loading && entries.length > 0 && (
           <View style={styles.headerRight}>
             <Text style={styles.headerCount}>{t('photosCount', {count: entries.length})}</Text>
@@ -355,6 +368,7 @@ const fmtDate = (iso?: string) => {
 const makeStyles = (colors: ThemeColors) =>
   StyleSheet.create({
     container: {flex: 1, backgroundColor: colors.background},
+    headerLeft: {flexDirection: 'row', alignItems: 'center', gap: 4},
     header: {
       flexDirection: 'row',
       justifyContent: 'space-between',

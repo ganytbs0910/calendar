@@ -10,7 +10,6 @@ import {
   ScrollView,
   Platform,
   Linking,
-  Dimensions,
   NativeSyntheticEvent,
   NativeScrollEvent,
   KeyboardAvoidingView,
@@ -166,8 +165,6 @@ export const saveColorSettings = async (colors: ColorOption[]): Promise<void> =>
   }
 };
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
-const COPY_CALENDAR_DAY_WIDTH = Math.floor((SCREEN_WIDTH - 80) / 7);
 // WEEKDAYS will be resolved via i18n inside the component
 
 // Custom Month-Day Picker Constants
@@ -2607,11 +2604,15 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 20,
   },
   copyModalContent: {
     backgroundColor: '#fff',
     borderRadius: 16,
-    width: SCREEN_WIDTH - 40,
+    // Sized off the overlay rather than a startup window width, so it follows
+    // an iPad window resize instead of overflowing it.
+    width: '100%',
+    maxWidth: 420,
     padding: 16,
   },
   copyModalHeader: {
@@ -2661,7 +2662,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   copyCalendarWeekday: {
-    width: COPY_CALENDAR_DAY_WIDTH,
+    width: `${100 / 7}%`,
     textAlign: 'center',
     fontSize: 12,
     color: '#666',
@@ -2672,11 +2673,12 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   copyCalendarDay: {
-    width: COPY_CALENDAR_DAY_WIDTH,
-    height: COPY_CALENDAR_DAY_WIDTH,
+    // A seventh of the row, kept square, so the grid tracks the modal's width.
+    width: `${100 / 7}%`,
+    aspectRatio: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: COPY_CALENDAR_DAY_WIDTH / 2,
+    borderRadius: 999,
   },
   copyCalendarDayText: {
     fontSize: 16,

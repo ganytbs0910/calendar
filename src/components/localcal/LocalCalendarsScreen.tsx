@@ -29,6 +29,8 @@ import LocalCalendarDetail from './LocalCalendarDetail';
 
 interface Props {
   visible: boolean;
+  /** Dismisses the screen. Omitted when hosted somewhere that can't close. */
+  onClose?: () => void;
 }
 
 const PALETTE = [
@@ -40,7 +42,7 @@ const EMOJIS = [
   '🐾', '🌸', '💼', '⭐', '🍙', '🎬', '⚽', '🎵',
 ];
 
-const LocalCalendarsScreen: React.FC<Props> = ({visible}) => {
+const LocalCalendarsScreen: React.FC<Props> = ({visible, onClose}) => {
   const {colors} = useTheme();
   const {t} = useTranslation();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -131,7 +133,18 @@ const LocalCalendarsScreen: React.FC<Props> = ({visible}) => {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>{t('tabLocalCal')}</Text>
+        <View style={styles.headerLeft}>
+          {onClose && (
+            <TouchableOpacity
+              onPress={onClose}
+              hitSlop={{top: 12, bottom: 12, left: 12, right: 12}}
+              accessibilityRole="button"
+              accessibilityLabel={t('close')}>
+              <Ionicons name="chevron-back" size={24} color={colors.primary} />
+            </TouchableOpacity>
+          )}
+          <Text style={styles.headerTitle}>{t('tabLocalCal')}</Text>
+        </View>
         <TouchableOpacity onPress={openCreate} style={styles.addHeaderBtn}>
           <Ionicons name="add" size={26} color={colors.primary} />
         </TouchableOpacity>
@@ -240,6 +253,7 @@ const LocalCalendarsScreen: React.FC<Props> = ({visible}) => {
 const makeStyles = (colors: ThemeColors) =>
   StyleSheet.create({
     container: {flex: 1, backgroundColor: colors.background},
+    headerLeft: {flexDirection: 'row', alignItems: 'center', gap: 4},
     header: {
       flexDirection: 'row',
       alignItems: 'center',
