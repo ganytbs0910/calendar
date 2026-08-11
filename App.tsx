@@ -28,6 +28,7 @@ import EventDetailModal from './src/components/EventDetailModal';
 import {UndoToast, UndoAction} from './src/components/UndoToast';
 import UpdateAvailableModal from './src/components/UpdateAvailableModal';
 import DeviceInfo from 'react-native-device-info';
+import RNFS from 'react-native-fs';
 import {
   checkForUpdate,
   dismissUpdatePrompt,
@@ -64,6 +65,9 @@ import {
   LockScreenRectangularPreview,
   LockScreenInlinePreview,
 } from './src/components/WidgetPreviews';
+// Kept for the banner block further down, which is commented out rather than
+// removed — deleting these would break turning ads back on.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import {BannerAd, BannerAdSize, TestIds} from 'react-native-google-mobile-ads';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {
@@ -91,6 +95,10 @@ import {clearDevSeedEvents, clearDevMaySeedEvents, clearDevJuneSeedEvents, seedD
 import LockScreen, {PinSetupModal} from './src/components/LockScreen';
 import NLEventInput from './src/components/NLEventInput';
 import {ParsedEvent} from './src/utils/eventParser';
+// The colour-filter feature these belong to has no entry point: nothing calls
+// setShowCalendarCreate, so the filter can never be turned on or off. Left in
+// place pending a decision to restore the picker or drop the feature.
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import {
   UserCalendar,
   ensureDefaultsSeeded,
@@ -100,6 +108,7 @@ import {
   deleteUserCalendar,
   resolveCalendarName,
 } from './src/services/userCalendarService';
+/* eslint-enable @typescript-eslint/no-unused-vars */
 import {
   isPinSet,
   setupPin,
@@ -115,6 +124,7 @@ import {useTranslation} from 'react-i18next';
 import './src/i18n/i18n';
 import {loadSavedLanguage, setAppLanguage, getSavedLanguageCode, getActiveLanguageLabel, LANGUAGES} from './src/i18n/i18n';
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const adUnitId = __DEV__ ? TestIds.ADAPTIVE_BANNER : 'ca-app-pub-4317478239934902/3522055335';
 
 
@@ -417,6 +427,7 @@ function AppContent() {
   const [newCalendarName, setNewCalendarName] = useState('');
   const [newCalendarColor, setNewCalendarColor] = useState('#007AFF');
   // When editing, holds the id of the calendar being edited; null = create mode.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [editingCalendarId, setEditingCalendarId] = useState<string | null>(null);
   const calendarRef = useRef<CalendarRef>(null);
   const weekViewRef = useRef<WeekViewRef>(null);
@@ -506,28 +517,75 @@ function AppContent() {
     await sendTestNotification(t('testNotificationTitle'), t('testNotificationBody'));
   }, [t]);
 
-  // Share the next 60 days of events as a standard .ics file (no backend —
-  // recipients import into any calendar app). Not real-time, but interoperable.
+  // Share the next 60 days of events as a real .ics file. It used to hand the
+  // calendar text to Share.share as a *message*, which arrives as a wall of
+  // plain text nobody can import — the whole point of emitting iCalendar. It is
+  // now written to a file and shared as one, with a text fallback if that
+  // fails.
   const handleShareCalendarIcs = useCallback(async () => {
     try {
       const now = new Date();
       const end = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
       const events = await RNCalendarEvents.fetchAllEvents(now.toISOString(), end.toISOString());
       const pad = (n: number) => String(n).padStart(2, '0');
+      const dateOnly = (d: Date) => `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
       const fmt = (iso: string, allDay?: boolean) => {
         const d = new Date(iso);
-        const date = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
-        return allDay ? date : `${date}T${pad(d.getHours())}${pad(d.getMinutes())}00`;
+        return allDay ? dateOnly(d) : `${dateOnly(d)}T${pad(d.getHours())}${pad(d.getMinutes())}00`;
       };
+      // Order matters: the backslash has to be escaped before the escapes we add.
       const esc = (s?: string) => (s || '').replace(/([,;\\])/g, '\\$1').replace(/\n/g, '\\n');
-      const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//CalendarApp//JP', 'CALSCALE:GREGORIAN'];
+      // RFC 5545 caps a line at 75 octets and continues it with a leading
+      // space. Japanese titles blow past that in a handful of characters, and
+      // an unfolded line makes strict importers reject the whole file.
+      // UTF-8 length without TextEncoder, which isn't in the RN type surface.
+      const utf8Len = (ch: string): number => {
+        const cp = ch.codePointAt(0) ?? 0;
+        return cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
+      };
+      const byteLength = (s: string) => [...s].reduce((n, ch) => n + utf8Len(ch), 0);
+      const fold = (line: string): string => {
+        if (byteLength(line) <= 75) return line;
+        const out: string[] = [];
+        let cur = '';
+        let curBytes = 0;
+        for (const ch of line) {
+          const n = utf8Len(ch);
+          // 74 leaves room for the space that continuation lines start with.
+          if (curBytes + n > (out.length === 0 ? 75 : 74)) {
+            out.push(cur);
+            cur = '';
+            curBytes = 0;
+          }
+          cur += ch;
+          curBytes += n;
+        }
+        if (cur) out.push(cur);
+        return out.join('\r\n ');
+      };
+
+      const stamp = `${dateOnly(now)}T${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+      const lines = [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'PRODID:-//CalendarApp//JP',
+        'CALSCALE:GREGORIAN',
+      ];
       events.forEach((e, i) => {
         if (!e.startDate) return;
         lines.push('BEGIN:VEVENT');
         lines.push(`UID:${e.id || `evt-${i}`}@calendarapp`);
+        // DTSTAMP is mandatory; without it strict importers drop the event.
+        lines.push(`DTSTAMP:${stamp}`);
         if (e.allDay) {
-          lines.push(`DTSTART;VALUE=DATE:${fmt(e.startDate, true)}`);
-          if (e.endDate) lines.push(`DTEND;VALUE=DATE:${fmt(e.endDate, true)}`);
+          const startDay = new Date(e.startDate);
+          lines.push(`DTSTART;VALUE=DATE:${dateOnly(startDay)}`);
+          // DTEND is exclusive for a date-valued event, so it must land past
+          // the start — otherwise the event has no length and is rejected.
+          const rawEnd = e.endDate ? new Date(e.endDate) : new Date(startDay);
+          const endDay = new Date(rawEnd.getFullYear(), rawEnd.getMonth(), rawEnd.getDate());
+          if (endDay <= startDay) endDay.setDate(startDay.getDate() + 1);
+          lines.push(`DTEND;VALUE=DATE:${dateOnly(endDay)}`);
         } else {
           lines.push(`DTSTART:${fmt(e.startDate)}`);
           if (e.endDate) lines.push(`DTEND:${fmt(e.endDate)}`);
@@ -538,7 +596,17 @@ function AppContent() {
         lines.push('END:VEVENT');
       });
       lines.push('END:VCALENDAR');
-      await Share.share({message: lines.join('\r\n')});
+      const ics = lines.map(fold).join('\r\n');
+
+      const path = `${RNFS.CachesDirectoryPath}/calendar.ics`;
+      try {
+        await RNFS.writeFile(path, ics, 'utf8');
+        const url = Platform.OS === 'android' ? `file://${path}` : path;
+        await Share.share(Platform.OS === 'ios' ? {url} : {url, message: t('shareCalendarIcs')});
+      } catch {
+        // Couldn't produce a file — sharing the text still gets it somewhere.
+        await Share.share({message: ics});
+      }
     } catch (err) {
       console.warn('[ics share] failed', err);
     }
@@ -634,11 +702,6 @@ function AppContent() {
     setShowSleepSetup(false);
     if (!sleepSettings) deferSleepSetup().catch(() => {});
   }, [sleepSettings]);
-
-  const handleSleepSettingsChange = useCallback(async (settings: SleepSettings) => {
-    await saveSleepSettings(settings);
-    setSleepSettings(settings);
-  }, []);
 
   const loadTemplates = useCallback(async () => {
     const t = await getTemplates();
@@ -740,7 +803,7 @@ function AppContent() {
             [{text: 'OK'}],
           );
         }
-      } catch (_error) {
+      } catch {
         Alert.alert(
           t('error'),
           t('calendarPermissionError'),
@@ -749,7 +812,7 @@ function AppContent() {
       }
     };
     checkAndRequestPermission();
-  }, []);
+  }, [t]);
 
   // Dev-only: clean up the old April 2026 sample events, then seed June 2026
   // with a college-student schedule (classes / part-time / circles).
@@ -1029,7 +1092,7 @@ function AppContent() {
     } catch {
       Alert.alert(t('error'), t('restoreFailed'));
     }
-  }, [refreshAllViews]);
+  }, [refreshAllViews, t]);
 
   const clearUndoAction = useCallback(() => setUndoAction(null), []);
 
@@ -1077,7 +1140,7 @@ function AppContent() {
     } catch {
       Alert.alert(t('error'), t('deleteFailed'));
     }
-  }, [refreshAllViews, restoreEvents, discardDeletedEventData]);
+  }, [refreshAllViews, restoreEvents, discardDeletedEventData, t]);
 
   // --- Bulk delete -------------------------------------------------------
   // The whole event is kept, not just its id: once it is deleted the calendar
@@ -1215,7 +1278,13 @@ function AppContent() {
     // week and day view will respond to currentDate change
   }, [viewMode]);
 
-  // Search functionality
+  // Search functionality.
+  //
+  // The two-year window is fetched once per time the search sheet is opened and
+  // held in a ref: every keystroke used to re-read it from the calendar store,
+  // which is the expensive part and returns the same events each time.
+  const searchCacheRef = useRef<CalendarEventReadable[] | null>(null);
+
   const handleSearch = useCallback(async (query: string) => {
     if (!query.trim()) {
       setSearchResults([]);
@@ -1224,19 +1293,21 @@ function AppContent() {
 
     setIsSearching(true);
     try {
-      // Search in a wide range (1 year back to 1 year ahead)
-      const startDate = new Date();
-      startDate.setFullYear(startDate.getFullYear() - 1);
-      const endDate = new Date();
-      endDate.setFullYear(endDate.getFullYear() + 1);
+      if (!searchCacheRef.current) {
+        // Search in a wide range (1 year back to 1 year ahead)
+        const startDate = new Date();
+        startDate.setFullYear(startDate.getFullYear() - 1);
+        const endDate = new Date();
+        endDate.setFullYear(endDate.getFullYear() + 1);
+        searchCacheRef.current = await RNCalendarEvents.fetchAllEvents(
+          startDate.toISOString(),
+          endDate.toISOString(),
+        );
+      }
 
-      const events = await RNCalendarEvents.fetchAllEvents(
-        startDate.toISOString(),
-        endDate.toISOString(),
-      );
-
-      const filtered = events.filter(event =>
-        event.title?.toLowerCase().includes(query.toLowerCase())
+      const needle = query.toLowerCase();
+      const filtered = searchCacheRef.current.filter(event =>
+        event.title?.toLowerCase().includes(needle)
       );
 
       // Sort by start date (nearest first)
@@ -1247,7 +1318,7 @@ function AppContent() {
       });
 
       setSearchResults(filtered.slice(0, 50)); // Limit to 50 results
-    } catch (_error) {
+    } catch {
       // Search failure is non-critical
     } finally {
       setIsSearching(false);
@@ -1305,7 +1376,12 @@ function AppContent() {
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.iconBtn}
-              onPress={() => setShowSearchModal(true)}
+              onPress={() => {
+                // Drop the cached window so a search opened after adding or
+                // deleting an event sees the change.
+                searchCacheRef.current = null;
+                setShowSearchModal(true);
+              }}
               accessibilityLabel={t('searchEventsLabel')}
               accessibilityRole="button">
               <SearchIcon size={18} color={colors.primary} />

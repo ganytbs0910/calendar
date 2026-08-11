@@ -2,7 +2,6 @@ import React from 'react';
 import {View, Text, StyleSheet} from 'react-native';
 import {useTranslation} from 'react-i18next';
 
-const WIDGET_BG = '#F2F2F7';
 const WIDGET_SURFACE = '#FFFFFF';
 const BLUE = '#007AFF';
 const RED = '#FF3B30';
@@ -12,10 +11,9 @@ const PURPLE = '#AF52DE';
 
 // Small Widget: Today's events
 export function SmallWidgetPreview() {
-  const {t, i18n} = useTranslation();
+  const {t} = useTranslation();
   const months = t('monthNames', {returnObjects: true}) as unknown as string[];
   const wd = t('weekdaysSingle', {returnObjects: true}) as unknown as string[];
-  const isJa = i18n.language === 'ja';
   return (
     <View style={s.widgetSmall}>
       <View style={s.widgetInner}>
@@ -52,10 +50,9 @@ export function SmallWidgetPreview() {
 
 // Medium Widget: Today's events
 export function MediumWidgetPreview() {
-  const {t, i18n} = useTranslation();
+  const {t} = useTranslation();
   const months = t('monthNames', {returnObjects: true}) as unknown as string[];
   const wd = t('weekdaysSingle', {returnObjects: true}) as unknown as string[];
-  const isJa = i18n.language === 'ja';
   return (
     <View style={s.widgetMedium}>
       <View style={[s.widgetInner, {flexDirection: 'row'}]}>
@@ -94,10 +91,9 @@ export function MediumWidgetPreview() {
 
 // Month Calendar Widget
 export function MonthCalendarPreview() {
-  const {t, i18n} = useTranslation();
+  const {t} = useTranslation();
   const months = t('monthNames', {returnObjects: true}) as unknown as string[];
   const wd = t('weekdaysSingle', {returnObjects: true}) as unknown as string[];
-  const isJa = i18n.language === 'ja';
   const weekdays = wd;
   const days = [
     [0, 0, 0, 0, 0, 0, 1],
@@ -153,10 +149,8 @@ export function MonthCalendarPreview() {
 
 // Upcoming Events Widget
 export function UpcomingEventsPreview() {
-  const {t, i18n} = useTranslation();
-  const months = t('monthNames', {returnObjects: true}) as unknown as string[];
+  const {t} = useTranslation();
   const wd = t('weekdaysSingle', {returnObjects: true}) as unknown as string[];
-  const isJa = i18n.language === 'ja';
   return (
     <View style={s.widgetMedium}>
       <View style={s.widgetInner}>
@@ -189,10 +183,8 @@ export function UpcomingEventsPreview() {
 
 // Lock Screen Widgets
 export function LockScreenCircularPreview() {
-  const {t, i18n} = useTranslation();
-  const months = t('monthNames', {returnObjects: true}) as unknown as string[];
+  const {t} = useTranslation();
   const wd = t('weekdaysSingle', {returnObjects: true}) as unknown as string[];
-  const isJa = i18n.language === 'ja';
   return (
     <View style={s.lockCircular}>
       <Text style={{fontSize: 8, fontWeight: '600', color: '#fff'}}>{wd[1]}</Text>
@@ -218,10 +210,7 @@ export function LockScreenRectangularPreview() {
 }
 
 export function LockScreenInlinePreview() {
-  const {t, i18n} = useTranslation();
-  const months = t('monthNames', {returnObjects: true}) as unknown as string[];
-  const wd = t('weekdaysSingle', {returnObjects: true}) as unknown as string[];
-  const isJa = i18n.language === 'ja';
+  const {t} = useTranslation();
   return (
     <View style={s.lockInline}>
       <Text style={{fontSize: 10, color: '#fff'}}>10:00 {t('wpEvMeeting')}</Text>
@@ -231,10 +220,7 @@ export function LockScreenInlinePreview() {
 
 // Countdown Widget: time until the next event
 export function CountdownWidgetPreview() {
-  const {t, i18n} = useTranslation();
-  const months = t('monthNames', {returnObjects: true}) as unknown as string[];
-  const wd = t('weekdaysSingle', {returnObjects: true}) as unknown as string[];
-  const isJa = i18n.language === 'ja';
+  const {t} = useTranslation();
   return (
     <View style={s.widgetMedium}>
       <View style={[s.widgetInner, {flexDirection: 'row', alignItems: 'center'}]}>
@@ -262,8 +248,6 @@ export function CountdownWidgetPreview() {
 // Free Time Widget: remaining free time today
 export function FreeTimeWidgetPreview() {
   const {t, i18n} = useTranslation();
-  const months = t('monthNames', {returnObjects: true}) as unknown as string[];
-  const wd = t('weekdaysSingle', {returnObjects: true}) as unknown as string[];
   const isJa = i18n.language === 'ja';
   return (
     <View style={s.widgetSmall}>
@@ -281,10 +265,8 @@ export function FreeTimeWidgetPreview() {
 
 // Week Widget: this week's events as 7 columns
 export function WeekWidgetPreview() {
-  const {t, i18n} = useTranslation();
-  const months = t('monthNames', {returnObjects: true}) as unknown as string[];
+  const {t} = useTranslation();
   const wd = t('weekdaysSingle', {returnObjects: true}) as unknown as string[];
-  const isJa = i18n.language === 'ja';
   const nums = [8, 9, 10, 11, 12, 13, 14];
   const today = 12;
   const dots: Record<number, string[]> = {9: [BLUE], 10: [BLUE, RED], 11: [GREEN], 12: [BLUE, ORANGE, RED], 13: [PURPLE], 14: [BLUE]};

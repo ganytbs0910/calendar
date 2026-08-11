@@ -206,6 +206,10 @@ const MonthDayPicker: React.FC<MonthDayPickerProps & {t: (key: string, opts?: an
         animated: false,
       });
     }, 50);
+  // Mount-only on purpose: it scrolls the pickers to the values the modal
+  // opened with. Re-running on every change would yank the wheel out from
+  // under the user mid-scroll.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Handle month scroll end
@@ -451,6 +455,10 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         setSelectedColor(colors[0].color);
       }
     });
+  // Mount-only on purpose: this just corrects an initial colour that is not in
+  // the saved palette. Re-running it whenever selectedColor changed would fight
+  // the user picking one.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Initialize dates when modal opens or initialDate/initialEndDate changes
@@ -891,11 +899,12 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
       console.error('Error saving event:', error);
       Alert.alert(t('error'), isEditing ? t('updateFailed') : t('saveFailed'));
     }
-  }, [title, startDate, endDate, handleClose, onEventAdded, isEditing, editingEvent, selectedColor, hourlyWage, selectedJobId, reminder, recurrence, t]);
-
-  const formatDate = (date: Date) => {
-    return `${date.getMonth() + 1}/${date.getDate()}(${WEEKDAYS[date.getDay()]})`;
-  };
+    // breakTouched / breakOverride decide whether the break the user typed is
+    // persisted at all, and `jobs` backs the income-wall check. Leaving them
+    // out meant a break entered after the last dep change was silently dropped
+    // — the shift saved with the auto legal break instead of the real one, so
+    // the pay was wrong and nothing said so.
+  }, [title, startDate, endDate, isEditing, editingEvent, selectedColor, hourlyWage, selectedJobId, reminder, recurrence, breakTouched, breakOverride, jobs, t]);
 
   const formatTime = (date: Date) => {
     return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
@@ -973,6 +982,9 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
     fetchBusyDates(monthDate);
   }, [startDate, fetchBusyDates]);
 
+  // startDate has to be a dependency: without it the origin-date guard below
+  // compared against whatever date the modal happened to hold on first render,
+  // so it protected the wrong day once the modal was reused for another event.
   const toggleCopyDateSelection = useCallback((targetDate: Date) => {
     // Don't allow deselecting the origin date
     if (targetDate.toDateString() === startDate.toDateString()) return;
@@ -985,7 +997,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         return [...prev, targetDate];
       }
     });
-  }, []);
+  }, [startDate]);
 
   const handleCopyToSelectedDates = useCallback(async () => {
     // Exclude the origin date (startDate) from copy targets
@@ -1057,7 +1069,9 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
       console.error('Error copying event:', error);
       Alert.alert(t('error'), t('copyFailed'));
     }
-  }, [title, startDate, endDate, selectedCopyDates, onEventAdded, reminder, selectedColor, hourlyWage, selectedJobId, t]);
+    // Same break-time trap as handleSave — a copied shift has to carry the
+    // break the user actually set, not the one from an earlier render.
+  }, [title, startDate, endDate, selectedCopyDates, onEventAdded, reminder, selectedColor, hourlyWage, selectedJobId, breakTouched, breakOverride, t]);
 
   // Label editing functions
   const handleLabelPress = useCallback((color: string) => {

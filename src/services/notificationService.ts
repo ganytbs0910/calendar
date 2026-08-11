@@ -84,6 +84,9 @@ export const hasNotificationPermission = async (): Promise<boolean> => {
   );
 };
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const WEEK_MS = 7 * DAY_MS;
+
 const recurrenceToFrequency = (r: Recurrence): RepeatFrequency | undefined => {
   switch (r) {
     case 'daily':
@@ -109,18 +112,27 @@ export const scheduleEventNotification = async (
   const enabled = await isNotificationsEnabled();
   if (!enabled) return;
 
-  // Don't schedule in the past.
-  if (params.fireDate.getTime() <= Date.now()) return;
+  const freq = params.recurrence ? recurrenceToFrequency(params.recurrence) : undefined;
+
+  // A repeating reminder whose first occurrence has already gone by still has
+  // every later one ahead of it, so it gets rolled forward to the next one.
+  // Only a one-off is genuinely dead once its moment has passed.
+  let timestamp = params.fireDate.getTime();
+  if (timestamp <= Date.now()) {
+    if (freq === undefined) return;
+    const step = freq === RepeatFrequency.DAILY ? DAY_MS : WEEK_MS;
+    const missed = Math.ceil((Date.now() - timestamp) / step);
+    timestamp += missed * step;
+  }
 
   await ensureChannel();
   const sound = await isSoundEnabled();
 
   const trigger: TimestampTrigger = {
     type: TriggerType.TIMESTAMP,
-    timestamp: params.fireDate.getTime(),
+    timestamp,
     alarmManager: Platform.OS === 'android' ? {allowWhileIdle: true} : undefined,
   };
-  const freq = params.recurrence ? recurrenceToFrequency(params.recurrence) : undefined;
   if (freq !== undefined) {
     trigger.repeatFrequency = freq;
   }

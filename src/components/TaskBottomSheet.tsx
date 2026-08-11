@@ -58,7 +58,7 @@ const formatDeadline = (deadline: string, t: (key: string) => string): string =>
   const tomorrow = getDeadlineKey(1);
   if (deadline === today) return t('deadlineToday');
   if (deadline === tomorrow) return t('deadlineTomorrow');
-  const [y, m, d] = deadline.split('-');
+  const [, m, d] = deadline.split('-');
   return `${parseInt(m, 10)}/${parseInt(d, 10)}`;
 };
 
@@ -359,6 +359,11 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
     return () => { showSub.remove(); hideSub.remove(); };
   }, []);
 
+  // Declared up here rather than with the other deadline state below: it is a
+  // dependency of handleAddTask, and a dependency array is evaluated during
+  // render, so a later `const` would be in its temporal dead zone.
+  const [addDeadline, setAddDeadline] = useState<string | null>(null);
+
   const resetAddOverlay = () => {
     setTaskInputText('');
     setAddingTask(false);
@@ -381,7 +386,10 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
     } catch (e) {
       console.error('handleAddTask error:', e);
     }
-  }, [taskInputText, dateKey, taskDuration, fetchTasks]);
+    // addDeadline must be a dependency. Typing the title first and setting the
+    // deadline second — the natural order — left this closure holding the
+    // deadline from before it was set, so the task saved without one.
+  }, [taskInputText, dateKey, taskDuration, addDeadline, fetchTasks]);
 
   // ── Expand to edit a todo task ──
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
@@ -391,7 +399,6 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
   const [editTaskTimeHour, setEditTaskTimeHour] = useState('');
   const [editTaskTimeMinute, setEditTaskTimeMinute] = useState('');
   const [editDeadline, setEditDeadline] = useState<string | null>(null);
-  const [addDeadline, setAddDeadline] = useState<string | null>(null);
   const [deadlinePickerTarget, setDeadlinePickerTarget] = useState<'add' | 'edit' | null>(null);
   const [deadlinePickerDate, setDeadlinePickerDate] = useState<Date>(new Date());
 

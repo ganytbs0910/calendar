@@ -130,7 +130,7 @@ const PollModal: React.FC<Props> = ({visible, onClose, initialDate}) => {
     await reload();
     setSelected(poll);
     setMode('detail');
-  }, [title, picked, reload]);
+  }, [title, picked, reload, t]);
 
   const onAddAttendee = useCallback(() => {
     if (!selectedRef.current) return;
@@ -139,7 +139,7 @@ const PollModal: React.FC<Props> = ({visible, onClose, initialDate}) => {
       if (name == null || !cur) return;
       applySelected(addAttendee(cur, name));
     });
-  }, [applySelected]);
+  }, [applySelected, t]);
 
   const onCycle = useCallback(
     (attendeeId: string, dateKey: string) => {
@@ -158,7 +158,7 @@ const PollModal: React.FC<Props> = ({visible, onClose, initialDate}) => {
     await Share.share({
       message: t('pollShareMsg', {title: selected.title, lines: lines.join('\n'), best}),
     }).catch(() => {});
-  }, [selected]);
+  }, [selected, t, wd]);
 
   const onDeletePoll = useCallback(
     (p: Poll) => {
@@ -171,7 +171,7 @@ const PollModal: React.FC<Props> = ({visible, onClose, initialDate}) => {
         },
       ]);
     },
-    [],
+    [t],
   );
 
   const s = makeStyles(colors);
@@ -406,7 +406,7 @@ const DetailGrid: React.FC<{
   );
 };
 
-const makeStyles = (colors: any) =>
+const makeStyles = (_colors: any) =>
   StyleSheet.create({
     container: {flex: 1},
     header: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth},

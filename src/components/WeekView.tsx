@@ -10,8 +10,6 @@ import {
   NativeSyntheticEvent,
   NativeScrollEvent,
   useWindowDimensions,
-  Vibration,
-  Platform,
   PanResponder,
   Animated,
 } from 'react-native';
@@ -367,7 +365,9 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
   // ── Initial vertical scroll: show current hour near top. ──
   useEffect(() => {
     const now = new Date();
-    const y = Math.max(0, (now.getHours() - displayStartHour - 1) * hourHeight);
+    // hourHeightRef, not hourHeight: this must read the live zoom level without
+    // re-running (and re-scrolling) every time the user pinches.
+    const y = Math.max(0, (now.getHours() - displayStartHour - 1) * hourHeightRef.current);
     setTimeout(() => {
       verticalScrollRef.current?.scrollTo({y, animated: false});
       verticalOffsetRef.current = y;
@@ -414,7 +414,7 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
       map.get(key)!.push(event);
     });
     return map;
-  }, [events]);
+  }, [events, matchesFilter]);
 
   // Events for the day the bottom sheet is showing.
   const sheetDateEvents = useMemo(() => {
@@ -586,7 +586,7 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
         onOpenSleepSettings={onOpenSleepSettings}
       />
     );
-  }, [getDateForIndex, timedEventsByKey, eventColors, displayStartHour, totalDisplayHours, timelineHeight, hourHeight, colors, isDark, isSameDay, today, onEventPress, onTimeRangeSelect, fetchEventsForCenter, lockInteraction, unlockInteraction, sleepSettings, onOpenSleepSettings, dayWidth, currentDate, onDayChange]);
+  }, [getDateForIndex, timedEventsByKey, eventColors, displayStartHour, totalDisplayHours, timelineHeight, hourHeight, colors, isDark, isSameDay, today, onEventPress, onTimeRangeSelect, lockInteraction, unlockInteraction, sleepSettings, onOpenSleepSettings, dayWidth, currentDate, onDayChange]);
 
   return (
     <View style={[styles.container, {backgroundColor: colors.background}]}>
@@ -806,8 +806,6 @@ const DayColumn = React.memo(function DayColumn({
   sleepSettings,
   onOpenSleepSettings,
 }: DayColumnProps) {
-  const {t} = useTranslation();
-
   const gridColor = isDark ? '#2c2c2e' : '#e0e0e0';
 
   // Creation preview
@@ -944,7 +942,7 @@ const DayColumn = React.memo(function DayColumn({
         animated: false,
       });
     }
-  }, [pageYToMinutes, verticalOffsetRef, verticalScrollRef]);
+  }, [pageYToMinutes, dayWidth, verticalOffsetRef, verticalScrollRef]);
 
   const handleTouchEnd = useCallback((e: any) => {
     const {pageX, pageY} = e.nativeEvent;
@@ -1012,7 +1010,7 @@ const DayColumn = React.memo(function DayColumn({
         onTapSelectDay?.(date);
       }
     }
-  }, [date, onTapSelectDay, onEventMoved, pageYToMinutes, scrollingRef, onUnlockInteraction]);
+  }, [date, onTapSelectDay, onEventMoved, onTimeRangeSelect, scrollingRef, onUnlockInteraction]);
 
   // ── Current time indicator ──
   const now = new Date();
@@ -1026,9 +1024,6 @@ const DayColumn = React.memo(function DayColumn({
   const sleepTopY = daySleep
     ? (daySleep.sleepHour + daySleep.sleepMinute / 60 - displayStartHour) * hourHeight
     : null;
-  const formatHM = (h: number, m: number) =>
-    `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-
   return (
     <View
       style={[

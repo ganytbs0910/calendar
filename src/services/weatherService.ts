@@ -1,4 +1,3 @@
-/* global navigator */
 
 // Weather code to icon name mapping (Ionicons)
 const WEATHER_CODE_MAP: Record<number, {name: string; color: string}> = {
@@ -117,7 +116,7 @@ export async function fetchWeather(): Promise<Map<string, WeatherDay>> {
     // Update cache
     cache = {data: result, timestamp: Date.now()};
     return result;
-  } catch (_error) {
+  } catch {
     // Return cached data if available, otherwise empty
     return cache?.data || new Map();
   }

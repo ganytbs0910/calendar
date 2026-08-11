@@ -134,7 +134,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
       }
       onClose();
       onDeleted();
-    } catch (_error) {
+    } catch {
       Alert.alert(t('error'), t('deleteFailed'));
     }
   }, [event, onClose, onDeleted, onUndoableDelete, t]);
@@ -174,7 +174,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
         ],
       );
     }
-  }, [event, isRecurring, deleteEvent]);
+  }, [event, isRecurring, deleteEvent, t]);
 
   const handleEdit = useCallback(() => {
     if (event) {
@@ -241,7 +241,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
       setSelectedDates([]);
       onClose();
       onCopied();
-    } catch (_error) {
+    } catch {
       Alert.alert(t('error'), t('copyFailed'));
     }
   }, [event, selectedDates, onClose, onCopied, t]);

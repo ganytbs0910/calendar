@@ -90,7 +90,7 @@ const AgentScreen: React.FC = () => {
     try {
       const pl = await resolvePlan();
       setPlan(pl);
-    } catch (e) {
+    } catch {
       Alert.alert(t('agentErrTitle'), t('agentErrMsg'));
     } finally {
       setSolving(false);
@@ -259,7 +259,7 @@ const AgentScreen: React.FC = () => {
   );
 };
 
-const makeStyles = (colors: any) =>
+const makeStyles = (_colors: any) =>
   StyleSheet.create({
     center: {flex: 1, alignItems: 'center', justifyContent: 'center'},
     content: {padding: 16},

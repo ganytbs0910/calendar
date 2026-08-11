@@ -12,7 +12,6 @@ import {
   Modal,
   Animated,
   PanResponder,
-  Vibration,
 } from 'react-native';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
 import {getAllEventColors} from './AddEventModal';
@@ -32,11 +31,6 @@ const HEIGHT_CHROME = 280; // header, weekday row, margins, safe area, tab bar
 const EVENT_BAR_HEIGHT = 36; // Height of multi-day event bar
 const DAY_NUMBER_HEIGHT = 20; // Space for day number
 
-const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
-const MONTHS = [
-  '1月', '2月', '3月', '4月', '5月', '6月',
-  '7月', '8月', '9月', '10月', '11月', '12月',
-];
 
 interface CalendarProps {
   onDateSelect?: (date: Date) => void;
@@ -179,12 +173,10 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
   // Drag selection state
   const [dragStartDate, setDragStartDate] = useState<Date | null>(null);
   const [dragEndDate, setDragEndDate] = useState<Date | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
   const gridLayoutRef = useRef<{x: number; y: number; width: number; height: number} | null>(null);
   const calendarDaysRef = useRef<Array<{day: number; date: Date | null; isCurrentMonth: boolean}>>([]);
   const numberOfWeeksRef = useRef(5);
 
-  const [isSaving, setIsSaving] = useState(false);
   const isSavingRef = useRef(false);
 
   // Event drag-and-drop state
@@ -222,7 +214,6 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
   // FlatList month paging
   const monthListRef = useRef<FlatList>(null);
   const [baseDate] = useState(() => new Date()); // Fixed reference date
-  const isScrollingMonthRef = useRef(false);
   const monthData = useMemo(() => Array.from({length: MONTH_ANCHOR * 2 + 1}, (_, i) => i), []);
 
   const getMonthForIndex = useCallback((index: number) => {
@@ -297,7 +288,6 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
     dragModeRef.current = 'moveEvent';
     isDraggingRef.current = true;
     setDraggingEvent(dragData);
-    setIsDragging(true);
 
     // Cancel any pending long press timer for date range selection
     if (longPressTimer.current) {
@@ -324,7 +314,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
 
   const panResponder = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => false,
-    onMoveShouldSetPanResponder: (_, gestureState) => {
+    onMoveShouldSetPanResponder: (_, _gestureState) => {
       return isDraggingRef.current || dragModeRef.current === 'moveEvent';
     },
     onPanResponderGrant: (evt) => {
@@ -346,7 +336,6 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
           dragStartDateRef.current = date;
           setDragStartDate(date);
           setDragEndDate(date);
-          setIsDragging(true);
         }
       }, 300);
     },
@@ -381,7 +370,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       }
 
     },
-    onPanResponderRelease: (_, gestureState) => {
+    onPanResponderRelease: (_, _gestureState) => {
       if (longPressTimer.current) {
         clearTimeout(longPressTimer.current);
         longPressTimer.current = null;
@@ -396,7 +385,6 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
         dragModeRef.current = null;
         isDraggingRef.current = false;
         setDraggingEvent(null);
-        setIsDragging(false);
 
         // Only save if date actually changed
         const origDay = new Date(originalDate);
@@ -464,7 +452,6 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
 
         setDragStartDate(null);
         setDragEndDate(null);
-        setIsDragging(false);
         isDraggingRef.current = false;
         dragStartDateRef.current = null;
         dragEndDateRef.current = null;
@@ -480,7 +467,6 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       }
       setDragStartDate(null);
       setDragEndDate(null);
-      setIsDragging(false);
       isDraggingRef.current = false;
       dragStartDateRef.current = null;
       dragEndDateRef.current = null;
@@ -489,7 +475,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       dragModeRef.current = null;
       setDraggingEvent(null);
     },
-  }), [getDateFromPosition]);
+  }), [getDateFromPosition, t]);
 
   // Check if date is in drag selection range
   const isInDragRange = useCallback((date: Date): boolean => {
@@ -520,7 +506,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
         if (status === 'authorized' || (status as string) === 'fullAccess') {
           setHasPermissionInternal(true);
         }
-      } catch (_err) {
+      } catch {
         // Permission request failed, non-critical
       }
     };
@@ -674,13 +660,13 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       // Prefetch adjacent months and WAIT for completion
       await prefetchMonths(currentYear, currentMonth, 3);
       initialLoadComplete.current = true;
-    } catch (_err) {
+    } catch {
       setError(t('loadFailed'));
     } finally {
       setIsLoading(false);
       isFetching.current = false;
     }
-  }, [hasPermission, currentYear, currentMonth, getMonthKey, fetchMonthEvents, prefetchMonths]);
+  }, [hasPermission, currentYear, currentMonth, getMonthKey, fetchMonthEvents, prefetchMonths, t]);
 
   // Keep refs in sync for PanResponder callbacks
   useEffect(() => { fetchEventsRef.current = fetchEvents; }, [fetchEvents]);
@@ -937,128 +923,16 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       byMonth.set(monthKey, model);
       return model;
     };
+  // cacheVersion is deliberately a dependency even though the body never reads
+  // it: bumping it is how a refresh invalidates the memoised month models.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cacheVersion, filterColor, eventColors, getCalendarDaysForMonth]);
 
-  // Get the next upcoming event (for when today has no remaining events)
-  const nextUpcomingEvent = useMemo(() => {
-    const now = new Date();
-    const futureEvents = events
-      .filter(event => {
-        if (!event.startDate) return false;
-        return new Date(event.startDate) > now;
-      })
-      .sort((a, b) => {
-        return new Date(a.startDate!).getTime() - new Date(b.startDate!).getTime();
-      });
-    return futureEvents.length > 0 ? futureEvents[0] : null;
-  }, [events]);
-
-  // Pre-calculate multi-day events for each week
-  const multiDayEventsByWeek = useMemo(() => {
-    const result: Array<Array<{
-      event: CalendarEventReadable;
-      startDayIndex: number;
-      endDayIndex: number;
-      rowIndex: number;
-    }>> = [];
-
-    for (let weekIndex = 0; weekIndex < numberOfWeeks; weekIndex++) {
-      const weekDays = calendarDays.slice(weekIndex * 7, (weekIndex + 1) * 7);
-      const seen = new Set<string>();
-      const weekEvents: typeof result[0] = [];
-      const daySlots: number[][] = [[], [], [], [], [], [], []];
-
-      weekDays.forEach((dayItem, dayIndex) => {
-        if (!dayItem.date) return; // Skip empty cells
-        const dayEvents = getEventsForDate(dayItem.date);
-        dayEvents.forEach(event => {
-          if (!event.startDate || !event.endDate || !event.id) return;
-          // Use id + startDate as key to handle recurring event instances
-          const eventKey = `${event.id}_${event.startDate}`;
-          if (seen.has(eventKey)) return;
-
-          const eventStart = new Date(event.startDate);
-          const eventEnd = new Date(event.endDate);
-          const eventStartDay = new Date(eventStart);
-          eventStartDay.setHours(0, 0, 0, 0);
-          const eventEndDay = new Date(eventEnd);
-          eventEndDay.setHours(0, 0, 0, 0);
-
-          const dayStart = new Date(dayItem.date!);
-          dayStart.setHours(0, 0, 0, 0);
-
-          // Check if this is a multi-day event
-          const durationDays = Math.ceil((eventEndDay.getTime() - eventStartDay.getTime()) / (1000 * 60 * 60 * 24));
-          if (durationDays < 1 && !event.allDay) return;
-
-          // Find the first valid day in this week for start index calculation
-          let firstValidDayIndex = 0;
-          for (let i = 0; i < 7; i++) {
-            if (weekDays[i].date) {
-              firstValidDayIndex = i;
-              break;
-            }
-          }
-
-          // Calculate start index
-          let startIdx = dayIndex;
-          const firstValidDay = weekDays[firstValidDayIndex].date;
-          if (firstValidDay) {
-            const weekStart = new Date(firstValidDay);
-            weekStart.setHours(0, 0, 0, 0);
-            if (eventStartDay < weekStart) {
-              startIdx = firstValidDayIndex;
-            } else if (eventStartDay > dayStart) {
-              return; // Event hasn't started yet
-            }
-          }
-
-          // Calculate end index
-          let endIdx = startIdx;
-          for (let i = startIdx; i < 7; i++) {
-            if (!weekDays[i].date) continue;
-            const checkDate = new Date(weekDays[i].date!);
-            checkDate.setHours(0, 0, 0, 0);
-            if (checkDate <= eventEndDay) {
-              endIdx = i;
-            } else {
-              break;
-            }
-          }
-
-          if (endIdx >= startIdx) {
-            seen.add(eventKey);
-
-            // Find available row slot
-            let rowIndex = 0;
-            while (true) {
-              let slotFree = true;
-              for (let i = startIdx; i <= endIdx; i++) {
-                if (daySlots[i].includes(rowIndex)) {
-                  slotFree = false;
-                  break;
-                }
-              }
-              if (slotFree) break;
-              rowIndex++;
-              if (rowIndex > 2) break; // Max 3 rows
-            }
-
-            if (rowIndex <= 2) {
-              for (let i = startIdx; i <= endIdx; i++) {
-                daySlots[i].push(rowIndex);
-              }
-              weekEvents.push({event, startDayIndex: startIdx, endDayIndex: endIdx, rowIndex});
-            }
-          }
-        });
-      });
-
-      result.push(weekEvents);
-    }
-
-    return result;
-  }, [calendarDays, getEventsForDate]);
+  // NOTE: a second multi-day layout pass and a "next upcoming event" lookup
+  // used to sit here. Both were superseded — multi-day bars are built by
+  // buildMultiDayByWeek in the month model above, and nothing rendered the
+  // upcoming event — but they were still recomputed on every render of the
+  // app's hottest screen, walking every week and every event for nothing.
 
   const getIndexForDate = useCallback((d: Date) => {
     return MONTH_ANCHOR + (d.getFullYear() - baseDate.getFullYear()) * 12 + (d.getMonth() - baseDate.getMonth());
@@ -1650,7 +1524,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                           const cacheKey = getMonthKey(currentYear, currentMonth);
                           eventsCache.current.delete(cacheKey);
                           fetchEvents(true);
-                        } catch (_err) {
+                        } catch {
                           // Deletion failed silently
                         }
                       }}>

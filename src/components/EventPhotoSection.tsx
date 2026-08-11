@@ -82,7 +82,7 @@ const EventPhotoSection: React.FC<Props> = ({eventId, onCountChange}) => {
       {text: t('photoCamera'), onPress: takePhoto},
       {text: t('cancel'), style: 'cancel'},
     ]);
-  }, [pickFromLibrary, takePhoto]);
+  }, [pickFromLibrary, takePhoto, t]);
 
   const onDelete = useCallback(
     (uri: string) => {
@@ -101,7 +101,7 @@ const EventPhotoSection: React.FC<Props> = ({eventId, onCountChange}) => {
         },
       ]);
     },
-    [eventId, onCountChange],
+    [eventId, onCountChange, t],
   );
 
   if (!eventId) return null;
@@ -154,7 +154,7 @@ const EventPhotoSection: React.FC<Props> = ({eventId, onCountChange}) => {
   );
 };
 
-const makeStyles = (colors: any) =>
+const makeStyles = (_colors: any) =>
   StyleSheet.create({
     section: {marginTop: 12, marginHorizontal: 16, borderRadius: 12, padding: 14},
     headRow: {flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10},

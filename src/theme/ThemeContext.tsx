@@ -68,7 +68,7 @@ export const ThemeProvider: React.FC<{children: React.ReactNode}> = ({children})
     setThemeMode,
     accentColor,
     setAccentColor,
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }), [isDark, themeMode, accentColor]);
 
   return (

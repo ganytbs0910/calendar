@@ -62,8 +62,6 @@ const FreeTimeBar: React.FC<Props> = ({sleepSettings, onSetup, refreshKey}) => {
     };
   }, [recount, refreshKey]);
 
-  const styles = makeStyles();
-
   if (!sleepSettings) {
     return (
       <TouchableOpacity
@@ -104,22 +102,23 @@ const FreeTimeBar: React.FC<Props> = ({sleepSettings, onSetup, refreshKey}) => {
   );
 };
 
-const makeStyles = () =>
-  StyleSheet.create({
-    bar: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-      marginHorizontal: 10,
-      marginBottom: 4,
-      paddingHorizontal: 12,
-      paddingVertical: 7,
-      borderRadius: 10,
-      borderWidth: StyleSheet.hairlineWidth,
-    },
-    label: {flex: 1, fontSize: 13},
-    setupText: {flex: 1, fontSize: 13},
-    value: {fontSize: 15, fontWeight: '700'},
-  });
+// Nothing here depends on the theme, so it is built once rather than on every
+// render (the bar re-renders on a timer).
+const styles = StyleSheet.create({
+  bar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginHorizontal: 10,
+    marginBottom: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  label: {flex: 1, fontSize: 13},
+  setupText: {flex: 1, fontSize: 13},
+  value: {fontSize: 15, fontWeight: '700'},
+});
 
 export default React.memo(FreeTimeBar);

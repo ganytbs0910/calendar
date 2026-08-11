@@ -156,7 +156,7 @@ export const PaywallScreen: React.FC<PaywallScreenProps> = ({visible, onClose}) 
         await buySubscription(sku);
       }
       // Purchase result handled by listener
-    } catch (_e) {
+    } catch {
       setIsPurchasing(false);
     }
   };
@@ -174,7 +174,7 @@ export const PaywallScreen: React.FC<PaywallScreenProps> = ({visible, onClose}) 
       } else {
         Alert.alert(t('restore'), t('noPurchaseFound'));
       }
-    } catch (_e) {
+    } catch {
       setIsPurchasing(false);
       Alert.alert(t('error'), t('restoreFailed'));
     }

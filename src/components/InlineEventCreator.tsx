@@ -79,7 +79,7 @@ export const InlineEventCreator: React.FC<InlineEventCreatorProps> = ({
     } catch {
       Alert.alert(t('error'), t('saveFailed'));
     }
-  }, [title, selectedColor, startDate, endDate, onCreated]);
+  }, [title, selectedColor, startDate, endDate, onCreated, t]);
 
   return (
     <View style={[styles.container, {backgroundColor: colors.surface}]}>

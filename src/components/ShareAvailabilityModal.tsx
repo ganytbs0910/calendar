@@ -223,7 +223,7 @@ const ShareAvailabilityModal: React.FC<Props> = ({visible, onClose, initialDate}
   );
 };
 
-const makeStyles = (colors: any) =>
+const makeStyles = (_colors: any) =>
   StyleSheet.create({
     container: {flex: 1},
     header: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth},

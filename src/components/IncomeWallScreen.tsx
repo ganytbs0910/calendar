@@ -167,7 +167,7 @@ const IncomeWallScreen: React.FC<Props> = ({onOpenStats}) => {
   );
 };
 
-const makeStyles = (colors: any) =>
+const makeStyles = (_colors: any) =>
   StyleSheet.create({
     center: {flex: 1, alignItems: 'center', justifyContent: 'center'},
     content: {padding: 16},
