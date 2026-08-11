@@ -139,6 +139,8 @@ export default {
   testNotificationBody: 'Las notificaciones funcionan correctamente.',
   onbNotifyTitle: 'Llega a tiempo',
   onbNotifyBody: 'Recibe recordatorios antes de tus eventos y turnos. Permite las notificaciones en la siguiente pantalla para activarlo.',
+  onbFreeTitle: '¿Cuánto te queda del día?',
+  onbFreeBody: 'Tus eventos restados de tus horas despierto: el tiempo que te queda, de un vistazo.',
   onbWelcomeTitle: 'Bienvenido',
   onbWelcomeBody: 'Un calendario claro y fácil de leer para tus planes diarios.',
   onbColorTitle: 'Categorías por color',
@@ -411,6 +413,10 @@ export default {
   detailsBtn: 'Detalles',
 
   remaining: 'Restante',
+
+  freeTimeLabel: 'Tiempo libre hoy',
+
+  freeTimeSetupCta: 'Configura tu ritmo diario para ver el tiempo libre',
 
   widgetTitle: 'Widget',
   widgetHowToAdd: 'Cómo agregar a la pantalla de inicio',

@@ -21,8 +21,10 @@ interface OnboardingModalProps {
   onClose: () => void;
 }
 
-// First-run value demonstration. Leads with the wage/payroll differentiator
-// (the "aha" moment research says drives trial conversion & retention).
+// First-run value demonstration. Leads with the free-time proposition — the
+// one thing this calendar does that the others don't, and the axis the rest of
+// the app is arranged around. The wage/payroll features follow as what that
+// free time is being traded for.
 const OnboardingModal: React.FC<OnboardingModalProps> = ({visible, onClose}) => {
   const {t} = useTranslation();
   const {colors} = useTheme();
@@ -36,7 +38,7 @@ const OnboardingModal: React.FC<OnboardingModalProps> = ({visible, onClose}) => 
   const [pagerWidth, setPagerWidth] = useState(windowWidth);
 
   const slides = [
-    {icon: 'calendar-outline', color: '#007AFF', title: t('onbWelcomeTitle'), body: t('onbWelcomeBody')},
+    {icon: 'cafe-outline', color: '#007AFF', title: t('onbFreeTitle'), body: t('onbFreeBody')},
     {icon: 'color-palette-outline', color: '#34C759', title: t('onbColorTitle'), body: t('onbColorBody')},
     {icon: 'cash-outline', color: '#FF9500', title: t('onbWageTitle'), body: t('onbWageBody')},
     {icon: 'trending-up-outline', color: '#FF2D92', title: t('onbWallTitle'), body: t('onbWallBody')},

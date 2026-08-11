@@ -160,6 +160,8 @@ export default {
   testNotificationBody: '通知は正常に動作しています。',
   onbNotifyTitle: '通知でうっかり防止',
   onbNotifyBody: '予定やシフトの前にリマインド。次の画面で通知を許可すると使えます。',
+  onbFreeTitle: '今日、あと何時間空いてる？',
+  onbFreeBody: '起きている時間から予定を引いて、今日の残り自由時間をひと目で。',
   onbWelcomeTitle: 'ようこそ',
   onbWelcomeBody: 'シンプルで見やすいカレンダーで、毎日の予定をすっきり管理。',
   onbColorTitle: '色で分類',
@@ -456,6 +458,8 @@ export default {
 
   // TodayTasks
   remaining: '残り',
+  freeTimeLabel: '今日の残り自由時間',
+  freeTimeSetupCta: '生活リズムを設定すると自由時間が出ます',
 
   // Widget instructions
   widgetTitle: 'ウィジェット',

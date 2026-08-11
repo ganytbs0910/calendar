@@ -139,6 +139,8 @@ export default {
   testNotificationBody: 'Notifikasi berfungsi dengan baik.',
   onbNotifyTitle: 'Tepat waktu',
   onbNotifyBody: 'Dapatkan pengingat sebelum acara dan shift. Izinkan notifikasi pada permintaan berikutnya untuk mengaktifkannya.',
+  onbFreeTitle: 'Berapa sisa harimu?',
+  onbFreeBody: 'Acaramu dikurangi dari jam bangunmu — sisa waktumu, sekali lihat.',
   onbWelcomeTitle: 'Selamat datang',
   onbWelcomeBody: 'Kalender yang rapi dan mudah dibaca untuk rencana harianmu.',
   onbColorTitle: 'Kategori warna',
@@ -411,6 +413,10 @@ export default {
   detailsBtn: 'Detail',
 
   remaining: 'Sisa',
+
+  freeTimeLabel: 'Waktu luang hari ini',
+
+  freeTimeSetupCta: 'Atur ritme harianmu untuk melihat waktu luang',
 
   widgetTitle: 'Widget',
   widgetHowToAdd: 'Cara Menambahkan ke Layar Utama',

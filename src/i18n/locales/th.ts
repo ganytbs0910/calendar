@@ -139,6 +139,8 @@ export default {
   testNotificationBody: 'การแจ้งเตือนทำงานปกติ',
   onbNotifyTitle: 'ไม่พลาดเวลา',
   onbNotifyBody: 'รับการเตือนก่อนกิจกรรมและกะงาน อนุญาตการแจ้งเตือนในหน้าถัดไปเพื่อเปิดใช้งาน',
+  onbFreeTitle: 'วันนี้เหลือเวลาเท่าไร?',
+  onbFreeBody: 'หักกิจกรรมออกจากเวลาที่คุณตื่น เห็นเวลาว่างที่เหลือได้ในพริบตา',
   onbWelcomeTitle: 'ยินดีต้อนรับ',
   onbWelcomeBody: 'ปฏิทินที่สะอาดตา อ่านง่าย สำหรับแผนประจำวันของคุณ',
   onbColorTitle: 'หมวดหมู่ด้วยสี',
@@ -411,6 +413,10 @@ export default {
   detailsBtn: 'รายละเอียด',
 
   remaining: 'เหลือ',
+
+  freeTimeLabel: 'เวลาว่างที่เหลือวันนี้',
+
+  freeTimeSetupCta: 'ตั้งค่าจังหวะชีวิตเพื่อดูเวลาว่าง',
 
   widgetTitle: 'วิดเจ็ต',
   widgetHowToAdd: 'วิธีเพิ่มลงหน้าจอหลัก',

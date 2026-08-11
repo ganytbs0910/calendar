@@ -139,6 +139,8 @@ export default {
   testNotificationBody: '通知運作正常。',
   onbNotifyTitle: '準時不錯過',
   onbNotifyBody: '在活動與班次前提醒你。在下一個畫面允許通知即可啟用。',
+  onbFreeTitle: '今天還剩多少時間是你的？',
+  onbFreeBody: '用清醒時間減去行程，一眼看到今天還剩多少空閒。',
   onbWelcomeTitle: '歡迎',
   onbWelcomeBody: '簡潔易讀的行事曆，輕鬆管理每日行程。',
   onbColorTitle: '用顏色分類',
@@ -411,6 +413,10 @@ export default {
   detailsBtn: '詳細',
 
   remaining: '剩餘',
+
+  freeTimeLabel: '今天剩餘空閒時間',
+
+  freeTimeSetupCta: '設定作息後即可看到空閒時間',
 
   widgetTitle: '小工具',
   widgetHowToAdd: '如何新增至主畫面',

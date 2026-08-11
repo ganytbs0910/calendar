@@ -108,9 +108,16 @@ export const getDisplayRange = (settings: SleepSettings): {startHour: number; en
   return {startHour, endHour};
 };
 
-/** Calculate remaining active minutes from now until sleep time. */
-export const getRemainingActiveMinutes = (day: DayTimeSetting): number => {
-  const now = new Date();
+/**
+ * Calculate remaining active minutes from now until sleep time.
+ *
+ * `now` is injectable so a caller that also measures something else against the
+ * clock can pin both halves to the same instant — and so this is testable.
+ */
+export const getRemainingActiveMinutes = (
+  day: DayTimeSetting,
+  now: Date = new Date(),
+): number => {
   const nowMin = now.getHours() * 60 + now.getMinutes();
   const sleepMin = day.sleepHour * 60 + day.sleepMinute;
   const wakeMin = day.wakeUpHour * 60 + day.wakeUpMinute;

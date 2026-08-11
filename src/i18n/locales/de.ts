@@ -139,6 +139,8 @@ export default {
   testNotificationBody: 'Benachrichtigungen funktionieren.',
   onbNotifyTitle: 'Bleib pünktlich',
   onbNotifyBody: 'Werde vor Terminen und Schichten erinnert. Erlaube Benachrichtigungen bei der nächsten Abfrage, um dies zu aktivieren.',
+  onbFreeTitle: 'Wie viel vom Tag gehört noch dir?',
+  onbFreeBody: 'Deine Termine von deiner Wachzeit abgezogen — die verbleibende Zeit auf einen Blick.',
   onbWelcomeTitle: 'Willkommen',
   onbWelcomeBody: 'Ein übersichtlicher, gut lesbarer Kalender für deinen Alltag.',
   onbColorTitle: 'Farbkategorien',
@@ -411,6 +413,10 @@ export default {
   detailsBtn: 'Details',
 
   remaining: 'Verbleibend',
+
+  freeTimeLabel: 'Freie Zeit heute',
+
+  freeTimeSetupCta: 'Lege deinen Tagesrhythmus fest, um freie Zeit zu sehen',
 
   widgetTitle: 'Widget',
   widgetHowToAdd: 'Zum Startbildschirm hinzufügen',

@@ -139,6 +139,8 @@ export default {
   testNotificationBody: '알림이 정상적으로 작동합니다.',
   onbNotifyTitle: '시간을 놓치지 마세요',
   onbNotifyBody: '일정과 근무 시작 전에 알려 드립니다. 다음 화면에서 알림을 허용하면 사용할 수 있습니다.',
+  onbFreeTitle: '오늘, 얼마나 남았을까?',
+  onbFreeBody: '깨어 있는 시간에서 일정을 뺀, 오늘 남은 자유 시간을 한눈에.',
   onbWelcomeTitle: '환영합니다',
   onbWelcomeBody: '매일의 일정을 깔끔하게 관리하는 보기 쉬운 캘린더.',
   onbColorTitle: '색상으로 분류',
@@ -411,6 +413,10 @@ export default {
   detailsBtn: '상세',
 
   remaining: '남은 시간',
+
+  freeTimeLabel: '오늘 남은 자유 시간',
+
+  freeTimeSetupCta: '생활 리듬을 설정하면 자유 시간이 보여요',
 
   widgetTitle: '위젯',
   widgetHowToAdd: '홈 화면에 추가하는 방법',

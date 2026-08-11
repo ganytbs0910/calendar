@@ -7,16 +7,11 @@ import {
   ScrollView,
   StyleSheet,
 } from 'react-native';
-import RNCalendarEvents from 'react-native-calendar-events';
 import {useTheme} from '../theme/ThemeContext';
 import {useTranslation} from 'react-i18next';
 import {Task, getTodayTasks, addTaskForDate, getDateKey, toggleTask, deleteTask} from '../services/taskService';
-import {
-  SleepSettings,
-  getSleepSettings,
-  getRemainingActiveMinutes,
-  getTodaySettings,
-} from '../services/sleepSettingsService';
+import {SleepSettings, getSleepSettings} from '../services/sleepSettingsService';
+import {getTodayFreeTime} from '../services/freeTimeService';
 
 const TodayTasks: React.FC = () => {
   const {colors} = useTheme();
@@ -33,7 +28,8 @@ const TodayTasks: React.FC = () => {
     getSleepSettings().then(s => setSleepSettings(s));
   }, []);
 
-  // Calculate remaining active time and free time
+  // Both figures come from freeTimeService, so this screen and the calendar's
+  // free-time bar can never disagree about what "free" means.
   useEffect(() => {
     if (!sleepSettings) {
       setRemainingText('');
@@ -41,65 +37,31 @@ const TodayTasks: React.FC = () => {
       return;
     }
 
+    let cancelled = false;
+    const fmt = (min: number): string => {
+      const h = Math.floor(min / 60);
+      const m = min % 60;
+      return h > 0 && m > 0
+        ? t('hoursMinutesFmt', {h, m})
+        : h > 0
+        ? t('hoursFmt', {h})
+        : t('minutesFmt', {m});
+    };
+
     const calc = async () => {
-      // Get today's specific settings (weekday/weekend)
-      const todayDay = getTodaySettings(sleepSettings!);
-      // Remaining active minutes
-      const remainingMin = getRemainingActiveMinutes(todayDay);
-      const rH = Math.floor(remainingMin / 60);
-      const rM = remainingMin % 60;
-      setRemainingText(`${t('remaining')} ${rH > 0 && rM > 0 ? t('hoursMinutesFmt', {h: rH, m: rM}) : rH > 0 ? t('hoursFmt', {h: rH}) : t('minutesFmt', {m: rM})}`);
-
-      // Calculate today's remaining event minutes
-      try {
-        const now = new Date();
-        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
-        const events = await RNCalendarEvents.fetchAllEvents(
-          todayStart.toISOString(),
-          todayEnd.toISOString(),
-        );
-
-        // Filter to non-allday, non-holiday events that haven't ended yet
-        const sleepMinOfDay = todayDay.sleepHour * 60 + todayDay.sleepMinute;
-        let busyMinutes = 0;
-
-        for (const event of events) {
-          if (event.allDay) continue;
-          if (!event.startDate || !event.endDate) continue;
-          // Skip holiday calendars
-          const calTitle = (event.calendar?.title || '').toLowerCase();
-          if (calTitle.includes('祝日') || calTitle.includes('holiday')) continue;
-
-          const start = new Date(event.startDate);
-          const end = new Date(event.endDate);
-
-          // Only count future portion of events
-          const effectiveStart = start < now ? now : start;
-          if (effectiveStart >= end) continue;
-
-          // Clamp end to sleep time
-          const sleepToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), todayDay.sleepHour, todayDay.sleepMinute);
-          const effectiveEnd = end > sleepToday ? sleepToday : end;
-          if (effectiveStart >= effectiveEnd) continue;
-
-          const eventMin = Math.round((effectiveEnd.getTime() - effectiveStart.getTime()) / (1000 * 60));
-          busyMinutes += eventMin;
-        }
-
-        const freeMin = Math.max(0, remainingMin - busyMinutes);
-        const fH = Math.floor(freeMin / 60);
-        const fM = freeMin % 60;
-        setFreeTimeText(`${t('freeTimeTotal')} ${fH > 0 && fM > 0 ? t('hoursMinutesFmt', {h: fH, m: fM}) : fH > 0 ? t('hoursFmt', {h: fH}) : t('minutesFmt', {m: fM})}`);
-      } catch {
-        setFreeTimeText('');
-      }
+      const {remainingMin, freeMin} = await getTodayFreeTime(sleepSettings);
+      if (cancelled) return;
+      setRemainingText(`${t('remaining')} ${fmt(remainingMin)}`);
+      setFreeTimeText(`${t('freeTimeLabel')} ${fmt(freeMin)}`);
     };
 
     calc();
     const interval = setInterval(calc, 60000);
-    return () => clearInterval(interval);
-  }, [sleepSettings]);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [sleepSettings, t]);
 
   const loadTasks = useCallback(async () => {
     const loaded = await getTodayTasks();

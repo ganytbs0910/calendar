@@ -45,6 +45,7 @@ import LocalCalendarsScreen from './src/components/localcal/LocalCalendarsScreen
 import AgentScreen from './src/components/AgentScreen';
 import OneTimeHint from './src/components/OneTimeHint';
 import ScreenOverlay from './src/components/ScreenOverlay';
+import FreeTimeBar from './src/components/FreeTimeBar';
 import ShareAvailabilityModal from './src/components/ShareAvailabilityModal';
 import PollModal from './src/components/PollModal';
 import SettingsLauncherScreen from './src/components/SettingsLauncherScreen';
@@ -331,6 +332,9 @@ function AppContent() {
   const [showSettingsScreen, setShowSettingsScreen] = useState(false);
   const [showLocalCal, setShowLocalCal] = useState(false);
   const [showPhotos, setShowPhotos] = useState(false);
+  // Bumped whenever the events change, so the free-time bar recounts instead of
+  // waiting out its next tick showing a figure the user just invalidated.
+  const [freeTimeRefreshKey, setFreeTimeRefreshKey] = useState(0);
   const [showJobsManager, setShowJobsManager] = useState(false);
   const [showPaywall, setShowPaywall] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -918,6 +922,7 @@ function AppContent() {
   const handleEventAdded = useCallback(() => {
     calendarRef.current?.refreshEvents();
     weekViewRef.current?.refreshEvents();
+    setFreeTimeRefreshKey(k => k + 1);
   }, []);
 
   // Handle event tap to directly open edit modal
@@ -951,11 +956,13 @@ function AppContent() {
   const handleEventCopied = useCallback(() => {
     calendarRef.current?.refreshEvents();
     weekViewRef.current?.refreshEvents();
+    setFreeTimeRefreshKey(k => k + 1);
   }, []);
 
   const refreshAllViews = useCallback(() => {
     calendarRef.current?.refreshEvents();
     weekViewRef.current?.refreshEvents();
+    setFreeTimeRefreshKey(k => k + 1);
   }, []);
 
   const handleEventDeleted = useCallback(() => {
@@ -1376,6 +1383,14 @@ function AppContent() {
             <Text style={styles.permissionBannerLink}>{t('openSettings')}</Text>
           </TouchableOpacity>
         )}
+
+        {/* The app's headline number, directly under the header so it reads as
+            part of the calendar. Sits above the hint so it never moves. */}
+        <FreeTimeBar
+          sleepSettings={sleepSettings}
+          onSetup={openSleepSettings}
+          refreshKey={freeTimeRefreshKey}
+        />
 
         <OneTimeHint
           hintKey="addButtonTemplates"

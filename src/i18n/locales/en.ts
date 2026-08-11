@@ -147,6 +147,8 @@ export default {
   testNotificationBody: 'Notifications are working.',
   onbNotifyTitle: 'Stay on time',
   onbNotifyBody: 'Get reminded before events and shifts. Allow notifications on the next prompt to enable.',
+  onbFreeTitle: 'How much of today is still yours?',
+  onbFreeBody: 'Your events subtracted from your waking hours — the time you have left, at a glance.',
   onbWelcomeTitle: 'Welcome',
   onbWelcomeBody: 'A clean, easy-to-read calendar for your daily plans.',
   onbColorTitle: 'Color categories',
@@ -430,6 +432,10 @@ export default {
   detailsBtn: 'Details',
 
   remaining: 'Remaining',
+
+  freeTimeLabel: 'Free time left today',
+
+  freeTimeSetupCta: 'Set your daily rhythm to see free time',
 
   widgetTitle: 'Widget',
   widgetHowToAdd: 'How to Add to Home Screen',

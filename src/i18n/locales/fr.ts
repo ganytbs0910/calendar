@@ -139,6 +139,8 @@ export default {
   testNotificationBody: 'Les notifications fonctionnent.',
   onbNotifyTitle: 'Soyez toujours à l\'heure',
   onbNotifyBody: 'Recevez un rappel avant vos événements et vos shifts. Autorisez les notifications à l\'écran suivant pour activer.',
+  onbFreeTitle: 'Combien de la journée te reste-t-il ?',
+  onbFreeBody: "Tes événements soustraits de tes heures éveillées : le temps qu’il te reste, en un coup d’œil.",
   onbWelcomeTitle: 'Bienvenue',
   onbWelcomeBody: 'Un calendrier clair et facile à lire pour vos plans du quotidien.',
   onbColorTitle: 'Catégories par couleur',
@@ -411,6 +413,10 @@ export default {
   detailsBtn: 'Détails',
 
   remaining: 'Restant',
+
+  freeTimeLabel: "Temps libre aujourd’hui",
+
+  freeTimeSetupCta: 'Définis ton rythme quotidien pour voir le temps libre',
 
   widgetTitle: 'Widget',
   widgetHowToAdd: "Comment ajouter à l'écran d'accueil",

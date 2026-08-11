@@ -139,6 +139,8 @@ export default {
   testNotificationBody: '通知功能运行正常。',
   onbNotifyTitle: '守时不误事',
   onbNotifyBody: '在事件和班次开始前提醒你。在下一个提示中允许通知即可启用。',
+  onbFreeTitle: '今天还剩多少时间是你的？',
+  onbFreeBody: '用清醒时间减去日程，一眼看到今天还剩多少空闲。',
   onbWelcomeTitle: '欢迎',
   onbWelcomeBody: '简洁易读的日历，轻松管理每日计划。',
   onbColorTitle: '颜色分类',
@@ -411,6 +413,10 @@ export default {
   detailsBtn: '详情',
 
   remaining: '剩余',
+
+  freeTimeLabel: '今天剩余空闲时间',
+
+  freeTimeSetupCta: '设置作息后即可看到空闲时间',
 
   widgetTitle: '小组件',
   widgetHowToAdd: '如何添加到主屏幕',

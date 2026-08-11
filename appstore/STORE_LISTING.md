@@ -21,7 +21,7 @@ the **Japanese** copy only. The English/international copy uses the neutral
 
 **サブタイトル / 短い説明 (App Store 30字 / Play 80字)**
 ```
-予定もバイトもAIで、一週間が整う
+今日、あと何時間空いてる？
 ```
 
 **キーワード (App Store, 100字)** — ユーザー指定
@@ -29,19 +29,32 @@ the **Japanese** copy only. The English/international copy uses the neutral
 カレンダー,予定,スケジュール,日程,週間,月間,予定表,タスク,リマインダー,ドラッグ,手帳,ダークモード,シンプル,無料
 ```
 
-**プロモーションテキスト (170字)** — ユーザー指定
+**プロモーションテキスト (170字)**
 ```
-説明不要。チュートリアル不要。あなたが「こうすれば動くだろう」と思った通りに動くカレンダー。多機能でもなく、シンプルすぎでもない。全てがちょうどいいカレンダーアプリを作りました！
+予定を「埋める」ためのカレンダーは、もう十分あります。これは残りを見るためのカレンダー。起きている時間から予定を引いて、今日あと何時間自由なのかをホーム画面に出します。説明書は要りません。思った通りに動きます。
 ```
 
-**説明 / 概要 (4000字)** — ユーザー指定
+**説明 / 概要 (4000字)**
 ```
-カレンダーアプリ、多すぎませんか？
-どれも機能は豊富。でもボタンだらけ。
-標準カレンダーはシンプルだけど、物足りない。
+カレンダーは、予定が「入っている時間」しか教えてくれません。
+でも本当に知りたいのは、その逆ではありませんか。
 
-このアプリには、チュートリアルがありません。
-説明書も、設定画面の山もありません。
+今日、あと何時間、自分のために使えるのか。
+
+
+■ 残り自由時間が、ホーム画面に出ます
+
+起きている時間から、これからの予定を引く。
+それだけです。
+
+「23時に寝る。今は19時。予定は21時から1時間」
+——残り3時間。
+
+カレンダーを開いた瞬間、この数字が目に入ります。
+予定を1件入れれば、その場で減ります。
+
+
+■ 説明書はありません
 
 長押しすれば予定ができる。
 ドラッグすれば時間が変わる。
@@ -54,8 +67,24 @@ the **Japanese** copy only. The English/international copy uses the neutral
 ——その直感、全部正解です。
 
 
-予定もタスクも睡眠時間も、1つのタイムラインで。
-今日の残り自由時間がひと目でわかる。
+■ その時間が、何に換わっているか
+
+バイトのシフトを入れると、時給から給料を自動計算。
+深夜・残業・休日の割増にも対応しています。
+年収の壁までの残りも確認できます。
+
+自由時間を何と交換したのか、あとから分かります。
+
+
+■ そのほか
+
+・月表示と週表示をワンタップで切り替え
+・週表示は指でなぞって予定を作成、ドラッグで移動
+・色で分類して、ひと目で把握
+・予定に写真を貼って、あとから振り返る
+・ロック画面ウィジェットで、今日の空き時間を確認
+・端末内で完結。アカウント登録は不要です
+
 
 あなたの1日を、あなたの感覚で組み立ててください。
 ```
@@ -78,7 +107,7 @@ Ideal Calendar
 
 **Subtitle / Short description**
 ```
-The calendar that just works
+How much of today is still yours?
 ```
 
 **Keywords (App Store)**
@@ -88,16 +117,27 @@ calendar,schedule,planner,weekly,monthly,timetable,tasks,reminder,drag,diary,dar
 
 **Promotional text**
 ```
-No manual. No tutorial. A calendar that just works the way you'd expect. Not overloaded, not too bare — one that's finally just right.
+There are enough calendars for filling your day. This one shows you what's left of it. Your events subtracted from your waking hours, on the home screen: the time today that's still yours. No manual needed.
 ```
 
 **Description**
 ```
-Too many calendar apps?
+A calendar tells you which hours are taken. What you actually want to know is the opposite.
 
-Every one does it all — then buries it under a wall of buttons. The built-in calendar is simple, but never quite enough.
+How many hours of today are still yours?
 
-This app has no tutorial. No manual. No mountain of settings.
+
+■ Your free time, on the home screen
+
+Take the hours you're awake. Subtract what's ahead of you.
+
+"Bed at 11. It's 7 now. One hour booked at 9."
+— three hours left.
+
+That number is the first thing you see when you open the app. Add an event and it drops, right there.
+
+
+■ No manual
 
 Long-press to add an event.
 Drag to move it.
@@ -108,7 +148,21 @@ Every year you've spent with a phone is the only instruction manual you need.
 "It probably works like this…"
 — and your instinct is always right.
 
-Events, tasks, even sleep — all on one timeline. See the free time you have left today at a glance.
+
+■ What that time is being traded for
+
+Add a shift and your pay is worked out from your hourly rate, including night, overtime and holiday premiums. You can see what your free time turned into.
+
+
+■ Also
+
+• One tap between month and week view
+• Drag across the week view to create; drag an event to move it
+• Colour-code your events and read the month at a glance
+• Attach photos to events and look back on them
+• A lock-screen widget for today's free time
+• Everything stays on your device. No account required
+
 
 Build your day, your way.
 ```
@@ -129,15 +183,15 @@ listing is live in each language. (App names match the in-app localization.)
 
 | Lang | App name | Short description |
 |------|----------|-------------------|
-| de | Idealer Kalender | Kalender, KI-Planung & Schichten |
-| es | Calendario Ideal | Calendario, IA y turnos |
-| fr | Agenda Idéal | Agenda, IA et créneaux |
-| id | Kalender Ideal | Kalender, AI & sif kerja |
-| ko | 이상적인 캘린더 | 캘린더·AI 플래닝·알바 관리 |
-| pt | Calendário Ideal | Calendário, IA e turnos |
-| th | ปฏิทินในฝัน | ปฏิทิน วางแผนด้วย AI และกะงาน |
-| zh-Hans | 理想日历 | 日历、AI 排程与打工 |
-| zh-Hant | 理想行事曆 | 行事曆、AI 排程與打工 |
+| de | Idealer Kalender | Wie viel vom Tag gehört dir? |
+| es | Calendario Ideal | ¿Cuánto te queda del día? |
+| fr | Agenda Idéal | Combien du jour te reste-t-il ? |
+| id | Kalender Ideal | Berapa sisa harimu? |
+| ko | 이상적인 캘린더 | 오늘, 얼마나 남았을까? |
+| pt | Calendário Ideal | Quanto do dia ainda é seu? |
+| th | ปฏิทินในฝัน | วันนี้เหลือเวลาเท่าไร? |
+| zh-Hans | 理想日历 | 今天还剩多少时间是你的？ |
+| zh-Hant | 理想行事曆 | 今天還剩多少時間是你的？ |
 
 ---
 
