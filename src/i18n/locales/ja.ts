@@ -460,6 +460,8 @@ export default {
   remaining: '残り',
   freeTimeLabel: '今日の残り自由時間',
   freeTimeSetupCta: '生活リズムを設定すると自由時間が出ます',
+  freeShortHours: '{{h}}h',
+  freeShortMinutes: '{{m}}m',
 
   // Widget instructions
   widgetTitle: 'ウィジェット',

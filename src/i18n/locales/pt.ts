@@ -418,6 +418,10 @@ export default {
 
   freeTimeSetupCta: 'Defina seu ritmo diário para ver o tempo livre',
 
+  freeShortHours: '{{h}} h',
+
+  freeShortMinutes: '{{m}} min',
+
   widgetTitle: 'Widget',
   widgetHowToAdd: 'Como Adicionar à Tela Inicial',
   widgetStep1: 'Pressione e segure uma área vazia da tela inicial',

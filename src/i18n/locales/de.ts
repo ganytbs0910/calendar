@@ -418,6 +418,10 @@ export default {
 
   freeTimeSetupCta: 'Lege deinen Tagesrhythmus fest, um freie Zeit zu sehen',
 
+  freeShortHours: '{{h}} Std.',
+
+  freeShortMinutes: '{{m}} Min.',
+
   widgetTitle: 'Widget',
   widgetHowToAdd: 'Zum Startbildschirm hinzufügen',
   widgetStep1: 'Lange auf eine freie Stelle des Startbildschirms drücken',

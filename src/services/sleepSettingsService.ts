@@ -109,25 +109,8 @@ export const getDisplayRange = (settings: SleepSettings): {startHour: number; en
 };
 
 /**
- * Calculate remaining active minutes from now until sleep time.
- *
- * `now` is injectable so a caller that also measures something else against the
- * clock can pin both halves to the same instant — and so this is testable.
+ * NOTE: "remaining active minutes" used to live here and read the clock itself.
+ * It disagreed with the rest of the app before the wake time — it reported zero
+ * for someone up at 5am with a 7am alarm, who in fact has the whole day ahead.
+ * The single definition now lives in freeTimeService.getAwakeWindow.
  */
-export const getRemainingActiveMinutes = (
-  day: DayTimeSetting,
-  now: Date = new Date(),
-): number => {
-  const nowMin = now.getHours() * 60 + now.getMinutes();
-  const sleepMin = day.sleepHour * 60 + day.sleepMinute;
-  const wakeMin = day.wakeUpHour * 60 + day.wakeUpMinute;
-
-  if (sleepMin > wakeMin) {
-    if (nowMin < wakeMin || nowMin >= sleepMin) return 0;
-    return sleepMin - nowMin;
-  } else {
-    if (nowMin >= sleepMin && nowMin < wakeMin) return 0;
-    if (nowMin >= wakeMin) return (24 * 60 - nowMin) + sleepMin;
-    return sleepMin - nowMin;
-  }
-};

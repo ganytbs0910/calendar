@@ -7,7 +7,7 @@
  */
 
 import RNCalendarEvents from 'react-native-calendar-events';
-import {getTodayFreeTime} from '../src/services/freeTimeService';
+import {freeMinutesForDay, getTodayFreeTime} from '../src/services/freeTimeService';
 import {SleepSettings} from '../src/services/sleepSettingsService';
 
 jest.mock('react-native-calendar-events', () => ({
@@ -115,4 +115,69 @@ it('falls back to the waking hours when the calendar cannot be read', async () =
 
   expect(busyMin).toBe(0);
   expect(freeMin).toBe(13 * 60);
+});
+
+describe('before the wake time', () => {
+  it('treats the whole waking day as still ahead', async () => {
+    // Up at 5am with a 7am alarm: the day has not started, not ended.
+    const {remainingMin, freeMin} = await getTodayFreeTime(settings, at(5));
+
+    expect(remainingMin).toBe(16 * 60); // 07:00 → 23:00
+    expect(freeMin).toBe(16 * 60);
+  });
+});
+
+describe('a bedtime after midnight', () => {
+  const nightOwl: SleepSettings = {
+    weekday: {wakeUpHour: 7, wakeUpMinute: 0, sleepHour: 2, sleepMinute: 0},
+    weekend: {wakeUpHour: 7, wakeUpMinute: 0, sleepHour: 2, sleepMinute: 0},
+  };
+
+  it('runs the window into the following day', async () => {
+    const {remainingMin} = await getTodayFreeTime(nightOwl, at(20));
+
+    expect(remainingMin).toBe(6 * 60); // 20:00 → 02:00
+  });
+
+  it('counts an event on the far side of midnight', async () => {
+    fetchAllEvents.mockResolvedValue([
+      {
+        startDate: new Date(2026, 7, 12, 0, 0).toISOString(),
+        endDate: new Date(2026, 7, 12, 1, 0).toISOString(),
+        allDay: false,
+        calendar: {title: 'Personal'},
+      },
+    ]);
+
+    const {busyMin, freeMin} = await getTodayFreeTime(nightOwl, at(23));
+
+    expect(busyMin).toBe(60);
+    expect(freeMin).toBe(2 * 60); // 23:00 → 02:00, less the booked hour
+  });
+});
+
+describe('freeMinutesForDay', () => {
+  it('gives a future day its whole waking window', () => {
+    const tomorrow = new Date(2026, 7, 12);
+
+    expect(freeMinutesForDay([], settings, tomorrow, at(10))).toBe(16 * 60);
+  });
+
+  it('subtracts a future day’s events in full, not just what is ahead of now', () => {
+    const tomorrow = new Date(2026, 7, 12);
+    const event = {
+      startDate: new Date(2026, 7, 12, 9, 0).toISOString(),
+      endDate: new Date(2026, 7, 12, 12, 0).toISOString(),
+      allDay: false,
+      calendar: {title: 'Personal'},
+    };
+
+    expect(freeMinutesForDay([event], settings, tomorrow, at(10))).toBe(16 * 60 - 180);
+  });
+
+  it('reports null for a day already behind us', () => {
+    const yesterday = new Date(2026, 7, 10);
+
+    expect(freeMinutesForDay([], settings, yesterday, at(10))).toBeNull();
+  });
 });

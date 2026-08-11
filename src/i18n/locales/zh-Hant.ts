@@ -418,6 +418,10 @@ export default {
 
   freeTimeSetupCta: '設定作息後即可看到空閒時間',
 
+  freeShortHours: '{{h}}小時',
+
+  freeShortMinutes: '{{m}}分',
+
   widgetTitle: '小工具',
   widgetHowToAdd: '如何新增至主畫面',
   widgetStep1: '長按主畫面的空白區域',

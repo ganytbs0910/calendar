@@ -418,6 +418,10 @@ export default {
 
   freeTimeSetupCta: '设置作息后即可看到空闲时间',
 
+  freeShortHours: '{{h}}小时',
+
+  freeShortMinutes: '{{m}}分',
+
   widgetTitle: '小组件',
   widgetHowToAdd: '如何添加到主屏幕',
   widgetStep1: '长按主屏幕空白区域',

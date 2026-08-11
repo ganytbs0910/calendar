@@ -418,6 +418,10 @@ export default {
 
   freeTimeSetupCta: 'ตั้งค่าจังหวะชีวิตเพื่อดูเวลาว่าง',
 
+  freeShortHours: '{{h}} ชม.',
+
+  freeShortMinutes: '{{m}} น.',
+
   widgetTitle: 'วิดเจ็ต',
   widgetHowToAdd: 'วิธีเพิ่มลงหน้าจอหลัก',
   widgetStep1: 'กดค้างที่พื้นที่ว่างบนหน้าจอหลัก',

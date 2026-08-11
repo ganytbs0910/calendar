@@ -418,6 +418,10 @@ export default {
 
   freeTimeSetupCta: 'Configura tu ritmo diario para ver el tiempo libre',
 
+  freeShortHours: '{{h}} h',
+
+  freeShortMinutes: '{{m}} min',
+
   widgetTitle: 'Widget',
   widgetHowToAdd: 'Cómo agregar a la pantalla de inicio',
   widgetStep1: 'Mantén presionada un área vacía de la pantalla de inicio',

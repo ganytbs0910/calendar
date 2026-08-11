@@ -437,6 +437,10 @@ export default {
 
   freeTimeSetupCta: 'Set your daily rhythm to see free time',
 
+  freeShortHours: '{{h}}h',
+
+  freeShortMinutes: '{{m}}m',
+
   widgetTitle: 'Widget',
   widgetHowToAdd: 'How to Add to Home Screen',
   widgetStep1: 'Long press on an empty area of the home screen',

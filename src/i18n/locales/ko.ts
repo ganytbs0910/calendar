@@ -418,6 +418,10 @@ export default {
 
   freeTimeSetupCta: '생활 리듬을 설정하면 자유 시간이 보여요',
 
+  freeShortHours: '{{h}}시간',
+
+  freeShortMinutes: '{{m}}분',
+
   widgetTitle: '위젯',
   widgetHowToAdd: '홈 화면에 추가하는 방법',
   widgetStep1: '홈 화면의 빈 공간을 길게 누르세요',

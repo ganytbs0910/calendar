@@ -418,6 +418,10 @@ export default {
 
   freeTimeSetupCta: 'Atur ritme harianmu untuk melihat waktu luang',
 
+  freeShortHours: '{{h}} j',
+
+  freeShortMinutes: '{{m}} mnt',
+
   widgetTitle: 'Widget',
   widgetHowToAdd: 'Cara Menambahkan ke Layar Utama',
   widgetStep1: 'Tekan lama pada area kosong di layar utama',
