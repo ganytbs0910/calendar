@@ -36,10 +36,10 @@ the **Japanese** copy only. The English/international copy uses the neutral
 
 **説明 / 概要 (4000字)**
 ```
+今日あと何時間自由に使えるかが、開いた瞬間に数字で出るカレンダーです。
+
 カレンダーは、予定が「入っている時間」しか教えてくれません。
 でも本当に知りたいのは、その逆ではありませんか。
-
-今日、あと何時間、自分のために使えるのか。
 
 
 ■ 残り自由時間が、ホーム画面に出ます
@@ -122,9 +122,9 @@ There are enough calendars for filling your day. This one shows you what's left 
 
 **Description**
 ```
-A calendar tells you which hours are taken. What you actually want to know is the opposite.
+A calendar that opens on one number: how many hours of today are still yours.
 
-How many hours of today are still yours?
+A calendar tells you which hours are taken. What you actually want to know is the opposite.
 
 
 ■ Your free time, on the home screen

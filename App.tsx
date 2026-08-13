@@ -168,6 +168,11 @@ const SearchIcon = ({size = 20, color = '#666'}: {size?: number; color?: string}
 
 // Custom Settings Icon Component (gear)
 
+// The header icons render at 32x32; iOS asks for a 44x44 touch target, so the
+// remaining 6pt on each side is added as slop rather than by growing the icons
+// and pushing the header wider.
+const ICON_HIT_SLOP = {top: 6, bottom: 6, left: 6, right: 6};
+
 type ViewMode = 'month' | 'week';
 
 // Bottom navigation tabs. Only "home" is implemented; the other three navigate
@@ -462,21 +467,40 @@ function AppContent() {
     return () => { cancelled = true; };
   }, []);
 
-  const dismissOnboarding = useCallback(() => {
+  // Onboarding now ends on the rhythm setup, so it hands back what the user
+  // chose there (or null if they skipped). Persisting it here is what makes the
+  // free-time figure work from the very first screen.
+  const dismissOnboarding = useCallback((settings: SleepSettings | null) => {
     setShowOnboarding(false);
     AsyncStorageRoot.setItem('@onboarded', '1').catch(() => {});
+    if (settings) {
+      setSleepSettings(settings);
+      saveSleepSettings(settings).catch(() => {});
+    } else {
+      // Skipped: remember that, so the standalone prompt doesn't ambush them
+      // on the next launch. The bar above the calendar still offers it.
+      deferSleepSetup().catch(() => {});
+    }
   }, []);
 
-  // Request notification permission once on first launch (no-op if granted).
+  // Load the notification preferences. It deliberately does NOT ask for the
+  // permission here: OnboardingModal asks on its last page, after the app has
+  // explained what the notification is for. Asking on mount fired first and
+  // put the system dialog on top of the onboarding's very first slide — the
+  // one carrying the app's whole proposition — so a new user answered two
+  // permission prompts before being allowed to read what the app is.
+  // Once onboarding is done, `showOnboarding` is false and we ask here instead,
+  // which covers anyone upgrading from a build that never asked.
   useEffect(() => {
     (async () => {
-      const [enabled, sound] = await Promise.all([
+      const [enabled, sound, seen] = await Promise.all([
         isNotificationsEnabled(),
         isSoundEnabled(),
+        AsyncStorageRoot.getItem('@onboarded'),
       ]);
       setNotificationsOn(enabled);
       setNotificationSound(sound);
-      if (enabled) {
+      if (enabled && seen === '1') {
         requestNotificationPermission().catch(() => {});
       }
       // Sweep out any one-shot notifications whose fire time already passed —
@@ -675,16 +699,26 @@ function AppContent() {
   // Load sleep settings on mount, and prompt for setup the first time only.
   // Once the user has said "later" the prompt stays away — it can still be
   // reached from the week view and from Settings.
+  // Gated on `showOnboarding` being decided first: raising this modal while the
+  // onboarding modal is up is exactly what used to make it disappear — iOS
+  // presents one modal per view controller and drops the second silently. A
+  // first-run user is handled by onboarding's last page instead; this path only
+  // covers someone who installed before that page existed.
   useEffect(() => {
+    if (showOnboarding) return;
     (async () => {
       const settings = await getSleepSettings();
       if (settings) {
         setSleepSettings(settings);
         return;
       }
-      if (!(await isSleepSetupDeferred())) setShowSleepSetup(true);
+      const [deferred, onboarded] = await Promise.all([
+        isSleepSetupDeferred(),
+        AsyncStorageRoot.getItem('@onboarded'),
+      ]);
+      if (!deferred && onboarded === '1') setShowSleepSetup(true);
     })();
-  }, []);
+  }, [showOnboarding]);
 
   const handleSaveSleepSettings = useCallback(async (settings: SleepSettings) => {
     await saveSleepSettings(settings);
@@ -707,6 +741,12 @@ function AppContent() {
     const t = await getTemplates();
     setTemplates(t);
   }, []);
+
+  // Read once at startup so the template hint above the calendar can tell
+  // whether the user has any templates at all before offering the shortcut.
+  useEffect(() => {
+    loadTemplates().catch(() => {});
+  }, [loadTemplates]);
 
   const handleDeleteTemplate = useCallback(async (id: string) => {
     await deleteTemplate(id);
@@ -1376,6 +1416,7 @@ function AppContent() {
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.iconBtn}
+              hitSlop={ICON_HIT_SLOP}
               onPress={() => {
                 // Drop the cached window so a search opened after adding or
                 // deleting an event sees the change.
@@ -1393,6 +1434,7 @@ function AppContent() {
             {viewMode === 'month' && (
               <TouchableOpacity
                 style={styles.iconBtn}
+              hitSlop={ICON_HIT_SLOP}
                 onPress={() => setFullscreenMonth(prev => !prev)}
                 accessibilityLabel={t('fullscreenToggle')}
                 accessibilityRole="button">
@@ -1402,6 +1444,7 @@ function AppContent() {
             {viewMode === 'month' && (
               <TouchableOpacity
                 style={styles.iconBtn}
+              hitSlop={ICON_HIT_SLOP}
                 onPress={() => (selectionMode ? exitSelectionMode() : enterSelectionMode())}
                 accessibilityLabel={t('bulkDeleteMode')}
                 accessibilityRole="button"
@@ -1441,6 +1484,7 @@ function AppContent() {
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.iconBtn}
+              hitSlop={ICON_HIT_SLOP}
               onPress={openSettingsScreen}
               accessibilityLabel={t('settings')}
               accessibilityRole="button">
@@ -1468,13 +1512,19 @@ function AppContent() {
           refreshKey={freeTimeRefreshKey}
         />
 
-        <OneTimeHint
-          hintKey="addButtonTemplates"
-          icon="bookmark-outline"
-          title={t('hintTemplateTitle')}
-          message={t('hintTemplateBody')}
-          style={{marginHorizontal: 10, marginTop: 6}}
-        />
+        {/* Held back until the user actually has a template. It used to greet a
+            brand-new user on their first screen, advertising a shortcut into an
+            empty list — advice they cannot act on, taking up the space above
+            their (also empty) calendar. */}
+        {templates.length > 0 && (
+          <OneTimeHint
+            hintKey="addButtonTemplates"
+            icon="bookmark-outline"
+            title={t('hintTemplateTitle')}
+            message={t('hintTemplateBody')}
+            style={{marginHorizontal: 10, marginTop: 6}}
+          />
+        )}
 
         {viewMode === 'month' ? (
             <Calendar

@@ -5,7 +5,12 @@ export const lightColors = {
   primary: '#007AFF',
   text: '#333333',
   textSecondary: '#666666',
-  textTertiary: '#999999',
+  // #999999 measured 2.85:1 on surface and 2.61:1 on background — below WCAG AA
+  // for normal text (4.5:1) and below even the large-text floor (3.0:1), and
+  // this token carries de-emphasised but still load-bearing text (the week
+  // view's free hours, counts, sublabels). #707070 is the lightest grey that
+  // clears 4.5:1 against both: 4.95:1 and 4.54:1. The dark theme already passed.
+  textTertiary: '#707070',
   border: '#eeeeee',
   borderLight: '#f0f0f0',
   sunday: '#FF3B30',
