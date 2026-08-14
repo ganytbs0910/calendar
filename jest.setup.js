@@ -10,6 +10,25 @@ jest.mock('@react-native-async-storage/async-storage', () =>
 
 jest.mock('react-native-vector-icons/Ionicons', () => 'Ionicons');
 
+// useSafeAreaInsets throws outright without a provider above it ("No safe area
+// value available"), so any component that respects the notch would be
+// untestable unless every test remembered to wrap itself. The numbers are a
+// notched iPhone's, which is the case worth rendering against — a zero inset
+// would let a regression under the status bar pass.
+jest.mock('react-native-safe-area-context', () => {
+  const insets = {top: 59, right: 0, bottom: 34, left: 0};
+  const frame = {x: 0, y: 0, width: 440, height: 956};
+  return {
+    __esModule: true,
+    SafeAreaProvider: ({children}) => children,
+    SafeAreaView: ({children}) => children,
+    SafeAreaInsetsContext: {Consumer: ({children}) => children(insets)},
+    useSafeAreaInsets: () => insets,
+    useSafeAreaFrame: () => frame,
+    initialWindowMetrics: {insets, frame},
+  };
+});
+
 // Load the real translations. Components read structured values out of i18n
 // (t('weekdaysSingle', {returnObjects: true}) must come back as an array), so a
 // stub t that echoes its key makes them fail in ways the app never would.
