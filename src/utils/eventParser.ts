@@ -64,7 +64,9 @@ export function parseEventText(text: string, base: Date = new Date()): ParsedEve
       const d = parseInt(m[3], 10);
       date = new Date(y, mo, d);
       // If unspecified year and the date is already past, assume next year.
-      if (!m[1] && date.getTime() < today.getTime()) date.setFullYear(y + 1);
+      // Rebuilt rather than mutated: setFullYear on Feb 29 of a leap year lands
+      // on Mar 1 when the next year is not one.
+      if (!m[1] && date.getTime() < today.getTime()) date = new Date(y + 1, mo, d);
       dateMatched = true;
     }
   }
@@ -77,7 +79,8 @@ export function parseEventText(text: string, base: Date = new Date()): ParsedEve
       const mo = parseInt(m[2], 10) - 1;
       const d = parseInt(m[3], 10);
       date = new Date(y, mo, d);
-      if (!m[1] && date.getTime() < today.getTime()) date.setFullYear(y + 1);
+      // Same leap-day reason as above.
+      if (!m[1] && date.getTime() < today.getTime()) date = new Date(y + 1, mo, d);
       dateMatched = true;
     }
   }

@@ -36,6 +36,7 @@ import {
   scheduleEventNotification,
 } from '../services/notificationService';
 import {useTranslation} from 'react-i18next';
+import {combineDateAndTime} from '../utils/dateParts';
 
 // Canonical color category palette (keys for i18n). MUST stay in sync with the
 // calendar seed defaults in userCalendarService.ts — same 7 colors and labels —
@@ -422,8 +423,9 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
       const fetchTitles = async () => {
         try {
           const now = new Date();
-          const past = new Date();
-          past.setMonth(past.getMonth() - 2);
+          // Built in one step for the same reason as the pickers above: stepping
+          // back two months from the 31st lands in the wrong one.
+          const past = new Date(now.getFullYear(), now.getMonth() - 2, now.getDate());
           const events = await RNCalendarEvents.fetchAllEvents(past.toISOString(), now.toISOString());
           // Count frequency
           const freq = new Map<string, number>();
@@ -1183,10 +1185,10 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   };
 
   const confirmStartDate = () => {
-    const newDate = new Date(startDate);
-    newDate.setFullYear(tempDate.getFullYear());
-    newDate.setMonth(tempDate.getMonth());
-    newDate.setDate(tempDate.getDate());
+    // Built in one step: setting the month before the day walked through dates
+    // like "Feb 31", which JS rolls into March, so picking a date while the
+    // event sat on the 31st put it a month later.
+    const newDate = combineDateAndTime(tempDate, startDate);
     setStartDate(newDate);
 
     const startDay = new Date(newDate.getFullYear(), newDate.getMonth(), newDate.getDate());
@@ -1213,10 +1215,10 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   };
 
   const confirmEndDate = () => {
-    const newDate = new Date(endDate);
-    newDate.setFullYear(tempDate.getFullYear());
-    newDate.setMonth(tempDate.getMonth());
-    newDate.setDate(tempDate.getDate());
+    // Built in one step: setting the month before the day walked through dates
+    // like "Feb 31", which JS rolls into March, so picking a date while the
+    // event sat on the 31st put it a month later.
+    const newDate = combineDateAndTime(tempDate, endDate);
     setEndDate(newDate);
     setShowEndDatePicker(false);
   };

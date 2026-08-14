@@ -12,6 +12,7 @@ import {
   TextInput,
 } from 'react-native';
 import {useTranslation} from 'react-i18next';
+import {monthStart} from '../utils/dateParts';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {useTheme} from '../theme/ThemeContext';
 import {ThemeColors} from '../theme/colors';
@@ -73,8 +74,9 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate,
 
   const load = useCallback(async (offset: number) => {
     setLoading(true);
-    const base = new Date();
-    base.setMonth(base.getMonth() + offset);
+    // Anchored to the 1st: stepping months from the 31st skips any shorter
+    // month, so on the 31st "two months ago" landed in the wrong one.
+    const base = monthStart(new Date(), offset);
     const {start, end} = getMonthRange(base);
     try {
       // The embedded Stats tab hides 年収の壁, so skip the heavy full-year scan.
