@@ -486,10 +486,20 @@ function AppContent() {
   }, [t]);
 
   // A backup file opened from Files (or shared into the app) arrives as a URL.
+  //
+  // getInitialURL keeps returning the URL the app launched with for as long as
+  // the app is alive, while this effect is rebuilt whenever `t` changes. Without
+  // the guard, switching language re-asked to restore a file the user had
+  // already handled — or declined. The launch URL is consulted once per launch;
+  // anything arriving later comes through the listener.
+  const launchUrlHandled = useRef(false);
   useEffect(() => {
-    Linking.getInitialURL().then(url => {
-      if (url && url.endsWith('.json')) handleImportBackup(url);
-    }).catch(() => {});
+    if (!launchUrlHandled.current) {
+      launchUrlHandled.current = true;
+      Linking.getInitialURL().then(url => {
+        if (url && url.endsWith('.json')) handleImportBackup(url);
+      }).catch(() => {});
+    }
     const sub = Linking.addEventListener('url', ({url}) => {
       if (url && url.endsWith('.json')) handleImportBackup(url);
     });

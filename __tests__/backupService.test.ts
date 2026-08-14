@@ -227,3 +227,22 @@ describe('写真', () => {
     if (result.ok) expect(Object.keys(result.backup.photos ?? {})).toEqual(['ok.jpg']);
   });
 });
+
+it('写真だけは復元で消さない（置き換え規則の唯一の例外）', async () => {
+  const existing = JSON.stringify({
+    'ev-old': [{uri: 'file:///tmp/documents/event_photos/old.jpg', addedAt: '2026-07-01T00:00:00Z'}],
+  });
+  await AsyncStorage.multiSet([['@event_photos', existing], ['@jobs', '[]']]);
+  // 写真を含まないバックアップ（例: 容量超過で落ちた場合）
+  const result = parseBackup(
+    JSON.stringify({magic: BACKUP_MAGIC, version: 2, data: {'@jobs': '[{"id":"new"}]'}}),
+  );
+  expect(result.ok).toBe(true);
+  if (!result.ok) return;
+
+  await restoreBackup(result.backup);
+
+  expect(await AsyncStorage.getItem('@jobs')).toBe('[{"id":"new"}]');
+  // 手元の写真は残る。バックアップに無かったことを理由に画像を消さない。
+  expect(await AsyncStorage.getItem('@event_photos')).toBe(existing);
+});

@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Keyboard,
   Alert,
+  ScrollView,
 } from 'react-native';
 import RNCalendarEvents from 'react-native-calendar-events';
 import {setEventColor, getColorSettings} from './AddEventModal';
@@ -100,9 +101,19 @@ export const InlineEventCreator: React.FC<InlineEventCreatorProps> = ({
         onSubmitEditing={handleSave}
       />
 
-      {/* Color dots */}
-      <View style={styles.colorRow}>
-        {colorOptions.slice(0, 6).map(color => (
+      {/* Color dots.
+          Scrolls rather than truncating: the row used to show the first six, so
+          the last two of the default palette — and every colour the user had
+          added themselves — could not be picked here at all. Worse, if the
+          event already carried one of the hidden colours, nothing on the row
+          appeared selected. */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.colorScroll}
+        contentContainerStyle={styles.colorRow}
+        keyboardShouldPersistTaps="handled">
+        {colorOptions.map(color => (
           <TouchableOpacity
             key={color}
             style={[
@@ -113,7 +124,7 @@ export const InlineEventCreator: React.FC<InlineEventCreatorProps> = ({
             onPress={() => setSelectedColor(color)}
           />
         ))}
-      </View>
+      </ScrollView>
 
       {/* Action buttons */}
       <View style={styles.buttonRow}>
@@ -162,10 +173,12 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     marginBottom: 10,
   },
+  // flexGrow 0, or the horizontal ScrollView claims the column's spare height.
+  colorScroll: {flexGrow: 0, flexShrink: 0, marginBottom: 12},
   colorRow: {
     flexDirection: 'row',
     gap: 8,
-    marginBottom: 12,
+    alignItems: 'center',
   },
   colorDot: {
     width: 22,

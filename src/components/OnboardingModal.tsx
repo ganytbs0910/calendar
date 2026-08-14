@@ -93,7 +93,14 @@ const OnboardingModal: React.FC<OnboardingModalProps> = ({visible, onClose}) => 
   }, [pagerWidth]);
 
   const isSetup = page >= setupPage;
+  // The permission request below is awaited, and the modal stays tappable while
+  // the system dialog is up. A second tap in that window used to run the whole
+  // finish again — skip after commit, say, would both save the rhythm and
+  // record it as deferred.
+  const finishing = useRef(false);
   const finish = async (settings: SleepSettings | null) => {
+    if (finishing.current) return;
+    finishing.current = true;
     // Finishing onboarding is a natural moment to ask for notifications.
     try { await requestNotificationPermission(); } catch { /* ignore */ }
     onClose(settings);

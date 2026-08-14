@@ -218,6 +218,12 @@ export const parseBackup = (raw: string): ParseResult => {
  * — a merge would leave, say, a job the user deleted before backing up. The
  * excluded keys are untouched: the purchase and the lock stay as they are on
  * this device.
+ *
+ * Photos are the one deliberate exception to "replace". They are only ever
+ * added, never cleared, because the alternative is deleting someone's pictures
+ * on the strength of a backup that happened not to carry any — for instance one
+ * written when the images were over the size budget. Being left with a photo
+ * the backup didn't describe is recoverable; losing one is not.
  */
 export const restoreBackup = async (backup: Backup): Promise<number> => {
   const existing = (await AsyncStorage.getAllKeys()).filter(isBackedUp);
