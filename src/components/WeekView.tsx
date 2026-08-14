@@ -19,6 +19,7 @@ import {useTheme} from '../theme/ThemeContext';
 import {useTranslation} from 'react-i18next';
 import {SleepSettings, getSettingsForDate} from '../services/sleepSettingsService';
 import {freeMinutesForDay} from '../services/freeTimeService';
+import {eventDayKeys} from '../utils/eventDays';
 import TaskBottomSheet, {TaskBottomSheetRef} from './TaskBottomSheet';
 import OneTimeHint from './OneTimeHint';
 
@@ -412,10 +413,13 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
     events.forEach(event => {
       if (!event.allDay || !event.startDate) return;
       if (!matchesFilter(event)) return;
-      const start = new Date(event.startDate);
-      const key = dayKey(start);
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(event);
+      // Filed under every day it covers, not just its start: a multi-day trip
+      // used to show on its first column and leave the rest looking empty,
+      // while the month grid drew it across all of them.
+      for (const key of eventDayKeys(event)) {
+        if (!map.has(key)) map.set(key, []);
+        map.get(key)!.push(event);
+      }
     });
     return map;
   }, [events, matchesFilter]);

@@ -21,6 +21,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import {fetchWeather, WeatherDay} from '../services/weatherService';
 import {useTheme} from '../theme/ThemeContext';
 import {useTranslation} from 'react-i18next';
+import {eventDayKeys, eventDayRange} from '../utils/eventDays';
 
 const MONTH_ANCHOR = 120; // Center index for infinite-like scrolling
 // Container has paddingHorizontal: 12 (both sides = 24) total. The real grid
@@ -95,23 +96,6 @@ type PageModel = {
  *
  * Returns null for events missing either endpoint, so callers can skip them.
  */
-const eventDayRange = (
-  event: CalendarEventReadable,
-): {firstDay: Date; lastDay: Date} | null => {
-  if (!event.startDate || !event.endDate) return null;
-
-  const start = new Date(event.startDate);
-  let end = new Date(event.endDate);
-  if (event.allDay && end.getHours() === 0 && end.getMinutes() === 0 && end.getSeconds() === 0) {
-    end = new Date(end.getTime() - 1);
-  }
-
-  return {
-    firstDay: new Date(start.getFullYear(), start.getMonth(), start.getDate()),
-    lastDay: new Date(end.getFullYear(), end.getMonth(), end.getDate()),
-  };
-};
-
 // Wraps the month grid in a vertical ScrollView when fullscreen mode is on,
 // so days with many events can grow tall and the user can scroll.
 const ConditionalScroll: React.FC<{fullscreen: boolean; children: React.ReactNode}> = ({fullscreen, children}) =>
@@ -816,8 +800,8 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
     const buildEventIndex = (monthKey: string) => {
       const index = new Map<string, CalendarEventReadable[]>();
       for (const event of eventsCache.current.get(monthKey) ?? []) {
-        const range = eventDayRange(event);
-        if (!range) continue;
+        const keys = eventDayKeys(event);
+        if (keys.length === 0) continue;
 
         // Apply the user-calendar filter on the resolved event colour.
         if (filterColor) {
@@ -825,14 +809,10 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
           if (resolved?.toUpperCase() !== filterColor.toUpperCase()) continue;
         }
 
-        const day = new Date(range.firstDay);
-        const {lastDay} = range;
-        while (day <= lastDay) {
-          const dateKey = `${day.getFullYear()}-${day.getMonth()}-${day.getDate()}`;
+        for (const dateKey of keys) {
           const bucket = index.get(dateKey);
           if (bucket) bucket.push(event);
           else index.set(dateKey, [event]);
-          day.setDate(day.getDate() + 1);
         }
       }
       return index;
