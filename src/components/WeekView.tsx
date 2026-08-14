@@ -94,13 +94,18 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
   const {width: screenWidth} = useWindowDimensions();
   const dayWidth = useMemo(() => (screenWidth - TIME_LABEL_WIDTH) / 7, [screenWidth]);
 
-  // Anchor = Monday of the week containing currentDate when the component mounted.
-  // All day offsets are computed relative to this, so FlatList never needs resetting.
+  // Anchor = Sunday of the week containing currentDate when the component
+  // mounted. All day offsets are computed relative to this, so FlatList never
+  // needs resetting.
+  //
+  // Sunday, because every other grid in the app starts there — the month view,
+  // the on-device calendars, the free-days sheet and the poll all pad from
+  // getDay(). This one anchored to Monday, so toggling between month and week
+  // regrouped the days: a Sunday sat at the start of a row in one view and at
+  // the end of the week in the other.
   const anchorDate = useRef<Date>((() => {
     const d = new Date(currentDate);
-    const day = d.getDay();
-    const diff = day === 0 ? -6 : 1 - day;
-    d.setDate(d.getDate() + diff);
+    d.setDate(d.getDate() - d.getDay());
     d.setHours(0, 0, 0, 0);
     return d;
   })()).current;
@@ -301,11 +306,10 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
     setMonthLabel(computeMonthLabel(targetIndex));
   }, [currentDate, anchorDate, computeMonthLabel]);
 
-  // ── Initial horizontal scroll position (anchor Monday as leftmost day). ──
-  // FlatList's initialScrollIndex handles this, but we also need to correct for
-  // the case where currentDate isn't exactly Monday: scroll so currentDate is
-  // within the first visible window.
-  // (Anchor is already Monday of currentDate's week, so ANCHOR_INDEX works.)
+  // ── Initial horizontal scroll position (anchor Sunday as leftmost day). ──
+  // FlatList's initialScrollIndex handles this: the anchor is already the Sunday
+  // of currentDate's week, so ANCHOR_INDEX puts currentDate in the first
+  // visible window whatever weekday it falls on.
 
   // ── Horizontal scroll sync ──
   // Only the body FlatList is user-scrollable; the header is driven imperatively
