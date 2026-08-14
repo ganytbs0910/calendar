@@ -1,2 +1,12 @@
 "CFBundleDisplayName" = "ปฏิทินในฝัน";
 "CFBundleName" = "ปฏิทินในฝัน";
+
+/* Permission prompts. Without these the system falls back to the
+   literals in Info.plist, which are Japanese — so every non-Japanese
+   user was asked for calendar access in Japanese. */
+"NSCalendarsFullAccessUsageDescription" = "จำเป็นสำหรับการแสดงและจัดการกิจกรรมในปฏิทินของคุณ";
+"NSCalendarsUsageDescription" = "จำเป็นสำหรับการแสดงกิจกรรมในปฏิทินของคุณ";
+"NSLocationWhenInUseUsageDescription" = "ใช้เพื่อแสดงสภาพอากาศในตำแหน่งของคุณ";
+"NSFaceIDUsageDescription" = "ใช้เพื่อปลดล็อกแอปด้วย Face ID";
+"NSPhotoLibraryUsageDescription" = "จำเป็นสำหรับการแนบรูปภาพกับกิจกรรมและเก็บไว้เป็นบันทึก";
+"NSCameraUsageDescription" = "จำเป็นสำหรับการถ่ายรูปให้กิจกรรมทันที";

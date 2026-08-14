@@ -1,2 +1,12 @@
 "CFBundleDisplayName" = "Calendario Ideal";
 "CFBundleName" = "Calendario Ideal";
+
+/* Permission prompts. Without these the system falls back to the
+   literals in Info.plist, which are Japanese — so every non-Japanese
+   user was asked for calendar access in Japanese. */
+"NSCalendarsFullAccessUsageDescription" = "Se necesita para mostrar y gestionar los eventos de tu calendario.";
+"NSCalendarsUsageDescription" = "Se necesita para mostrar los eventos de tu calendario.";
+"NSLocationWhenInUseUsageDescription" = "Se usa para mostrar el tiempo en tu ubicación.";
+"NSFaceIDUsageDescription" = "Se usa para desbloquear la app con Face ID.";
+"NSPhotoLibraryUsageDescription" = "Se necesita para adjuntar fotos a tus eventos y conservarlas.";
+"NSCameraUsageDescription" = "Se necesita para hacer una foto para un evento al momento.";

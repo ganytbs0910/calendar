@@ -1,2 +1,12 @@
 "CFBundleDisplayName" = "理想日历";
 "CFBundleName" = "理想日历";
+
+/* Permission prompts. Without these the system falls back to the
+   literals in Info.plist, which are Japanese — so every non-Japanese
+   user was asked for calendar access in Japanese. */
+"NSCalendarsFullAccessUsageDescription" = "用于显示和管理你日历中的日程。";
+"NSCalendarsUsageDescription" = "用于显示你日历中的日程。";
+"NSLocationWhenInUseUsageDescription" = "用于显示你所在位置的天气。";
+"NSFaceIDUsageDescription" = "用于通过 Face ID 解锁应用。";
+"NSPhotoLibraryUsageDescription" = "用于把照片添加到日程并保存为记录。";
+"NSCameraUsageDescription" = "用于当场为日程拍照。";
