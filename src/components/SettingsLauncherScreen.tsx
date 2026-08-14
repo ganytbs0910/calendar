@@ -20,6 +20,7 @@ import {usePremium} from '../context/PremiumContext';
 import {resetAllHints} from './OneTimeHint';
 import {PaywallScreen} from './PaywallScreen';
 import {TERMS_URL, PRIVACY_URL, openLegalLink} from '../utils/legalLinks';
+import {ja as feedbackCopy, hasFeedbackCopy} from './feedbackCopy';
 
 interface RowProps {
   icon: string;
@@ -57,6 +58,7 @@ interface Props {
   onOpenLocalCal: () => void;
   onOpenPhotos: () => void;
   onExportBackup: () => void;
+  onOpenFeedback: () => void;
   /** Dismisses the screen. Omitted when it is hosted somewhere it can't close. */
   onClose?: () => void;
 }
@@ -70,10 +72,16 @@ const SettingsLauncherScreen: React.FC<Props> = ({
   onOpenLocalCal,
   onOpenPhotos,
   onExportBackup,
+  onOpenFeedback,
   onClose,
 }) => {
   const {colors} = useTheme();
-  const {t} = useTranslation();
+  const {t, i18n} = useTranslation();
+  // The feedback screen only has Japanese copy, so the entry point only appears
+  // for Japanese devices — showing a Japanese-only form to a German user is
+  // worse than not offering it. Drop this check once feedbackCopy.ts has more
+  // languages.
+  const showFeedback = hasFeedbackCopy(i18n.language);
   const {isPremium} = usePremium();
   const [showPaywall, setShowPaywall] = useState(false);
   let version = '';
@@ -221,8 +229,19 @@ const SettingsLauncherScreen: React.FC<Props> = ({
                 ],
               );
             }}
-            isLast
+            isLast={!showFeedback}
           />
+          {showFeedback && (
+            <Row
+              colors={colors}
+              icon="chatbubble-ellipses-outline"
+              tint="#34C759"
+              label={feedbackCopy.entryLabel}
+              sublabel={feedbackCopy.entrySub}
+              onPress={onOpenFeedback}
+              isLast
+            />
+          )}
         </Section>
 
         <Section title={t('settingsSectionApp')}>

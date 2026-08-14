@@ -59,6 +59,7 @@ import CalendarFilterBar from './src/components/CalendarFilterBar';
 import ShareAvailabilityModal from './src/components/ShareAvailabilityModal';
 import PollModal from './src/components/PollModal';
 import SettingsLauncherScreen from './src/components/SettingsLauncherScreen';
+import FeedbackScreen from './src/components/FeedbackScreen';
 import JobsManagerModal from './src/components/JobsManagerModal';
 import OnboardingModal from './src/components/OnboardingModal';
 import AsyncStorageRoot from '@react-native-async-storage/async-storage';
@@ -351,6 +352,7 @@ function AppContent() {
   const [showSettingsScreen, setShowSettingsScreen] = useState(false);
   const [showLocalCal, setShowLocalCal] = useState(false);
   const [showPhotos, setShowPhotos] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
   // Bumped whenever the events change, so the free-time bar recounts instead of
   // waiting out its next tick showing a figure the user just invalidated.
   const [freeTimeRefreshKey, setFreeTimeRefreshKey] = useState(0);
@@ -381,6 +383,8 @@ function AppContent() {
   const closeLocalCal = useCallback(() => setShowLocalCal(false), []);
   const openPhotos = useCallback(() => setShowPhotos(true), []);
   const closePhotos = useCallback(() => setShowPhotos(false), []);
+  const openFeedback = useCallback(() => setShowFeedback(true), []);
+  const closeFeedback = useCallback(() => setShowFeedback(false), []);
   const openIncomeWall = useCallback(() => setShowIncomeWall(true), []);
   const openJobs = useCallback(() => setShowJobsManager(true), []);
   // Once the launch settles, mount the remaining tabs in the background so the
@@ -2618,8 +2622,15 @@ function AppContent() {
             onOpenLocalCal={openLocalCal}
             onOpenPhotos={openPhotos}
             onExportBackup={handleExportBackup}
+            onOpenFeedback={openFeedback}
             onClose={closeSettingsScreen}
           />
+        </ScreenOverlay>
+
+        {/* Sits alongside Settings rather than inside it: the form shows Alerts,
+            and Settings is itself an overlay hosting Modals. */}
+        <ScreenOverlay visible={showFeedback} onClose={closeFeedback}>
+          <FeedbackScreen onClose={closeFeedback} />
         </ScreenOverlay>
 
         <ScreenOverlay visible={showLocalCal} onClose={closeLocalCal}>

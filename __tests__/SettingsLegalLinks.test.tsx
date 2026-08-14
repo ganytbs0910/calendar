@@ -27,6 +27,7 @@ const props = {
   onOpenLocalCal: noop,
   onOpenPhotos: noop,
   onExportBackup: noop,
+  onOpenFeedback: noop,
 };
 
 /** The row is a TouchableOpacity wrapping a Text with the given label. */
