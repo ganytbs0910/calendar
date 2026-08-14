@@ -626,7 +626,7 @@ export default {
   setBackupSub: 'Simpan pengaturan, tugas, dan tempat kerja dalam satu berkas',
   backupExport: 'Ekspor cadangan',
   backupExported: 'Diekspor',
-  backupRestoreConfirm: 'Pulihkan dari berkas ini? Data saat ini akan diganti ({{n}} item). Foto tidak termasuk.',
+  backupRestoreConfirm: 'Pulihkan dari berkas ini? Data saat ini akan diganti ({{n}} item).',
   backupRestored: 'Dipulihkan. Mulai ulang aplikasi.',
   backupFailed: 'Gagal memulihkan. Berkas rusak atau bukan cadangan dari aplikasi ini.',
   setGuideLabel: 'Putar ulang panduan',

@@ -628,7 +628,7 @@ export default {
   setBackupSub: 'Save settings, tasks and jobs to a single file',
   backupExport: 'Export a backup',
   backupExported: 'Exported',
-  backupRestoreConfirm: 'Restore from this file? Your current data will be replaced ({{n}} items). Photos are not included.',
+  backupRestoreConfirm: 'Restore from this file? Your current data will be replaced ({{n}} items).',
   backupRestored: 'Restored. Please restart the app.',
   backupFailed: 'Could not restore. The file is damaged or is not a backup from this app.',
   setGuideLabel: 'Replay the how-to guide',

@@ -26,6 +26,7 @@ jest.mock('react-native-fs', () => ({
   unlink: jest.fn().mockResolvedValue(undefined),
   writeFile: jest.fn().mockResolvedValue(undefined),
   readFile: jest.fn().mockResolvedValue(''),
+  stat: jest.fn().mockResolvedValue({size: 0}),
 }));
 
 // Same NativeEventEmitter-at-import problem as react-native-fs.

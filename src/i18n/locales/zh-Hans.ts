@@ -626,7 +626,7 @@ export default {
   setBackupSub: '把设置、任务和打工地点存成一个文件',
   backupExport: '导出备份',
   backupExported: '已导出',
-  backupRestoreConfirm: '要从这个文件恢复吗？当前数据将被替换（{{n}} 项）。不含照片。',
+  backupRestoreConfirm: '要从这个文件恢复吗？当前数据将被替换（{{n}} 项）。',
   backupRestored: '已恢复，请重新启动应用。',
   backupFailed: '无法恢复。文件已损坏，或不是本应用的备份。',
   setGuideLabel: '重新查看使用指南',

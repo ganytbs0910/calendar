@@ -626,7 +626,7 @@ export default {
   setBackupSub: 'Einstellungen, Aufgaben und Jobs in einer Datei sichern',
   backupExport: 'Backup exportieren',
   backupExported: 'Exportiert',
-  backupRestoreConfirm: 'Aus dieser Datei wiederherstellen? Deine aktuellen Daten werden ersetzt ({{n}} Einträge). Fotos sind nicht enthalten.',
+  backupRestoreConfirm: 'Aus dieser Datei wiederherstellen? Deine aktuellen Daten werden ersetzt ({{n}} Einträge).',
   backupRestored: 'Wiederhergestellt. Bitte starte die App neu.',
   backupFailed: 'Wiederherstellen fehlgeschlagen. Die Datei ist beschädigt oder stammt nicht aus dieser App.',
   setGuideLabel: 'Anleitung erneut ansehen',

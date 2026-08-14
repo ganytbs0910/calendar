@@ -651,7 +651,7 @@ export default {
   setBackupSub: '設定・タスク・バイト先などを1つのファイルに保存',
   backupExport: 'バックアップを書き出す',
   backupExported: '書き出しました',
-  backupRestoreConfirm: 'このファイルから復元しますか？現在のデータは置き換わります（{{n}}件）。写真は含まれません。',
+  backupRestoreConfirm: 'このファイルから復元しますか？現在のデータは置き換わります（{{n}}件）。',
   backupRestored: '復元しました。アプリを再起動してください。',
   backupFailed: '復元できませんでした。ファイルが壊れているか、このアプリのバックアップではありません。',
   setGuideLabel: '使い方ガイドをもう一度見る',

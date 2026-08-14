@@ -626,7 +626,7 @@ export default {
   setBackupSub: 'Salve ajustes, tarefas e trabalhos em um único arquivo',
   backupExport: 'Exportar backup',
   backupExported: 'Exportado',
-  backupRestoreConfirm: 'Restaurar deste arquivo? Seus dados atuais serão substituídos ({{n}} itens). Fotos não são incluídas.',
+  backupRestoreConfirm: 'Restaurar deste arquivo? Seus dados atuais serão substituídos ({{n}} itens).',
   backupRestored: 'Restaurado. Reinicie o app.',
   backupFailed: 'Não foi possível restaurar. O arquivo está danificado ou não é um backup deste app.',
   setGuideLabel: 'Rever o guia de uso',

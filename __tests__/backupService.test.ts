@@ -15,6 +15,7 @@ import {
   restoreBackup,
   serializeBackup,
   backupFileName,
+  PHOTO_BUDGET_BYTES,
 } from '../src/services/backupService';
 
 beforeEach(async () => {
@@ -39,7 +40,7 @@ describe('何を持ち出すか', () => {
     expect(isBackedUp('@dev_seeded_2026_summer')).toBe(false);
   });
 
-  it('写真の対応表は含めない（画像ファイル本体を運べないため）', () => {
+  it('写真の対応表は汎用コピーの対象外（画像と対にして別途運ぶため）', () => {
     expect(isBackedUp('@event_photos')).toBe(false);
   });
 
@@ -141,4 +142,88 @@ describe('往復', () => {
 
 it('ファイル名に日付が入る', () => {
   expect(backupFileName(new Date(2026, 7, 14))).toBe('ideal-calendar-backup-2026-08-14.json');
+});
+
+describe('写真', () => {
+  const RNFS = require('react-native-fs');
+  const photoMap = JSON.stringify({
+    'ev-1': [{uri: 'file:///tmp/documents/event_photos/a.jpg', addedAt: '2026-08-01T00:00:00Z'}],
+    'ev-2': [{uri: 'file:///tmp/documents/event_photos/b.jpg', addedAt: '2026-08-02T00:00:00Z'}],
+  });
+
+  beforeEach(() => {
+    RNFS.stat.mockResolvedValue({size: 1000});
+    RNFS.readFile.mockResolvedValue('BASE64');
+    RNFS.writeFile.mockClear();
+  });
+
+  it('画像を base64 で同梱し、対応表も一緒に運ぶ', async () => {
+    await seed({'@event_photos': photoMap});
+
+    const backup = await createBackup();
+
+    expect(Object.keys(backup.photos ?? {}).sort()).toEqual(['a.jpg', 'b.jpg']);
+    expect(backup.data['@event_photos']).toBe(photoMap);
+    expect(backup.photosOmitted).toBeUndefined();
+  });
+
+  it('容量を超えた分は落とし、落としたことを申告する', async () => {
+    RNFS.stat.mockResolvedValue({size: PHOTO_BUDGET_BYTES});
+    await seed({'@event_photos': photoMap});
+
+    const backup = await createBackup();
+
+    // 1枚で予算いっぱい。新しい方（b, 8/02）が残る。
+    expect(Object.keys(backup.photos ?? {})).toEqual(['b.jpg']);
+    expect(backup.photosOmitted).toBe(true);
+  });
+
+  it('画像が1枚も運べないなら対応表も入れない（壊れた参照を作らない）', async () => {
+    RNFS.stat.mockRejectedValue(new Error('gone'));
+    await seed({'@event_photos': photoMap});
+
+    const backup = await createBackup();
+
+    expect(backup.photos).toBeUndefined();
+    expect(backup.data['@event_photos']).toBeUndefined();
+  });
+
+  it('復元時、対応表のパスをこの端末のサンドボックスに書き換える', async () => {
+    const raw = JSON.stringify({
+      magic: BACKUP_MAGIC,
+      version: 2,
+      data: {
+        '@event_photos': JSON.stringify({
+          'ev-1': [{uri: 'file:///OLD/PHONE/event_photos/a.jpg', addedAt: '2026-08-01T00:00:00Z'}],
+        }),
+      },
+      photos: {'a.jpg': 'BASE64'},
+    });
+    const result = parseBackup(raw);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    await restoreBackup(result.backup);
+
+    // 画像が書かれ、対応表は新しい絶対パスを指す。
+    expect(RNFS.writeFile).toHaveBeenCalledWith(
+      '/tmp/documents/event_photos/a.jpg', 'BASE64', 'base64',
+    );
+    const map = JSON.parse((await AsyncStorage.getItem('@event_photos'))!);
+    expect(map['ev-1'][0].uri).toBe('file:///tmp/documents/event_photos/a.jpg');
+  });
+
+  it('ファイル名に区切りを含む細工は復元しない', () => {
+    const raw = JSON.stringify({
+      magic: BACKUP_MAGIC,
+      version: 2,
+      data: {'@jobs': '[]'},
+      photos: {'../../evil.js': 'BASE64', 'ok.jpg': 'BASE64'},
+    });
+
+    const result = parseBackup(raw);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(Object.keys(result.backup.photos ?? {})).toEqual(['ok.jpg']);
+  });
 });

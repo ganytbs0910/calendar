@@ -626,7 +626,7 @@ export default {
   setBackupSub: '把設定、待辦和打工地點存成一個檔案',
   backupExport: '匯出備份',
   backupExported: '已匯出',
-  backupRestoreConfirm: '要從這個檔案還原嗎？目前的資料將被取代（{{n}} 項）。不含相片。',
+  backupRestoreConfirm: '要從這個檔案還原嗎？目前的資料將被取代（{{n}} 項）。',
   backupRestored: '已還原，請重新啟動應用程式。',
   backupFailed: '無法還原。檔案已損毀，或不是本應用程式的備份。',
   setGuideLabel: '重新查看使用指南',
