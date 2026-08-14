@@ -87,36 +87,69 @@ RLS と anon キーの経路は SQL エディタ（service_role）では検証�
 
 ---
 
-## 掲載文とプライバシー方針の更新（**未実施・要判断**）
+## 掲載文とプライバシー方針（**更新済み**）
 
 意見ボックスは「利用者が送信ボタンを押したときだけ」動くが、
-それでも**外部送信は発生する**。現在の掲載文はこう書いてある:
+それでも外部送信は発生する。あわせて調べたところ、
+**掲載文の「端末内で完結」は意見ボックス以前からすでに不正確**だった。
 
-| 場所 | 現在の記載 |
-|---|---|
-| `appstore/STORE_LISTING.md:86` | ・端末内で完結。アカウント登録は不要です |
-| `appstore/STORE_LISTING.md:164` | • Everything stays on your device. No account required |
+| 外に出るもの | いつ | 送信先 |
+|---|---|---|
+| 緯度・経度 | 天気を表示するとき | Open-Meteo（`src/services/weatherService.ts:94`） |
+| 広告識別子・IP・端末情報 | 無料版でバナー表示中 | Google AdMob（`App.tsx:2686`） |
+| 本文・連絡先・バージョン・OS・言語 | 利用者が送信を押したとき | Supabase（開発者管理） |
 
-厳密には例外ができるので、次のように直すのを提案する（**未適用**）:
+対応済み:
 
+- `appstore/STORE_LISTING.md` の該当行を JP/EN とも書き換えた。
+  「端末内で完結」→「**予定もタスクも写真も端末の中だけ**」。
+  守れる範囲だけを主張する形にしてある。
+- 同ファイル冒頭に、両ストアのプライバシー申告に何を足すかの表を追加した。
+- **プライバシー方針**を更新し、**本番へ反映済み**
+  （`gan-67f.pages.dev/privacy?app=calendar` で確認）。
+  9節に意見ボックスを新設し、事実と食い違っていた2箇所を直した:
+  - 1節「独自のサーバーを持たないため…送信されることはありません」
+  - 11節「開発者側に保管されているデータはありません」
+
+  あわせて削除請求とお問い合わせの窓口が無かったので12節に追加した。
+
+### サポートサイトの更新手順（**git push では反映されない**）
+
+つまずいたので書き残す。
+
+- 原稿は `apps.js` の `calendar` ブロック1箇所。`index.html` と `privacy.html` は
+  これを読んで描画するだけなので、文言を直すのは常に `apps.js` だけでよい。
+- **同じ内容の複製が2箇所にある。** git 管理下にあるのは Button 側だけ:
+  - `~/Desktop/Button/AppStore/support-site/` ← git 管理（`feature/tenbin` ブランチ）
+  - `~/Desktop/app-support/` ← **git 管理外**。`~/Desktop` 自体が別リポジトリのため
+    紛らわしいが、このディレクトリの中身は追跡されていない
+- **Cloudflare Pages はプロジェクト `gan`（`gan-67f.pages.dev`）で、git 連携していない。**
+  GitHub に push しても本番は変わらない。反映には直接アップロードが要る:
+
+```sh
+cd ~/Desktop/Button
+npx wrangler@3 pages deploy AppStore/support-site \
+  --project-name=gan --branch=main --commit-dirty=true
 ```
-・端末内で完結。アカウント登録は不要です
-  （意見を送るときだけ、入力内容とアプリのバージョン・OS・表示言語を送信します）
 
-• Everything stays on your device. No account required
-  (only when you send feedback does anything leave it: your message,
-   the app version, OS and display language)
+`wrangler@3` を指定しているのは、最新版が Node 22 以上を要求し、
+既定の Node が 20 のため（`volta list node` に 22 もあるので、そちらでも可）。
+認証は `~/.wrangler/config/default.toml` の OAuth トークンが使われる。
+
+反映確認:
+
+```sh
+curl -s https://gan-67f.pages.dev/apps.js | grep -c 意見ボックス   # 0 なら未反映
 ```
 
-あわせて必要なもの:
+**未実施**（両コンソールのUI操作なので、こちらからは行えない）:
 
-- **プライバシー方針**（`gan-67f.pages.dev/privacy?app=calendar`／このリポジトリの外）に
-  意見ボックスの送信項目・保存先・保存期間を追記する
-- **App Store のプライバシー表示**に
-  「ユーザーコンテンツ → その他のユーザーコンテンツ」（アプリの機能／**トラッキングなし・非連結**）を追加
-- Google Play の**データセーフティ**に同等の申告
+- App Store Connect → App のプライバシー に
+  「ユーザーコンテンツ → その他のユーザーコンテンツ」と
+  「連絡先情報 → メールアドレス」を追加（用途: アプリの機能 / 非連結 / トラッキングなし）
+- Google Play → データセーフティ に同等の申告
 
-送信しているのは `app_version` / `platform` / `language` / `message` / `contact` の5項目のみ。
+送信しているのは `message` / `contact` / `app_version` / `platform` / `language` の5項目のみ。
 予定の内容・カレンダー名・写真・給与設定は**一切送っていない**
 （`__tests__/feedbackService.test.ts` の「送る項目」がこれを固定している。
 項目を増やすとテストが落ちるので、この表と実装がずれることはない）。

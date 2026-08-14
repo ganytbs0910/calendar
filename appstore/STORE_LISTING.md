@@ -10,6 +10,38 @@ Note: the **年収の壁 (income wall)** feature is Japan-specific, so it appear
 the **Japanese** copy only. The English/international copy uses the neutral
 "shift & pay tracking" framing instead.
 
+## ⚠️ Privacy declarations — update these before the next submission
+
+The "everything stays on your device" line used to overclaim. Three things do
+leave the device, and the declarations in both consoles have to match:
+
+| What leaves | When | Where to |
+|---|---|---|
+| Latitude / longitude | Weather is shown | Open-Meteo (`api.open-meteo.com`) |
+| Ad identifier, IP, device info | Free version, banner shown | Google AdMob |
+| Feedback text, optional contact, app version, OS, language | User taps 送信 in 意見を送る | Supabase (developer-run) |
+
+Nothing else does — no analytics or crash SDK is linked, and event contents,
+photos and pay settings are never transmitted. `__tests__/feedbackService.test.ts`
+pins the feedback payload to exactly those five fields, so the table above cannot
+drift from the code without a test failing.
+
+**App Store Connect → App のプライバシー** — the feedback box adds one item that
+was not there before:
+
+- **ユーザーコンテンツ → その他のユーザーコンテンツ** — 用途「アプリの機能」/
+  ユーザーに**リンクされていない** / **トラッキングには使用しない**
+- 連絡先を任意で受け取るため、**連絡先情報 → メールアドレス** も同じ扱いで申告
+  （必須ではなく、入力された場合のみ）
+
+**Google Play → データ セーフティ** — the same two, declared as collected,
+not shared, optional, and with in-app deletion request routed to the support
+address in the privacy policy §12.
+
+The privacy policy itself (`~/Desktop/app-support/apps.js`, `calendar` block,
+deployed at `gan-67f.pages.dev/privacy?app=calendar`) already describes all
+three — §5 weather, §6 ads, §9 feedback box.
+
 ---
 
 ## 🇯🇵 日本語 (primary / 主要言語)
@@ -83,7 +115,7 @@ the **Japanese** copy only. The English/international copy uses the neutral
 ・色で分類して、ひと目で把握
 ・予定に写真を貼って、あとから振り返る
 ・ロック画面ウィジェットで、今日の空き時間を確認
-・端末内で完結。アカウント登録は不要です
+・予定もタスクも写真も端末の中だけ。アカウント登録は不要です
 
 
 あなたの1日を、あなたの感覚で組み立ててください。
@@ -161,7 +193,7 @@ Add a shift and your pay is worked out from your hourly rate, including night, o
 • Colour-code your events and read the month at a glance
 • Attach photos to events and look back on them
 • A lock-screen widget for today's free time
-• Everything stays on your device. No account required
+• Your events, tasks and photos stay on your device. No account required
 
 
 Build your day, your way.
