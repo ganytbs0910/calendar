@@ -552,7 +552,7 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate,
                     value={v}
                     onChangeText={(txt) => setThresholdDrafts(prev => prev.map((x, idx) => idx === i ? txt.replace(/[^0-9]/g, '') : x))}
                     keyboardType="numeric"
-                    placeholder="1030000"
+                    placeholder="1300000"
                     placeholderTextColor={colors.textTertiary}
                     returnKeyType="done"
                   />

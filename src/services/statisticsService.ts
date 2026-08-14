@@ -546,9 +546,20 @@ export const computePayroll = (
 
 // --- 年収の壁 (income thresholds) --------------------------------------
 const INCOME_THRESHOLDS_KEY = '@income_thresholds';
-// JP dependent/tax/social-insurance walls. Configurable because the 2025/2026
-// tax reform is actively changing these — never hardcode as final truth.
-export const DEFAULT_INCOME_THRESHOLDS = [1030000, 1060000, 1300000, 1500000];
+// JP dependent/tax/social-insurance walls, aimed at the student who is this
+// app's core user. Configurable because the 2025/2026 tax reform is actively
+// changing these — never hardcode as final truth.
+//
+// Updated 2026-08 for the current rules. The previous defaults led with the
+// 103万 and 106万 walls, and both had stopped meaning what they used to: the
+// 2025 reform lifted the income-tax line from 103万 to 160万, and the 106万
+// social-insurance wall is scheduled to be abolished in October 2026. A student
+// reading them was being pointed at the wrong numbers.
+//   130万 — falls out of a parent's social-insurance dependency
+//   150万 — the 特定親族特別控除 starts shrinking (the student's main wall)
+//   160万 — income tax starts applying to the student themselves
+//   188万 — that same deduction runs out entirely
+export const DEFAULT_INCOME_THRESHOLDS = [1300000, 1500000, 1600000, 1880000];
 
 export const getIncomeThresholds = async (): Promise<number[]> => {
   try {

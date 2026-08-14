@@ -169,7 +169,7 @@ export default {
   onbWageTitle: 'バイトの給料を自動計算',
   onbWageBody: '勤務先ごとに時給を設定し、深夜・残業・休日の割増も自動で計算。月の収益がすぐ分かります。',
   onbWallTitle: '年収の壁を管理',
-  onbWallBody: '今年の収入を自動集計し、103万・130万などの壁までの残りを表示します。',
+  onbWallBody: '今年の収入を自動集計し、130万・150万などの壁までの残りを表示します。',
   onbRhythmTitle: '生活リズムを教えてください',
   onbRhythmBody: '起床と就寝を決めると、今日の残り自由時間が出せます。予定の前のお知らせも届きます。',
   onbRhythmCta: 'この時間で始める',
