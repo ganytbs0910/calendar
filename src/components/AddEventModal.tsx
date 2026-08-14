@@ -37,6 +37,7 @@ import {
 } from '../services/notificationService';
 import {useTranslation} from 'react-i18next';
 import {combineDateAndTime} from '../utils/dateParts';
+import {occurrencesForYears} from '../utils/recurrenceSpan';
 
 // Canonical color category palette (keys for i18n). MUST stay in sync with the
 // calendar seed defaults in userCalendarService.ts — same 7 colors and labels —
@@ -859,7 +860,9 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         if (recurrence !== 'none') {
           eventConfig.recurrenceRule = {
             frequency: recurrence,
-            occurrence: recurrence === 'monthly' ? 60 : 260, // ~5 years
+            // 260 was five years of weeks but only eight months of days, so a
+            // daily repeat used to stop before the year was out.
+            occurrence: occurrencesForYears(recurrence),
           };
         }
         const eventId = await RNCalendarEvents.saveEvent(eventTitle, eventConfig);

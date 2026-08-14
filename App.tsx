@@ -29,6 +29,7 @@ import {UndoToast, UndoAction} from './src/components/UndoToast';
 import UpdateAvailableModal from './src/components/UpdateAvailableModal';
 import DeviceInfo from 'react-native-device-info';
 import RNFS from 'react-native-fs';
+import {occurrencesForYears} from './src/utils/recurrenceSpan';
 import {
   backupFileName,
   createBackup,
@@ -1196,12 +1197,17 @@ function AppContent() {
         //
         // Even then this is approximate: the calendar hands back the frequency
         // but never the original interval, count or end date, so the series is
-        // rebuilt as a plain weekly-style run of 52. See the note in the
+        // rebuilt to cover a comparable stretch of time. See the note in the
         // delete confirmation.
+        //
+        // It used to rebuild every frequency with 52 occurrences, which is a
+        // year of a weekly event but seven weeks of a daily one and fifty-two
+        // years of a yearly one — undoing the deletion of an annual event put
+        // back half a century of it.
         if (recreateSeries && eventData.recurrence) {
           eventConfig.recurrenceRule = {
             frequency: eventData.recurrence,
-            occurrence: 52,
+            occurrence: occurrencesForYears(eventData.recurrence),
           };
         }
         const newId = await RNCalendarEvents.saveEvent(eventData.title || '', eventConfig);
