@@ -9,6 +9,10 @@
 //
 // Chips, not a menu: the point is to see at a glance which categories exist
 // and which one is active, and to get back to "everything" in one tap.
+//
+// Verified on device 2026-08-14: tapping 仕事 leaves only the blue events on the
+// grid and marks the chip active; tapping it again returns the month to exactly
+// its unfiltered state.
 
 import React from 'react';
 import {ScrollView, StyleSheet, Text, TouchableOpacity, View} from 'react-native';
