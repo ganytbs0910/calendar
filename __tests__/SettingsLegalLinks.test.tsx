@@ -26,6 +26,7 @@ const props = {
   onOpenJobs: noop,
   onOpenLocalCal: noop,
   onOpenPhotos: noop,
+  onExportBackup: noop,
 };
 
 /** The row is a TouchableOpacity wrapping a Text with the given label. */

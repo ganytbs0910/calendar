@@ -56,6 +56,7 @@ interface Props {
   onOpenJobs: () => void;
   onOpenLocalCal: () => void;
   onOpenPhotos: () => void;
+  onExportBackup: () => void;
   /** Dismisses the screen. Omitted when it is hosted somewhere it can't close. */
   onClose?: () => void;
 }
@@ -68,6 +69,7 @@ const SettingsLauncherScreen: React.FC<Props> = ({
   onOpenJobs,
   onOpenLocalCal,
   onOpenPhotos,
+  onExportBackup,
   onClose,
 }) => {
   const {colors} = useTheme();
@@ -224,6 +226,14 @@ const SettingsLauncherScreen: React.FC<Props> = ({
         </Section>
 
         <Section title={t('settingsSectionApp')}>
+          <Row
+            colors={colors}
+            icon="archive-outline"
+            tint="#5856D6"
+            label={t('setBackupLabel')}
+            sublabel={t('setBackupSub')}
+            onPress={onExportBackup}
+          />
           <Row
             colors={colors}
             icon="settings-outline"

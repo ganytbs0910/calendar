@@ -30,6 +30,13 @@ import UpdateAvailableModal from './src/components/UpdateAvailableModal';
 import DeviceInfo from 'react-native-device-info';
 import RNFS from 'react-native-fs';
 import {
+  backupFileName,
+  createBackup,
+  parseBackup,
+  restoreBackup,
+  serializeBackup,
+} from './src/services/backupService';
+import {
   checkForUpdate,
   dismissUpdatePrompt,
   openStore,
@@ -429,6 +436,66 @@ function AppContent() {
   const [newCalendarColor, setNewCalendarColor] = useState('#007AFF');
   // When editing, holds the id of the calendar being edited; null = create mode.
   const [editingCalendarId, setEditingCalendarId] = useState<string | null>(null);
+  // Write everything the app knows to one file and hand it to the share sheet.
+  // The calendar events live in EventKit and travel with the phone; this is the
+  // layer on top that previously had no way off the device at all.
+  const handleExportBackup = useCallback(async () => {
+    try {
+      const json = serializeBackup(await createBackup());
+      const path = `${RNFS.CachesDirectoryPath}/${backupFileName()}`;
+      await RNFS.writeFile(path, json, 'utf8');
+      const url = Platform.OS === 'android' ? `file://${path}` : path;
+      await Share.share(Platform.OS === 'ios' ? {url} : {url, message: t('setBackupLabel')});
+    } catch (err) {
+      console.warn('[backup] export failed', err);
+      Alert.alert(t('error'), t('saveFailed'));
+    }
+  }, [t]);
+
+  // Restoring replaces what is on this phone, so it always asks first and says
+  // how much is coming in. Photos are called out because the file cannot carry
+  // the image files themselves.
+  const handleImportBackup = useCallback(async (fileUrl: string) => {
+    try {
+      const path = decodeURIComponent(fileUrl.replace(/^file:\/\//, ''));
+      const raw = await RNFS.readFile(path, 'utf8');
+      const parsed = parseBackup(raw);
+      if (!parsed.ok) {
+        Alert.alert(t('error'), t('backupFailed'));
+        return;
+      }
+      Alert.alert(
+        t('setBackupLabel'),
+        t('backupRestoreConfirm', {n: Object.keys(parsed.backup.data).length}),
+        [
+          {text: t('cancel'), style: 'cancel'},
+          {
+            text: t('restore'),
+            style: 'destructive',
+            onPress: async () => {
+              await restoreBackup(parsed.backup);
+              Alert.alert(t('setBackupLabel'), t('backupRestored'));
+            },
+          },
+        ],
+      );
+    } catch (err) {
+      console.warn('[backup] import failed', err);
+      Alert.alert(t('error'), t('backupFailed'));
+    }
+  }, [t]);
+
+  // A backup file opened from Files (or shared into the app) arrives as a URL.
+  useEffect(() => {
+    Linking.getInitialURL().then(url => {
+      if (url && url.endsWith('.json')) handleImportBackup(url);
+    }).catch(() => {});
+    const sub = Linking.addEventListener('url', ({url}) => {
+      if (url && url.endsWith('.json')) handleImportBackup(url);
+    });
+    return () => sub.remove();
+  }, [handleImportBackup]);
+
   const openCalendarCreate = useCallback(() => {
     setEditingCalendarId(null);
     setNewCalendarName('');
@@ -2534,6 +2601,7 @@ function AppContent() {
             onOpenJobs={openJobs}
             onOpenLocalCal={openLocalCal}
             onOpenPhotos={openPhotos}
+            onExportBackup={handleExportBackup}
             onClose={closeSettingsScreen}
           />
         </ScreenOverlay>
