@@ -108,8 +108,16 @@ describe('失敗の理由を見分ける', () => {
   });
 
   it('RLS違反(42501)は内容の問題として伝える', async () => {
-    respond(403, {code: '42501', message: 'violates row-level security policy'});
+    // 本番で実測したステータスは 403 ではなく 401（PostgREST の挙動）。
+    // 判定を HTTP ステータスではなく本文の code で行っているのはこのため。
+    // ステータスに依存していたら、内容の問題を「認証エラー」と誤って扱っていた。
+    respond(401, {code: '42501', message: 'violates row-level security policy'});
     await expect(send()).resolves.toEqual({ok: false, reason: 'rejected'});
+  });
+
+  it('レート制限も同様に、ステータスではなく code で見分ける', async () => {
+    respond(401, {code: '23514', message: '送信の間隔が短すぎます。'});
+    await expect(send()).resolves.toEqual({ok: false, reason: 'tooFast'});
   });
 
   it('その他のエラーは failed', async () => {

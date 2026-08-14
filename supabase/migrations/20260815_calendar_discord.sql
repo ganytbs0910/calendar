@@ -50,14 +50,18 @@ end $$;
 
 
 -- ── 1. 宛先チャンネル ───────────────────────────────────────────────────────
--- ★ <FEEDBACK_ID> / <ANALYTICS_ID> を create_discord_channels.sh の出力で置換すること。
+-- create_discord_channels.sh が 2026-08-15 に作成したチャンネル。
+-- サーバー「アプリ管理」(1451992089503072443) の「カレンダー」カテゴリ配下。
 --
 -- ここを設定し忘れると discord_webhook_for() のフォールバックが働き、
 -- カレンダーの意見が BrawlStatus 共通の Webhook チャンネルに流れ込む。
 -- 実行後に必ず下の確認クエリで2行入っていることを見ること。
+--
+-- チャンネルIDは秘密ではない（Botトークンが無ければ投稿できない）。
+-- トークンは vault にのみ置き、このファイルにも設定テーブルにも書かない。
 insert into public.monitoring_config (key, value) values
-  ('discord_channel_calendar_feedback',  '<FEEDBACK_ID>'),
-  ('discord_channel_calendar_analytics', '<ANALYTICS_ID>')
+  ('discord_channel_calendar_feedback',  '1537885368693555280'),
+  ('discord_channel_calendar_analytics', '1537885370253840515')
 on conflict (key) do update set value = excluded.value;
 
 
