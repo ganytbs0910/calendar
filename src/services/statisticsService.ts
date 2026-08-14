@@ -368,32 +368,41 @@ const nightOverlapMinutes = (
   nightStart: number,
   nightEnd: number,
 ): number => {
-  const dayMs = 86_400_000;
   const startMs = start.getTime();
   const endMs = end.getTime();
-  const atMinutes = (base: Date, mins: number): number => {
-    const x = new Date(base);
-    x.setHours(0, 0, 0, 0);
-    return x.getTime() + mins * 60_000;
-  };
+  // Built from calendar fields rather than midnight-plus-milliseconds. On the
+  // days a region moves its clocks, a day is 23 or 25 hours long, so adding
+  // 22 hours of milliseconds to midnight lands on 23:00 in spring and 21:00 in
+  // autumn — the night-premium window opened and closed an hour off, and the
+  // pay for a shift on those two days a year was wrong.
+  const atMinutes = (base: Date, dayOffset: number, mins: number): number =>
+    new Date(
+      base.getFullYear(),
+      base.getMonth(),
+      base.getDate() + dayOffset,
+      Math.floor(mins / 60),
+      mins % 60,
+      0,
+      0,
+    ).getTime();
+
   let total = 0;
   // Start one day early so a window opened the previous night is counted.
-  let cursor = new Date(start);
-  cursor.setHours(0, 0, 0, 0);
-  cursor = new Date(cursor.getTime() - dayMs);
-  const lastDay = new Date(end);
-  lastDay.setHours(0, 0, 0, 0);
+  const cursor = new Date(start.getFullYear(), start.getMonth(), start.getDate() - 1);
+  const lastDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
   let guard = 0;
   while (cursor.getTime() <= lastDay.getTime() && guard < 400) {
-    const ns = atMinutes(cursor, nightStart);
+    const ns = atMinutes(cursor, 0, nightStart);
     // If the window ends at/before it starts it wraps into the next day.
     const ne = nightEnd <= nightStart
-      ? atMinutes(new Date(cursor.getTime() + dayMs), nightEnd)
-      : atMinutes(cursor, nightEnd);
+      ? atMinutes(cursor, 1, nightEnd)
+      : atMinutes(cursor, 0, nightEnd);
     const lo = Math.max(ns, startMs);
     const hi = Math.min(ne, endMs);
     if (hi > lo) total += (hi - lo) / 60_000;
-    cursor = new Date(cursor.getTime() + dayMs);
+    // setDate keeps the wall clock at midnight across a transition; adding
+    // 24h of milliseconds would not.
+    cursor.setDate(cursor.getDate() + 1);
     guard += 1;
   }
   return total;
