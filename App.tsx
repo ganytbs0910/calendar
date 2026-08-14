@@ -47,6 +47,7 @@ import AgentScreen from './src/components/AgentScreen';
 import OneTimeHint from './src/components/OneTimeHint';
 import ScreenOverlay from './src/components/ScreenOverlay';
 import FreeTimeBar from './src/components/FreeTimeBar';
+import CalendarFilterBar from './src/components/CalendarFilterBar';
 import ShareAvailabilityModal from './src/components/ShareAvailabilityModal';
 import PollModal from './src/components/PollModal';
 import SettingsLauncherScreen from './src/components/SettingsLauncherScreen';
@@ -95,10 +96,6 @@ import {clearDevSeedEvents, clearDevMaySeedEvents, clearDevJuneSeedEvents, seedD
 import LockScreen, {PinSetupModal} from './src/components/LockScreen';
 import NLEventInput from './src/components/NLEventInput';
 import {ParsedEvent} from './src/utils/eventParser';
-// The colour-filter feature these belong to has no entry point: nothing calls
-// setShowCalendarCreate, so the filter can never be turned on or off. Left in
-// place pending a decision to restore the picker or drop the feature.
-/* eslint-disable @typescript-eslint/no-unused-vars */
 import {
   UserCalendar,
   ensureDefaultsSeeded,
@@ -108,7 +105,6 @@ import {
   deleteUserCalendar,
   resolveCalendarName,
 } from './src/services/userCalendarService';
-/* eslint-enable @typescript-eslint/no-unused-vars */
 import {
   isPinSet,
   setupPin,
@@ -432,8 +428,23 @@ function AppContent() {
   const [newCalendarName, setNewCalendarName] = useState('');
   const [newCalendarColor, setNewCalendarColor] = useState('#007AFF');
   // When editing, holds the id of the calendar being edited; null = create mode.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [editingCalendarId, setEditingCalendarId] = useState<string | null>(null);
+  const openCalendarCreate = useCallback(() => {
+    setEditingCalendarId(null);
+    setNewCalendarName('');
+    setNewCalendarColor('#007AFF');
+    setShowCalendarCreate(true);
+  }, []);
+
+  const openCalendarEdit = useCallback((cal: UserCalendar) => {
+    setEditingCalendarId(cal.id);
+    // A seeded category has no literal name, only a translation key, so the
+    // field would open blank and saving would wipe the label.
+    setNewCalendarName(resolveCalendarName(cal, t));
+    setNewCalendarColor(cal.color);
+    setShowCalendarCreate(true);
+  }, [t]);
+
   const calendarRef = useRef<CalendarRef>(null);
   const weekViewRef = useRef<WeekViewRef>(null);
   // Springy press feedback for the "+" add button — a tiny bit of delight on the
@@ -1512,6 +1523,16 @@ function AppContent() {
           refreshKey={freeTimeRefreshKey}
         />
 
+        {/* Restores the only way to turn the colour filter on — and, more to
+            the point, off again. */}
+        <CalendarFilterBar
+          calendars={userCalendars}
+          selectedId={selectedCalendarId}
+          onSelect={setSelectedCalendarId}
+          onCreate={openCalendarCreate}
+          onEdit={openCalendarEdit}
+        />
+
         {/* Held back until the user actually has a template. It used to greet a
             brand-new user on their first screen, advertising a shortcut into an
             empty list — advice they cannot act on, taking up the space above
@@ -2387,6 +2408,35 @@ function AppContent() {
                     />
                   ))}
                 </View>
+                {/* Deleting is only offered while editing an existing one, and
+                    only from here — a chip has no room for it and a swipe on a
+                    horizontal row fights the scroll. */}
+                {editingCalendarId && (
+                  <TouchableOpacity
+                    style={styles.calDeleteRow}
+                    onPress={() => {
+                      Alert.alert(t('calEditTitle'), t('calDeleteConfirmMessage'), [
+                        {text: t('cancel'), style: 'cancel'},
+                        {
+                          text: t('delete'),
+                          style: 'destructive',
+                          onPress: async () => {
+                            await deleteUserCalendar(editingCalendarId);
+                            // Clear the filter if the category backing it just
+                            // went, otherwise the grid stays filtered by a
+                            // chip that no longer exists.
+                            setSelectedCalendarId(prev => (prev === editingCalendarId ? null : prev));
+                            setUserCalendars(await getUserCalendars());
+                            setShowCalendarCreate(false);
+                          },
+                        },
+                      ]);
+                    }}
+                    accessibilityRole="button">
+                    <Ionicons name="trash-outline" size={16} color={colors.error} />
+                    <Text style={[styles.calDeleteText, {color: colors.error}]}>{t('delete')}</Text>
+                  </TouchableOpacity>
+                )}
                 <View style={styles.calCreateActions}>
                   <TouchableOpacity
                     style={[styles.calCreateBtn, {backgroundColor: colors.inputBackground}]}
@@ -2802,6 +2852,17 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 18,
     borderRadius: 8,
+  },
+  calDeleteRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+  },
+  calDeleteText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
   calCreateBtnText: {
     fontSize: 14,
