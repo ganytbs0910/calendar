@@ -23,8 +23,16 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 SRC = os.path.dirname(os.path.abspath(__file__))
-FRAMED = os.path.join(os.path.dirname(SRC), "appstore_screenshots_framed")
+ROOT = os.path.dirname(SRC)
+FRAMED = os.path.join(ROOT, "appstore_screenshots_framed")
 SHOTS_DIR = os.path.join(SRC, "_screens")
+
+# The English set is built from the same artwork rather than its own: it used to
+# be 1284x2778, a size Apple no longer asks for, and keeping two geometries
+# meant two sets of measurements to get wrong. Same frames, English screens,
+# English copy.
+FRAMED_EN = os.path.join(ROOT, "appstore_screenshots_en")
+SHOTS_DIR_EN = os.path.join(SRC, "_screens_en")
 
 FONT_W6 = "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc"
 FONT_INDEX = 0  # 'Hiragino Sans' — the face iOS itself uses, with JP glyph forms
@@ -43,8 +51,15 @@ SUPERSAMPLE = 3          # render text large and downsample, to keep edges crisp
 
 
 def ink_bbox(text, font):
-    """Bounding box of the drawn pixels, which is what the layout is measured in."""
-    probe = Image.new("L", (3000, 600), 0)
+    """Bounding box of the drawn pixels, which is what the layout is measured in.
+
+    The probe has to be wider than any line could ever be at the supersampled
+    size, or the bbox comes back clipped and the headline is silently rendered
+    with its last word cut off. Latin lines are far longer in pixels than the
+    Japanese ones this was first written for: "it lands on your week" at 3x is
+    over 3000px, which the original probe truncated.
+    """
+    probe = Image.new("L", (9000, 900), 0)
     ImageDraw.Draw(probe).text((100, 100), text, font=font, fill=255)
     return probe.getbbox()
 
@@ -251,16 +266,71 @@ SLIDES = [
 ]
 
 
-def main():
-    for slide in SLIDES:
-        path = os.path.join(FRAMED, slide["file"])
+# The Japanese-only income-wall slide is deliberately absent from the English
+# set: it is guidance on Japanese tax thresholds, and the screen behind it is
+# Japanese. The old English set shipped it untranslated.
+SLIDES_EN = [
+    {
+        "file": "01_カレンダー共有.png",
+        "badge": "Free time left",
+        "headline": ["How much of today", "is still yours?"],
+        "screen": "01_month.png",
+    },
+    {
+        "file": "02_AIで予定作成.png",
+        "badge": "Plan by writing",
+        "headline": ["Write it once,", "it lands on your week"],
+        "screen": "02_agent.png",
+    },
+    {
+        "file": "03_バイト分析.png",
+        "badge": "Insights",
+        "headline": ["What did those", "hours turn into?"],
+        "screen": "03_stats.png",
+    },
+    {
+        "file": "04_あとでやる.png",
+        "badge": "Later list",
+        "headline": ["No time for it yet?", "Park it for later"],
+        "screen": "04_later.png",
+    },
+    {
+        "file": "05_ウィジェット.png",
+        "badge": "Widget",
+        "headline": ["Your free hours,", "without opening the app"],
+        "screen": "05_widget.png",
+    },
+    {
+        "file": "06_週表示.png",
+        "badge": "Week view",
+        "headline": ["A whole week", "of breathing room"],
+        "screen": "06_week.png",
+    },
+    {
+        "file": "08_空き日シェア.png",
+        "badge": "Free days",
+        "headline": ["Share the days", "you are free"],
+        "screen": "08_share.png",
+    },
+]
+
+
+def build(slides, framed_dir, shots_dir):
+    os.makedirs(framed_dir, exist_ok=True)
+    for slide in slides:
+        path = os.path.join(framed_dir, slide["file"])
+        # The English set is regenerated from the Japanese artwork, so seed it
+        # from there the first time (or whenever the base is refreshed).
+        if framed_dir != FRAMED:
+            base = Image.open(os.path.join(FRAMED, slide["file"])).convert("RGB")
+            base.save(path)
         img = Image.open(path).convert("RGB")
 
         # A slide whose capture hasn't been taken yet is left exactly as it is,
         # so a half-finished run never ships a slide with new copy over an old
         # screen (or vice versa).
         if "screen" in slide:
-            capture = os.path.join(SHOTS_DIR, slide["screen"])
+            capture = os.path.join(shots_dir, slide["screen"])
             if not os.path.exists(capture):
                 print(f"{slide['file']}: SKIPPED — no capture at {slide['screen']}")
                 continue
@@ -273,6 +343,13 @@ def main():
         img.save(path)
         changed = [k for k in ("screen", "badge", "headline") if k in slide]
         print(f"{slide['file']}: {', '.join(changed) if changed else 'unchanged'}")
+
+
+def main():
+    print("— 日本語 —")
+    build(SLIDES, FRAMED, SHOTS_DIR)
+    print("— English —")
+    build(SLIDES_EN, FRAMED_EN, SHOTS_DIR_EN)
 
 
 if __name__ == "__main__":
