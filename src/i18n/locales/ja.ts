@@ -564,7 +564,7 @@ export default {
 
   // Tutorial hints & settings sections
   hintAgentTitle: '文章で書くだけでOK',
-  hintAgentBody: 'やりたいことを文章で書いて「予定にする」を押すと、AIが1週間に組んで「カレンダーに追加」で反映できます。下のリストはタップで有効/無効、長押しで削除。',
+  hintAgentBody: 'やりたいことを文章で書いて「予定にする」を押すと、1週間に自動で置かれ、「カレンダーに追加」で反映できます。下のリストはタップで有効/無効、長押しで削除。',
   hintColorTitle: 'カテゴリ（色）の操作',
   hintColorBody: 'タップで色を選択。選択中の鉛筆で名前を変更、長押しで色を削除できます。',
   hintWageTitle: 'バイト代を自動計算',
@@ -587,16 +587,16 @@ export default {
   settingsSectionApp: 'アプリ設定',
   settingsSectionLegal: '規約・プライバシー',
 
-  // AI planning (Tasks tab)
-  agentTitle: 'AIで予定づくり',
-  agentSubtitle: '「毎週月曜10時から16時まで大学」のように、予定ややりたいことを文章で書くだけ。AIが1週間にうまく組み込んでカレンダーに追加します。',
+  // Rule-based planning (Tasks tab)
+  agentTitle: '書くだけで予定づくり',
+  agentSubtitle: '「毎週月曜10時から16時まで大学」のように、予定ややりたいことを文章で書くだけ。書いた条件どおりに1週間へ自動で置いて、カレンダーに追加します。',
   agentExample: '毎週月曜10時から16時まで大学。火曜と木曜は18時から22時までバイト。',
   agentInputLabel: '予定・やりたいことを書く',
   agentDeclareBtn: '予定にする',
   agentIntentionsTitle: '入力した予定・やりたいこと',
   agentSwipeHint: '左スワイプで削除',
   agentApplyBtn: 'カレンダーに追加',
-  agentPlaced: 'AIが{{count}}件の予定を1週間に組みました',
+  agentPlaced: '{{count}}件の予定を1週間に置きました',
   agentUnplacedHead: '入りきらなかった予定',
   agentConflictsHead: 'エージェントの判断',
   agentErrTitle: 'エラー',
@@ -614,7 +614,7 @@ export default {
   agentDeadline: '締切 {{date}}',
   agentApproxH: '約{{h}}h',
 
-  // AI planning — parser title lexicon
+  // Rule-based planning — parser title lexicon
   lexSchool: '大学',
   lexPartTime: 'バイト',
   lexReport: 'レポート',

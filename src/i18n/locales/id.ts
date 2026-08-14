@@ -539,7 +539,7 @@ export default {
 
   // Tutorial hints & settings sections
   hintAgentTitle: 'Cukup tulis saja',
-  hintAgentBody: 'Tulis apa yang ingin kamu lakukan lalu ketuk "Buat jadwal" — AI akan menyusunnya dalam seminggu, dan "Tambah ke kalender" menerapkannya. Ketuk item di bawah untuk mengaktifkan/menonaktifkan, tekan lama untuk menghapus.',
+  hintAgentBody: 'Tulis apa yang ingin kamu lakukan lalu ketuk "Buat jadwal" — semuanya ditata dalam seminggu, dan "Tambah ke kalender" menerapkannya. Ketuk item di bawah untuk mengaktifkan/menonaktifkan, tekan lama untuk menghapus.',
   hintColorTitle: 'Mengelola kategori',
   hintColorBody: 'Ketuk untuk memilih warna. Gunakan ikon pensil pada warna terpilih untuk mengganti nama, tekan lama untuk menghapus.',
   hintWageTitle: 'Upah dihitung otomatis',
@@ -562,16 +562,16 @@ export default {
   settingsSectionApp: 'Pengaturan aplikasi',
   settingsSectionLegal: 'Legal',
 
-  // AI planning (Tasks tab)
-  agentTitle: 'Rencanakan dengan AI',
-  agentSubtitle: 'Cukup tulis rencana dan tujuanmu dengan kata-kata biasa — misalnya “Kuliah tiap Sen 10:00–16:00”. AI menatanya dalam sepekan dan menambahkannya ke kalender.',
+  // Rule-based planning (Tasks tab)
+  agentTitle: 'Rencanakan dengan menulis',
+  agentSubtitle: 'Cukup tulis rencana dan tujuanmu dengan kata-kata biasa — misalnya “Kuliah tiap Sen 10:00–16:00”. Semuanya ditata dalam sepekan sesuai tulisanmu dan ditambahkan ke kalender.',
   agentExample: 'Kuliah tiap Sen 10:00–16:00. Kerja paruh waktu Sel & Kam 18:00–22:00.',
   agentInputLabel: 'Tulis rencana & tujuanmu',
   agentDeclareBtn: 'Buat rencana',
   agentIntentionsTitle: 'Rencana & tujuanmu',
   agentSwipeHint: 'Geser kiri untuk menghapus',
   agentApplyBtn: 'Tambah ke kalender',
-  agentPlaced: 'AI menata {{count}} acara dalam sepekan',
+  agentPlaced: '{{count}} acara ditata dalam sepekan',
   agentUnplacedHead: 'Tidak muat',
   agentConflictsHead: 'Keputusan agen',
   agentErrTitle: 'Kesalahan',
@@ -589,7 +589,7 @@ export default {
   agentDeadline: 'Tenggat {{date}}',
   agentApproxH: '~{{h}} jam',
 
-  // AI planning — parser title lexicon
+  // Rule-based planning — parser title lexicon
   lexSchool: 'Kuliah',
   lexPartTime: 'Kerja paruh',
   lexReport: 'Laporan',

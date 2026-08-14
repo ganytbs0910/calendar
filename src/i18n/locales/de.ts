@@ -562,16 +562,16 @@ export default {
   settingsSectionApp: 'App-Einstellungen',
   settingsSectionLegal: 'Rechtliches',
 
-  // AI planning (Tasks tab)
-  agentTitle: 'Mit KI planen',
-  agentSubtitle: 'Schreibe deine Pläne und Ziele einfach in Worten – etwa „Uni jeden Mo 10:00–16:00“. Die KI fügt sie in deine Woche ein und trägt sie in den Kalender ein.',
+  // Rule-based planning (Tasks tab)
+  agentTitle: 'Durch Schreiben planen',
+  agentSubtitle: 'Schreibe deine Pläne und Ziele einfach in Worten – etwa „Uni jeden Mo 10:00–16:00“. Sie werden wie geschrieben über die Woche verteilt und in deinen Kalender eingetragen.',
   agentExample: 'Uni jeden Mo 10:00–16:00. Nebenjob Di & Do 18:00–22:00.',
   agentInputLabel: 'Pläne & Ziele eingeben',
   agentDeclareBtn: 'Plan erstellen',
   agentIntentionsTitle: 'Deine Pläne & Ziele',
   agentSwipeHint: 'Zum Löschen nach links wischen',
   agentApplyBtn: 'Zum Kalender hinzufügen',
-  agentPlaced: 'Die KI hat {{count}} Termine über deine Woche verteilt',
+  agentPlaced: '{{count}} Termine über deine Woche verteilt',
   agentUnplacedHead: 'Nicht untergebracht',
   agentConflictsHead: 'Entscheidungen des Agenten',
   agentErrTitle: 'Fehler',
@@ -589,7 +589,7 @@ export default {
   agentDeadline: 'Fällig {{date}}',
   agentApproxH: '~{{h}} Std.',
 
-  // AI planning — parser title lexicon
+  // Rule-based planning — parser title lexicon
   lexSchool: 'Uni',
   lexPartTime: 'Nebenjob',
   lexReport: 'Bericht',

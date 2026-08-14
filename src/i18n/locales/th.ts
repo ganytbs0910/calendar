@@ -539,7 +539,7 @@ export default {
 
   // Tutorial hints & settings sections
   hintAgentTitle: 'แค่พิมพ์เป็นประโยค',
-  hintAgentBody: 'เขียนสิ่งที่อยากทำแล้วแตะ "สร้างแผน" AI จะจัดลงในหนึ่งสัปดาห์ และ "เพิ่มลงปฏิทิน" เพื่อบันทึก แตะรายการด้านล่างเพื่อเปิด/ปิด กดค้างเพื่อลบ',
+  hintAgentBody: 'เขียนสิ่งที่อยากทำแล้วแตะ "สร้างแผน" ระบบจะจัดลงในหนึ่งสัปดาห์ และ "เพิ่มลงปฏิทิน" เพื่อบันทึก แตะรายการด้านล่างเพื่อเปิด/ปิด กดค้างเพื่อลบ',
   hintColorTitle: 'การใช้หมวดหมู่ (สี)',
   hintColorBody: 'แตะเพื่อเลือกสี ใช้ไอคอนดินสอบนสีที่เลือกเพื่อเปลี่ยนชื่อ หรือกดค้างเพื่อลบ',
   hintWageTitle: 'คำนวณค่าจ้างให้อัตโนมัติ',
@@ -562,16 +562,16 @@ export default {
   settingsSectionApp: 'ตั้งค่าแอป',
   settingsSectionLegal: 'ข้อกำหนดและความเป็นส่วนตัว',
 
-  // AI planning (Tasks tab)
-  agentTitle: 'วางแผนด้วย AI',
-  agentSubtitle: 'แค่พิมพ์แผนและเป้าหมายเป็นข้อความ เช่น “เรียนทุกวันจันทร์ 10:00–16:00” แล้ว AI จะจัดลงในหนึ่งสัปดาห์และเพิ่มลงปฏิทินให้',
+  // Rule-based planning (Tasks tab)
+  agentTitle: 'พิมพ์แล้วได้แผน',
+  agentSubtitle: 'แค่พิมพ์แผนและเป้าหมายเป็นข้อความ เช่น “เรียนทุกวันจันทร์ 10:00–16:00” แล้วระบบจะจัดลงในหนึ่งสัปดาห์ตามที่เขียนและเพิ่มลงปฏิทินให้',
   agentExample: 'เรียนทุกวันจันทร์ 10:00–16:00 ทำงานพาร์ทไทม์ อังคารและพฤหัส 18:00–22:00',
   agentInputLabel: 'เขียนแผนและเป้าหมาย',
   agentDeclareBtn: 'สร้างแผน',
   agentIntentionsTitle: 'แผนและเป้าหมายของคุณ',
   agentSwipeHint: 'ปัดซ้ายเพื่อลบ',
   agentApplyBtn: 'เพิ่มลงปฏิทิน',
-  agentPlaced: 'AI จัด {{count}} กิจกรรมลงในสัปดาห์ของคุณแล้ว',
+  agentPlaced: 'จัด {{count}} กิจกรรมลงในสัปดาห์ของคุณแล้ว',
   agentUnplacedHead: 'ที่ใส่ไม่ได้',
   agentConflictsHead: 'การตัดสินใจของเอเจนต์',
   agentErrTitle: 'ข้อผิดพลาด',
@@ -589,7 +589,7 @@ export default {
   agentDeadline: 'กำหนด {{date}}',
   agentApproxH: '~{{h}} ชม.',
 
-  // AI planning — parser title lexicon
+  // Rule-based planning — parser title lexicon
   lexSchool: 'เรียน',
   lexPartTime: 'งานพาร์ทไทม์',
   lexReport: 'รายงาน',

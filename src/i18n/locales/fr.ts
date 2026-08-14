@@ -562,16 +562,16 @@ export default {
   settingsSectionApp: 'Réglages de l’app',
   settingsSectionLegal: 'Mentions légales',
 
-  // AI planning (Tasks tab)
-  agentTitle: 'Planifier avec l’IA',
-  agentSubtitle: 'Écrivez vos plans et objectifs en langage naturel — par ex. « Fac chaque lun 10:00–16:00 ». L’IA les intègre à votre semaine et les ajoute à votre agenda.',
+  // Rule-based planning (Tasks tab)
+  agentTitle: 'Planifier en écrivant',
+  agentSubtitle: 'Écrivez vos plans et objectifs en langage naturel — par ex. « Fac chaque lun 10:00–16:00 ». Ils sont répartis sur votre semaine tels quels et ajoutés à votre agenda.',
   agentExample: 'Fac chaque lun 10:00–16:00. Petit boulot mar et jeu 18:00–22:00.',
   agentInputLabel: 'Écrivez vos plans et objectifs',
   agentDeclareBtn: 'Planifier',
   agentIntentionsTitle: 'Vos plans et objectifs',
   agentSwipeHint: 'Balayez vers la gauche pour supprimer',
   agentApplyBtn: 'Ajouter à l’agenda',
-  agentPlaced: 'L’IA a réparti {{count}} événements sur votre semaine',
+  agentPlaced: '{{count}} événements répartis sur votre semaine',
   agentUnplacedHead: 'N’ont pas pu tenir',
   agentConflictsHead: 'Décisions de l’agent',
   agentErrTitle: 'Erreur',
@@ -589,7 +589,7 @@ export default {
   agentDeadline: 'Échéance {{date}}',
   agentApproxH: '~{{h}} h',
 
-  // AI planning — parser title lexicon
+  // Rule-based planning — parser title lexicon
   lexSchool: 'Fac',
   lexPartTime: 'Petit boulot',
   lexReport: 'Dossier',

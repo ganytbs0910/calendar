@@ -562,16 +562,16 @@ export default {
   settingsSectionApp: 'Configurações do app',
   settingsSectionLegal: 'Jurídico',
 
-  // AI planning (Tasks tab)
-  agentTitle: 'Planeje com IA',
-  agentSubtitle: 'Basta escrever seus planos e metas em texto — como “Faculdade toda seg 10:00–16:00”. A IA encaixa tudo na sua semana e adiciona ao calendário.',
+  // Rule-based planning (Tasks tab)
+  agentTitle: 'Planeje escrevendo',
+  agentSubtitle: 'Basta escrever seus planos e metas em texto — como “Faculdade toda seg 10:00–16:00”. Eles são encaixados na sua semana como escritos e adicionados ao calendário.',
   agentExample: 'Faculdade toda seg 10:00–16:00. Trabalho de meio período ter e qui 18:00–22:00.',
   agentInputLabel: 'Escreva seus planos e metas',
   agentDeclareBtn: 'Criar plano',
   agentIntentionsTitle: 'Seus planos e metas',
   agentSwipeHint: 'Deslize para a esquerda para excluir',
   agentApplyBtn: 'Adicionar ao calendário',
-  agentPlaced: 'A IA organizou {{count}} eventos na sua semana',
+  agentPlaced: '{{count}} eventos organizados na sua semana',
   agentUnplacedHead: 'Não couberam',
   agentConflictsHead: 'Decisões do agente',
   agentErrTitle: 'Erro',
@@ -589,7 +589,7 @@ export default {
   agentDeadline: 'Vence {{date}}',
   agentApproxH: '~{{h}} h',
 
-  // AI planning — parser title lexicon
+  // Rule-based planning — parser title lexicon
   lexSchool: 'Faculdade',
   lexPartTime: 'Meio período',
   lexReport: 'Relatório',

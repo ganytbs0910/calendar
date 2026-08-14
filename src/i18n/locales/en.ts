@@ -541,7 +541,7 @@ export default {
 
   // Tutorial hints & settings sections
   hintAgentTitle: 'Just write it out',
-  hintAgentBody: 'Write what you want to do and tap “Make a plan” — the AI lays it out over the week, then “Add to calendar” applies it. Tap an item below to enable/disable it, long-press to delete.',
+  hintAgentBody: 'Write what you want to do and tap “Make a plan” — it is laid out over the week, then “Add to calendar” applies it. Tap an item below to enable/disable it, long-press to delete.',
   hintColorTitle: 'Working with categories',
   hintColorBody: 'Tap to pick a colour. Use the pencil on the selected one to rename it, or long-press to remove it.',
   hintWageTitle: 'Pay calculated for you',
@@ -564,16 +564,16 @@ export default {
   settingsSectionApp: 'App settings',
   settingsSectionLegal: 'Legal',
 
-  // AI planning (Tasks tab)
-  agentTitle: 'Plan with AI',
-  agentSubtitle: 'Just write your plans and goals in plain words — like “University every Mon 10:00–16:00”. The AI fits them into your week and adds them to your calendar.',
+  // Rule-based planning (Tasks tab)
+  agentTitle: 'Plan by writing it',
+  agentSubtitle: 'Just write your plans and goals in plain words — like “University every Mon 10:00–16:00”. They are laid out across your week as written and added to your calendar.',
   agentExample: 'University every Mon 10:00–16:00. Part-time job Tue & Thu 18:00–22:00.',
   agentInputLabel: 'Write your plans & goals',
   agentDeclareBtn: 'Make a plan',
   agentIntentionsTitle: 'Your plans & goals',
   agentSwipeHint: 'Swipe left to delete',
   agentApplyBtn: 'Add to calendar',
-  agentPlaced: 'AI arranged {{count}} events across your week',
+  agentPlaced: 'Placed {{count}} events across your week',
   agentUnplacedHead: 'Couldn’t fit these',
   agentConflictsHead: 'Agent’s decisions',
   agentErrTitle: 'Error',
@@ -591,7 +591,7 @@ export default {
   agentDeadline: 'Due {{date}}',
   agentApproxH: '~{{h}}h',
 
-  // AI planning — parser title lexicon
+  // Rule-based planning — parser title lexicon
   lexSchool: 'University',
   lexPartTime: 'Part-time',
   lexReport: 'Report',

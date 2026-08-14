@@ -539,7 +539,7 @@ export default {
 
   // Tutorial hints & settings sections
   hintAgentTitle: '用一句話寫下來就行',
-  hintAgentBody: '寫下想做的事，點「產生計畫」，AI 會安排到一週裡，再點「加入行事曆」即可套用。下方清單點擊可啟用/停用，長按刪除。',
+  hintAgentBody: '寫下想做的事，點「產生計畫」，系統會安排到一週裡，再點「加入行事曆」即可套用。下方清單點擊可啟用/停用，長按刪除。',
   hintColorTitle: '分類（顏色）操作',
   hintColorBody: '點擊選擇顏色。點選取顏色上的鉛筆可改名，長按可刪除。',
   hintWageTitle: '自動計算打工薪資',
@@ -562,16 +562,16 @@ export default {
   settingsSectionApp: '應用程式設定',
   settingsSectionLegal: '條款與隱私',
 
-  // AI planning (Tasks tab)
-  agentTitle: 'AI 幫你排計畫',
-  agentSubtitle: '用一句話寫下你的計畫和目標，例如「每週一10:00–16:00上課」。AI 會把它們排進這一週並加入行事曆。',
+  // Rule-based planning (Tasks tab)
+  agentTitle: '寫下來就能排計畫',
+  agentSubtitle: '用一句話寫下你的計畫和目標，例如「每週一10:00–16:00上課」。系統會按你寫的條件排進這一週並加入行事曆。',
   agentExample: '每週一10:00–16:00上課。週二和週四18:00–22:00打工。',
   agentInputLabel: '寫下計畫和目標',
   agentDeclareBtn: '產生計畫',
   agentIntentionsTitle: '你的計畫和目標',
   agentSwipeHint: '左滑刪除',
   agentApplyBtn: '加入行事曆',
-  agentPlaced: 'AI 已將 {{count}} 個行程排進這一週',
+  agentPlaced: '已將 {{count}} 個行程排進這一週',
   agentUnplacedHead: '沒能排入的',
   agentConflictsHead: '代理的判斷',
   agentErrTitle: '錯誤',
@@ -589,7 +589,7 @@ export default {
   agentDeadline: '截止 {{date}}',
   agentApproxH: '約{{h}}小時',
 
-  // AI planning — parser title lexicon
+  // Rule-based planning — parser title lexicon
   lexSchool: '上課',
   lexPartTime: '打工',
   lexReport: '報告',

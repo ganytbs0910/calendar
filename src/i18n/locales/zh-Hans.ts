@@ -539,7 +539,7 @@ export default {
 
   // Tutorial hints & settings sections
   hintAgentTitle: '用一句话写下来就行',
-  hintAgentBody: '写下想做的事，点「生成计划」，AI 会安排到一周里，再点「添加到日历」即可应用。下方列表点击可启用/停用，长按删除。',
+  hintAgentBody: '写下想做的事，点「生成计划」，系统会安排到一周里，再点「添加到日历」即可应用。下方列表点击可启用/停用，长按删除。',
   hintColorTitle: '分类（颜色）操作',
   hintColorBody: '点击选择颜色。点选中颜色上的铅笔可改名，长按可删除。',
   hintWageTitle: '自动计算打工工资',
@@ -562,16 +562,16 @@ export default {
   settingsSectionApp: '应用设置',
   settingsSectionLegal: '条款与隐私',
 
-  // AI planning (Tasks tab)
-  agentTitle: 'AI 帮你排计划',
-  agentSubtitle: '用一句话写下你的计划和目标，比如“每周一10:00–16:00上课”。AI 会把它们排进这一周并加入日历。',
+  // Rule-based planning (Tasks tab)
+  agentTitle: '写下来就能排计划',
+  agentSubtitle: '用一句话写下你的计划和目标，比如“每周一10:00–16:00上课”。系统会按你写的条件排进这一周并加入日历。',
   agentExample: '每周一10:00–16:00上课。周二和周四18:00–22:00打工。',
   agentInputLabel: '写下计划和目标',
   agentDeclareBtn: '生成计划',
   agentIntentionsTitle: '你的计划和目标',
   agentSwipeHint: '左滑删除',
   agentApplyBtn: '添加到日历',
-  agentPlaced: 'AI 已将 {{count}} 个日程排进这一周',
+  agentPlaced: '已将 {{count}} 个日程排进这一周',
   agentUnplacedHead: '没能排入的',
   agentConflictsHead: '智能体的判断',
   agentErrTitle: '错误',
@@ -589,7 +589,7 @@ export default {
   agentDeadline: '截止 {{date}}',
   agentApproxH: '约{{h}}小时',
 
-  // AI planning — parser title lexicon
+  // Rule-based planning — parser title lexicon
   lexSchool: '上课',
   lexPartTime: '打工',
   lexReport: '报告',

@@ -539,7 +539,7 @@ export default {
 
   // Tutorial hints & settings sections
   hintAgentTitle: '문장으로 쓰기만 하면 OK',
-  hintAgentBody: '하고 싶은 일을 문장으로 쓰고 "일정으로 만들기"를 누르면 AI가 일주일에 배치하고, "캘린더에 추가"로 반영됩니다. 아래 목록은 탭하면 사용/해제, 길게 누르면 삭제됩니다.',
+  hintAgentBody: '하고 싶은 일을 문장으로 쓰고 "일정으로 만들기"를 누르면 일주일에 배치되고, "캘린더에 추가"로 반영됩니다. 아래 목록은 탭하면 사용/해제, 길게 누르면 삭제됩니다.',
   hintColorTitle: '카테고리(색) 사용법',
   hintColorBody: '탭하여 색을 선택하세요. 선택된 색의 연필로 이름을 바꾸고, 길게 누르면 삭제됩니다.',
   hintWageTitle: '알바비 자동 계산',
@@ -562,16 +562,16 @@ export default {
   settingsSectionApp: '앱 설정',
   settingsSectionLegal: '약관·개인정보',
 
-  // AI planning (Tasks tab)
-  agentTitle: 'AI로 일정 만들기',
-  agentSubtitle: '“매주 월 10:00–16:00 대학”처럼 계획과 목표를 문장으로 쓰기만 하면 됩니다. AI가 일주일에 배치해 캘린더에 추가합니다.',
+  // Rule-based planning (Tasks tab)
+  agentTitle: '적기만 하면 일정이 됩니다',
+  agentSubtitle: '“매주 월 10:00–16:00 대학”처럼 계획과 목표를 문장으로 쓰기만 하면 됩니다. 쓴 조건대로 일주일에 배치해 캘린더에 추가합니다.',
   agentExample: '매주 월 10:00–16:00 대학. 화·목 18:00–22:00 아르바이트.',
   agentInputLabel: '계획·목표 쓰기',
   agentDeclareBtn: '일정으로 만들기',
   agentIntentionsTitle: '입력한 계획·목표',
   agentSwipeHint: '왼쪽으로 밀어 삭제',
   agentApplyBtn: '캘린더에 추가',
-  agentPlaced: 'AI가 {{count}}개의 일정을 일주일에 배치했습니다',
+  agentPlaced: '{{count}}개의 일정을 일주일에 배치했습니다',
   agentUnplacedHead: '넣지 못한 일정',
   agentConflictsHead: '에이전트의 판단',
   agentErrTitle: '오류',
@@ -589,7 +589,7 @@ export default {
   agentDeadline: '마감 {{date}}',
   agentApproxH: '약 {{h}}시간',
 
-  // AI planning — parser title lexicon
+  // Rule-based planning — parser title lexicon
   lexSchool: '대학',
   lexPartTime: '알바',
   lexReport: '리포트',
