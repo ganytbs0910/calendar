@@ -12,6 +12,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import RNCalendarEvents from 'react-native-calendar-events';
 import {setEventColor} from '../components/AddEventModal';
+import i18n from '../i18n/i18n';
 
 const SEED_FLAG_KEY = '@dev_seeded_2026_04';
 const CLEANUP_FLAG_KEY = '@dev_cleaned_2026_04';
@@ -498,13 +499,41 @@ export const clearDevJuneSeedEvents = async (): Promise<number> => {
   }
 };
 
-/** Seed the ~1-month summer college schedule starting today (English). */
+// The same schedule in Japanese. This app's assumed user is a Japanese student
+// — the income-wall feature is Japanese tax law, and the store copy is written
+// for them — so a Japanese device demoing a calendar full of English was the
+// wrong picture of the product. Titles only; the shape of the month is the same.
+const SUMMER_TITLES_JA: Record<string, string> = {
+  'Café shift': 'カフェバイト',
+  Movie: '映画',
+  Gym: 'ジム',
+  'Summer course': '集中講義',
+  'TOEIC prep': 'TOEIC対策',
+  'Lunch with friends': '友達とランチ',
+  'Tennis club': 'テニスサークル',
+  'Beach day': '海',
+  'Due: Course report': '締切: レポート',
+  'Club night out': 'サークル飲み',
+  Karaoke: 'カラオケ',
+  'Trip home': '帰省',
+  'Summer festival': '花火大会',
+  'Birthday party': '誕生日会',
+  'Internship info session': 'インターン説明会',
+  'Study group': '勉強会',
+};
+
+/** Seed the ~1-month summer college schedule starting today. */
 export const seedDevSummerEventsIfNeeded = async (): Promise<void> => {
   if (!__DEV__) return;
   try {
     const already = await AsyncStorage.getItem(SUMMER_SEED_FLAG_KEY);
     if (already === '1') return;
-    await persistSeeds(SUMMER_SEEDS);
+    const ja = i18n.language?.startsWith('ja');
+    await persistSeeds(
+      ja
+        ? SUMMER_SEEDS.map(s => ({...s, title: SUMMER_TITLES_JA[s.title] ?? s.title}))
+        : SUMMER_SEEDS,
+    );
     await AsyncStorage.setItem(SUMMER_SEED_FLAG_KEY, '1');
   } catch (e) {
     console.warn('[devSeedData] summer seeding failed:', e);

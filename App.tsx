@@ -497,6 +497,33 @@ function AppContent() {
   // the guard, switching language re-asked to restore a file the user had
   // already handled — or declined. The launch URL is consulted once per launch;
   // anything arriving later comes through the listener.
+  // ── Recording harness (__DEV__ only) ──────────────────────────────────────
+  //
+  // Lands the app on a given screen at launch, so promo captures don't depend
+  // on synthetic taps. Those need the Mac's display awake and a Simulator
+  // window on screen; neither is guaranteed, and when they go missing there is
+  // no other way to reach a screen that only opens from a tap.
+  //
+  // Set the key from outside, then relaunch:
+  //   @dev_open_screen = incomeWall | shareAvail | poll | jobs | stats | tasks | week
+  useEffect(() => {
+    if (!__DEV__) return;
+    AsyncStorageRoot.getItem('@dev_open_screen')
+      .then(screen => {
+        switch (screen) {
+          case 'incomeWall': setShowIncomeWall(true); break;
+          case 'shareAvail': setShowShareAvail(true); break;
+          case 'poll': setShowPoll(true); break;
+          case 'jobs': setShowJobsManager(true); break;
+          case 'stats': setActiveTab('stats'); break;
+          case 'tasks': setActiveTab('tasks'); break;
+          case 'week': setViewMode('week'); break;
+          default: break;
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   const launchUrlHandled = useRef(false);
   useEffect(() => {
     if (!launchUrlHandled.current) {
