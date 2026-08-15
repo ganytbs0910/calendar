@@ -1,0 +1,43 @@
+A calendar that opens on one number: how many hours of today are still yours.
+
+A calendar tells you which hours are taken. What you actually want to know is the opposite.
+
+
+■ Your free time, on the home screen
+
+Take the hours you're awake. Subtract what's ahead of you.
+
+"Bed at 11. It's 7 now. One hour booked at 9."
+— three hours left.
+
+That number is the first thing you see when you open the app. Add an event and it drops, right there.
+
+
+■ No manual
+
+Long-press to add an event.
+Drag to move it.
+Swipe to delete it.
+
+Every year you've spent with a phone is the only instruction manual you need.
+
+"It probably works like this…"
+— and your instinct is always right.
+
+
+■ What that time is being traded for
+
+Add a shift and your pay is worked out from your hourly rate, including night, overtime and holiday premiums. You can see what your free time turned into.
+
+
+■ Also
+
+• One tap between month and week view
+• Drag across the week view to create; drag an event to move it
+• Colour-code your events and read the month at a glance
+• Attach photos to events and look back on them
+• A lock-screen widget for today's free time
+• Your events, tasks and photos stay on your device. No account required
+
+
+Build your day, your way.

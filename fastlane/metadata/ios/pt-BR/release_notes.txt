@@ -1,0 +1,13 @@
+Novidades
+• Repetição anual, para aniversários e datas especiais
+• Envie sua opinião pelos Ajustes — ela chega direto ao desenvolvedor
+• A configuração inicial agora tem duas telas e o tempo livre aparece na hora
+
+Correções
+• Escolher uma data estando no último dia do mês podia pular um mês
+• A visualização semanal começa a semana no mesmo dia que o restante do app
+• Eventos de vários dias apareciam só no primeiro dia na visualização semanal
+• Eventos de dia inteiro com fim igual ao início não apareciam
+• Adicionais noturnos se deslocavam uma hora na mudança de horário
+• Uma repetição diária podia parar antes de completar o ano
+• Alterações em eventos, turnos e tarefas podiam não ser salvas

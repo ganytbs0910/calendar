@@ -1,4 +1,4 @@
-# Store listing copy — 理想のカレンダー / Ideal Calendar (v2.7.0)
+# Store listing copy — 理想のカレンダー / Ideal Calendar (v2.10.0)
 
 Paste-ready text for **App Store Connect** (App 情報 → 各ローカライズ) and
 **Google Play Console** (メインのストアの掲載情報 → 各言語).
@@ -123,9 +123,19 @@ three — §5 weather, §6 ads, §9 feedback box.
 
 **リリースノート / 最新情報 (What's New)**
 ```
-・英語ほか10言語に完全対応しました
-・アプリ全体の動作を高速化し、タブ切り替えをよりスムーズに
-・細かな表示や翻訳を改善
+新しくできること
+・繰り返しに「毎年」を追加しました。誕生日や記念日にどうぞ
+・設定に「意見を送る」を追加しました。ご意見や不具合の報告が開発者へ直接届きます
+・はじめの設定を2画面に短縮しました。開いてすぐ「今日の残り自由時間」が出ます
+
+不具合の修正
+・月末に日付を選ぶと、1か月先になってしまうことがある問題を修正しました
+・週表示の週のはじまりを、月表示と揃えました
+・複数日にまたがる終日の予定が、週表示で初日にしか出ない問題を修正しました
+・終了が開始と同じ終日の予定が、どこにも表示されない問題を修正しました
+・サマータイムのある地域で、深夜割増の時間帯が1時間ずれる問題を修正しました
+・「毎日」の繰り返しが1年経たずに終わってしまう問題を修正しました
+・予定・シフト・タスクの編集で、入力した内容が保存されないことがある問題を修正しました
 ```
 
 ---
@@ -149,7 +159,7 @@ calendar,schedule,planner,weekly,monthly,timetable,tasks,reminder,drag,diary,dar
 
 **Promotional text**
 ```
-There are enough calendars for filling your day. This one shows you what's left of it. Your events subtracted from your waking hours, on the home screen: the time today that's still yours. No manual needed.
+Plenty of calendars fill your day. This one shows what's left: your events subtracted from your waking hours, on the home screen. No manual needed.
 ```
 
 **Description**
@@ -201,10 +211,25 @@ Build your day, your way.
 
 **What's New / Release notes**
 ```
-• Now available in English and 10 languages in total
-• Faster and smoother throughout
-• Various display and translation fixes
+New
+• A yearly repeat, for birthdays and anniversaries
+• Send feedback from Settings — it reaches the developer directly
+• Setup is two screens now, so today's free time shows up right away
+
+Fixed
+• Picking a date while on the last day of a month could land a month later
+• The week view now starts its week on the same day as everything else
+• Multi-day all-day events showed only on their first day in the week view
+• All-day events whose end matched their start didn't show at all
+• Night-shift pay rates shifted by an hour across a daylight saving change
+• A daily repeat could stop before the year was out
+• Edits to events, shifts and tasks could fail to save
 ```
+
+---
+
+**リリースノートの全11言語版**は `fastlane/metadata/ios/<locale>/release_notes.txt` にある。
+貼り付けでも `fastlane deliver` でも同じものが使える。
 
 ---
 

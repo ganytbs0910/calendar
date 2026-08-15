@@ -1,0 +1,13 @@
+Neu
+• Jährliche Wiederholung – für Geburtstage und Jahrestage
+• Feedback direkt aus den Einstellungen senden
+• Die Einrichtung dauert nur noch zwei Schritte, die freie Zeit erscheint sofort
+
+Behoben
+• Ein am Monatsletzten gewähltes Datum landete manchmal einen Monat später
+• Die Wochenansicht beginnt die Woche jetzt am gleichen Tag wie überall sonst
+• Mehrtägige ganztägige Termine erschienen nur am ersten Tag
+• Ganztägige Termine mit gleichem Anfang und Ende erschienen gar nicht
+• Nachtzuschläge verschoben sich bei der Zeitumstellung um eine Stunde
+• Eine tägliche Wiederholung konnte vor Ablauf des Jahres enden
+• Änderungen an Terminen, Schichten und Aufgaben wurden manchmal nicht gespeichert

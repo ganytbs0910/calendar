@@ -1,0 +1,13 @@
+Nouveautés
+• Répétition annuelle, pour les anniversaires et les dates importantes
+• Envoyez vos remarques depuis les Réglages : elles arrivent directement au développeur
+• La configuration tient en deux écrans, le temps libre s'affiche aussitôt
+
+Corrections
+• Choisir une date depuis le dernier jour du mois pouvait décaler d'un mois
+• La vue semaine commence désormais la semaine le même jour que le reste
+• Les événements sur plusieurs jours n'apparaissaient que le premier jour
+• Les événements d'une journée dont la fin égalait le début n'apparaissaient pas
+• Les majorations de nuit se décalaient d'une heure au changement d'heure
+• Une répétition quotidienne pouvait s'arrêter avant la fin de l'année
+• Les modifications d'événements, de shifts et de tâches pouvaient ne pas être enregistrées

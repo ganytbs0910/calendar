@@ -1,0 +1,13 @@
+Baru
+• Pengulangan tahunan, untuk ulang tahun dan peringatan
+• Kirim masukan dari Pengaturan — langsung sampai ke pengembang
+• Penyiapan awal kini dua layar, waktu luang hari ini langsung terlihat
+
+Perbaikan
+• Memilih tanggal saat berada di akhir bulan bisa meleset satu bulan
+• Tampilan mingguan kini memulai minggu pada hari yang sama dengan lainnya
+• Acara seharian penuh yang berlangsung beberapa hari hanya muncul di hari pertama
+• Acara seharian penuh dengan akhir sama dengan awalnya tidak muncul sama sekali
+• Tarif lembur malam bergeser satu jam saat pergantian waktu musim panas
+• Pengulangan harian bisa berhenti sebelum satu tahun
+• Perubahan pada acara, sif, dan tugas kadang tidak tersimpan

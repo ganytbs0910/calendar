@@ -1,0 +1,13 @@
+New
+• A yearly repeat, for birthdays and anniversaries
+• Send feedback from Settings — it reaches the developer directly
+• Setup is two screens now, so today's free time shows up right away
+
+Fixed
+• Picking a date while on the last day of a month could land a month later
+• The week view now starts its week on the same day as everything else
+• Multi-day all-day events showed only on their first day in the week view
+• All-day events whose end matched their start didn't show at all
+• Night-shift pay rates shifted by an hour across a daylight saving change
+• A daily repeat could stop before the year was out
+• Edits to events, shifts and tasks could fail to save
