@@ -149,8 +149,10 @@ Ideal Calendar
 
 **Subtitle / Short description**
 ```
-How much of today is still yours?
+How much of today is yours?
 ```
+（Play の短い説明は 80 字まで入るので `How much of today is still yours?` のままでよい。
+App Store のサブタイトルは 30 字上限で、still を入れると 33 字になり弾かれる。）
 
 **Keywords (App Store)**
 ```
@@ -237,6 +239,14 @@ Fixed
 
 Full descriptions can be added later; these cover the two required fields so the
 listing is live in each language. (App names match the in-app localization.)
+
+**App Store のサブタイトルは 30 字上限**で、下表の短い説明はそのままでは 2 言語が
+超える。`fastlane/metadata/ios/<locale>/subtitle.txt` には収まる形を入れてある:
+
+| Lang | 表の文（Play 用・80字まで） | App Store 用（30字以内） |
+|---|---|---|
+| en | How much of today is still yours? (33) | How much of today is yours? (27) |
+| fr | Combien du jour te reste-t-il ? (32) | Il te reste combien de temps ? (30) |
 
 | Lang | App name | Short description |
 |------|----------|-------------------|
