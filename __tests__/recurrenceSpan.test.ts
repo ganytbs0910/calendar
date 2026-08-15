@@ -11,9 +11,15 @@ import {occurrencesForYears} from '../src/utils/recurrenceSpan';
 const yearsCovered = (freq: string, n: number) =>
   n / ({daily: 365, weekly: 52, monthly: 12, yearly: 1} as Record<string, number>)[freq];
 
-describe('五年ぶんの回数', () => {
-  it.each(['daily', 'weekly', 'monthly', 'yearly'])('%s が概ね5年になる', freq => {
+describe('既定でどれだけ先まで続くか', () => {
+  it.each(['daily', 'weekly', 'monthly'])('%s は概ね5年', freq => {
     expect(yearsCovered(freq, occurrencesForYears(freq))).toBeCloseTo(5, 1);
+  });
+
+  it('毎年だけは30年（誕生日や記念日が5回で止まらないように）', () => {
+    // 頻度が低いぶん回数が安い。毎日を30年にすると1万件を超えるが、
+    // 毎年なら30件で済む。上限を一律にする理由がない。
+    expect(occurrencesForYears('yearly')).toBe(30);
   });
 
   it('毎日が8か月で打ち切られない（作成側の旧値 260 の問題）', () => {
@@ -21,7 +27,14 @@ describe('五年ぶんの回数', () => {
   });
 
   it('毎年が半世紀にならない（復元側の旧値 52 の問題）', () => {
-    expect(occurrencesForYears('yearly')).toBe(5);
+    // 52年ぶん復活する不具合の再発防止。伸ばしたとはいえ上限はある。
+    expect(occurrencesForYears('yearly')).toBeLessThan(52);
+  });
+
+  it('どの頻度もカレンダーに書き込めない量にならない', () => {
+    for (const f of ['daily', 'weekly', 'monthly', 'yearly']) {
+      expect(occurrencesForYears(f)).toBeLessThanOrEqual(2000);
+    }
   });
 });
 

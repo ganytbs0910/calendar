@@ -27,7 +27,7 @@ const CHANNEL_ID = 'event-reminders';
 const ENABLED_KEY = '@notifications_enabled';
 const SOUND_KEY = '@notifications_sound_enabled';
 
-export type Recurrence = 'none' | 'daily' | 'weekly' | 'monthly';
+export type Recurrence = 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly';
 
 let channelRegistered = false;
 
@@ -93,7 +93,9 @@ const recurrenceToFrequency = (r: Recurrence): RepeatFrequency | undefined => {
       return RepeatFrequency.DAILY;
     case 'weekly':
       return RepeatFrequency.WEEKLY;
-    // Monthly isn't natively supported; we just schedule the first occurrence.
+    // notifee repeats only hourly/daily/weekly. Monthly and yearly get the
+    // first occurrence's reminder and nothing after it — the event itself
+    // still repeats, because that rule lives in the calendar, not here.
     default:
       return undefined;
   }

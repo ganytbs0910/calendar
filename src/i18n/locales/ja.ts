@@ -118,6 +118,7 @@ export default {
   repeatDaily: '毎日',
   repeatWeekly: '毎週',
   repeatMonthly: '毎月',
+  repeatYearly: '毎年',
   location: '場所',
   notes: 'メモ',
   calendar: 'カレンダー',

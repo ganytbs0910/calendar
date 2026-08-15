@@ -410,7 +410,9 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   const [editingLabelText, setEditingLabelText] = useState('');
   const [showAddColor, setShowAddColor] = useState(false);
   const [reminder, setReminder] = useState<number | null>(null);
-  const [recurrence, setRecurrence] = useState<'none' | 'daily' | 'weekly' | 'monthly'>('none');
+  const [recurrence, setRecurrence] = useState<'none' | 'daily' | 'weekly' | 'monthly' | 'yearly'>(
+    'none',
+  );
   // Presets = auto-saved recent events (eventHistory). One tap re-enters the
   // same event (incl. job/wage for バイト).
   const [presets, setPresets] = useState<EventHistoryEntry[]>([]);
@@ -1542,7 +1544,17 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                 <Text style={[styles.optionRowLabel, {color: colors.textSecondary}]}>{t('repeat')}</Text>
               </View>
               <View style={styles.optionRowChips}>
-                {([{label: 'repeatNone', value: 'none'}, {label: 'repeatDaily', value: 'daily'}, {label: 'repeatWeekly', value: 'weekly'}, {label: 'repeatMonthly', value: 'monthly'}] as const).map((option) => (
+                {([
+                  {label: 'repeatNone', value: 'none'},
+                  {label: 'repeatDaily', value: 'daily'},
+                  {label: 'repeatWeekly', value: 'weekly'},
+                  {label: 'repeatMonthly', value: 'monthly'},
+                  // Birthdays and anniversaries are the reason a calendar has a
+                  // repeat field at all for most people. The row wraps, so a
+                  // fifth chip drops to a second line on narrow screens rather
+                  // than overflowing.
+                  {label: 'repeatYearly', value: 'yearly'},
+                ] as const).map((option) => (
                   <TouchableOpacity
                     key={option.value}
                     style={[

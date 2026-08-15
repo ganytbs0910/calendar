@@ -106,6 +106,7 @@ export default {
   repeatDaily: '每天',
   repeatWeekly: '每周',
   repeatMonthly: '每月',
+  repeatYearly: '每年',
   location: '地点',
   notes: '备注',
   calendar: '日历',

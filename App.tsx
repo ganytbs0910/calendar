@@ -518,6 +518,7 @@ function AppContent() {
           case 'stats': setActiveTab('stats'); break;
           case 'tasks': setActiveTab('tasks'); break;
           case 'week': setViewMode('week'); break;
+          case 'addEvent': setShowAddModal(true); break;
           default: break;
         }
       })

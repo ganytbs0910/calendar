@@ -18,7 +18,7 @@ export interface EventHistoryEntry {
   durationMinutes: number;
   color: string;
   reminder: number | null;
-  recurrence: 'none' | 'daily' | 'weekly' | 'monthly';
+  recurrence: 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly';
   // Payroll context so a バイト preset restores its job / wage exactly.
   jobId?: string | null;
   hourlyWage?: number | null;

@@ -25,16 +25,34 @@ const PER_YEAR: Record<RecurrenceFrequency, number> = {
 };
 
 /**
+ * How far out each frequency runs when the caller doesn't say.
+ *
+ * Not one number for all of them, because the cost isn't one number either.
+ * Five years of a daily event is 1,825 rows in the calendar store; five years
+ * of a yearly one is five. So the frequent ones are capped by what is
+ * reasonable to write, and the rare ones by what the user means: someone
+ * setting a birthday to repeat expects it to outlive the phone, and would
+ * read it quietly stopping after five as a bug.
+ */
+const DEFAULT_YEARS: Record<RecurrenceFrequency, number> = {
+  daily: 5,
+  weekly: 5,
+  monthly: 5,
+  yearly: 30,
+};
+
+/**
  * Occurrence count covering `years` of repeats at `frequency`.
  *
  * Always at least 2 — a repeat rule of one occurrence is not a repeat, and
  * would silently turn a series the user asked for into a single event.
  */
-export const occurrencesForYears = (frequency: string, years = 5): number => {
-  const perYear = PER_YEAR[frequency as RecurrenceFrequency];
+export const occurrencesForYears = (frequency: string, years?: number): number => {
+  const freq = frequency as RecurrenceFrequency;
+  const perYear = PER_YEAR[freq];
   // An unrecognised frequency comes from a calendar we don't control. Weekly is
   // the safest guess: wrong by a factor of seven at worst, rather than the
   // fifty-two years a yearly event used to get.
-  if (!perYear) return Math.round(PER_YEAR.weekly * years);
-  return Math.max(2, Math.round(perYear * years));
+  if (!perYear) return Math.round(PER_YEAR.weekly * (years ?? 5));
+  return Math.max(2, Math.round(perYear * (years ?? DEFAULT_YEARS[freq])));
 };

@@ -106,6 +106,7 @@ export default {
   repeatDaily: 'Quotidienne',
   repeatWeekly: 'Hebdomadaire',
   repeatMonthly: 'Mensuelle',
+  repeatYearly: 'Tous les ans',
   location: 'Lieu',
   notes: 'Notes',
   calendar: 'Calendrier',

@@ -106,6 +106,7 @@ export default {
   repeatDaily: 'ทุกวัน',
   repeatWeekly: 'ทุกสัปดาห์',
   repeatMonthly: 'ทุกเดือน',
+  repeatYearly: 'ทุกปี',
   location: 'สถานที่',
   notes: 'บันทึก',
   calendar: 'ปฏิทิน',

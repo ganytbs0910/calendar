@@ -106,6 +106,7 @@ export default {
   repeatDaily: '매일',
   repeatWeekly: '매주',
   repeatMonthly: '매월',
+  repeatYearly: '매년',
   location: '위치',
   notes: '메모',
   calendar: '캘린더',

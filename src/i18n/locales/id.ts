@@ -106,6 +106,7 @@ export default {
   repeatDaily: 'Harian',
   repeatWeekly: 'Mingguan',
   repeatMonthly: 'Bulanan',
+  repeatYearly: 'Setiap tahun',
   location: 'Lokasi',
   notes: 'Catatan',
   calendar: 'Kalender',
