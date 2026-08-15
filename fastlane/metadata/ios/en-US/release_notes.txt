@@ -1,9 +1,17 @@
-New
+■ New
+• The hours still yours today, as a number, the moment you open the app
+• Free time per day in the week view too
+• Backup and restore — everything, photos included, in a single file
 • A yearly repeat, for birthdays and anniversaries
-• Send feedback from Settings — it reaches the developer directly
-• Setup is two screens now, so today's free time shows up right away
+• Send feedback from Settings; it reaches the developer directly
+• Filtering by colour is now reachable
 
-Fixed
+■ Changed
+• Three tabs — Home, Tasks, Stats — with settings behind the gear
+• Setup is two screens now, so your free time shows up right away
+• Pay thresholds updated to the ones a student actually hits
+
+■ Fixed
 • Picking a date while on the last day of a month could land a month later
 • The week view now starts its week on the same day as everything else
 • Multi-day all-day events showed only on their first day in the week view
@@ -11,3 +19,6 @@ Fixed
 • Night-shift pay rates shifted by an hour across a daylight saving change
 • A daily repeat could stop before the year was out
 • Edits to events, shifts and tasks could fail to save
+• Raised the contrast on text that was too faint to read
+• The launch screen no longer flashes light in dark mode
+• Permission prompts now appear in the language of the device

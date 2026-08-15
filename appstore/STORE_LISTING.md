@@ -123,12 +123,20 @@ three — §5 weather, §6 ads, §9 feedback box.
 
 **リリースノート / 最新情報 (What's New)**
 ```
-新しくできること
+■ 新しくできること
+・今日あと何時間自由に使えるかを、開いた瞬間に数字で出すようにしました
+・週表示でも、日ごとの空き時間が見られます
+・バックアップと復元に対応しました。写真も含めてファイル1つに書き出せます
 ・繰り返しに「毎年」を追加しました。誕生日や記念日にどうぞ
 ・設定に「意見を送る」を追加しました。ご意見や不具合の報告が開発者へ直接届きます
-・はじめの設定を2画面に短縮しました。開いてすぐ「今日の残り自由時間」が出ます
+・色での絞り込みを使えるようにしました
 
-不具合の修正
+■ 変わったところ
+・タブをホーム・タスク・統計の3つに整理し、設定はヘッダーの歯車にまとめました
+・はじめの設定を2画面に短縮しました。開いてすぐ残り自由時間が出ます
+・年収の壁の初期値を、いまの制度に合わせて130・150・160・188万円にしました
+
+■ 不具合の修正
 ・月末に日付を選ぶと、1か月先になってしまうことがある問題を修正しました
 ・週表示の週のはじまりを、月表示と揃えました
 ・複数日にまたがる終日の予定が、週表示で初日にしか出ない問題を修正しました
@@ -136,6 +144,9 @@ three — §5 weather, §6 ads, §9 feedback box.
 ・サマータイムのある地域で、深夜割増の時間帯が1時間ずれる問題を修正しました
 ・「毎日」の繰り返しが1年経たずに終わってしまう問題を修正しました
 ・予定・シフト・タスクの編集で、入力した内容が保存されないことがある問題を修正しました
+・薄くて読みにくかった文字のコントラストを改善しました
+・ダークモードで起動画面が一瞬明るく光る問題を修正しました
+・権限の確認画面が、日本語以外の端末でも各言語で表示されるようにしました
 ```
 
 ---
@@ -213,12 +224,20 @@ Build your day, your way.
 
 **What's New / Release notes**
 ```
-New
+■ New
+• The hours still yours today, as a number, the moment you open the app
+• Free time per day in the week view too
+• Backup and restore — everything, photos included, in a single file
 • A yearly repeat, for birthdays and anniversaries
-• Send feedback from Settings — it reaches the developer directly
-• Setup is two screens now, so today's free time shows up right away
+• Send feedback from Settings; it reaches the developer directly
+• Filtering by colour is now reachable
 
-Fixed
+■ Changed
+• Three tabs — Home, Tasks, Stats — with settings behind the gear
+• Setup is two screens now, so your free time shows up right away
+• Pay thresholds updated to the ones a student actually hits
+
+■ Fixed
 • Picking a date while on the last day of a month could land a month later
 • The week view now starts its week on the same day as everything else
 • Multi-day all-day events showed only on their first day in the week view
@@ -226,6 +245,9 @@ Fixed
 • Night-shift pay rates shifted by an hour across a daylight saving change
 • A daily repeat could stop before the year was out
 • Edits to events, shifts and tasks could fail to save
+• Raised the contrast on text that was too faint to read
+• The launch screen no longer flashes light in dark mode
+• Permission prompts now appear in the language of the device
 ```
 
 ---
