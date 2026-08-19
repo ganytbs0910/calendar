@@ -14,6 +14,8 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
+import i18n from '../i18n/i18n';
 import notifee, {
   AndroidImportance,
   AuthorizationStatus,
@@ -105,8 +107,29 @@ export interface ScheduleEventNotificationParams {
   eventId: string;
   title: string;
   fireDate: Date;
+  /** When the event itself starts — becomes the banner's second line. */
+  startDate?: Date;
   recurrence?: Recurrence;
 }
+
+/**
+ * The banner's body.
+ *
+ * It used to be a single space, so a reminder arrived as the event name and an
+ * empty line — you were told *that* something was coming but not when. The
+ * start time is what makes the banner actionable without opening anything.
+ *
+ * Absolute rather than relative ("15分後") on purpose: a repeating reminder is
+ * rolled forward to its next occurrence, and the clock time survives that
+ * while a countdown baked in at scheduling time would not.
+ */
+const notificationBody = (startDate?: Date): string => {
+  if (!startDate || isNaN(startDate.getTime())) return ' ';
+  const hh = String(startDate.getHours()).padStart(2, '0');
+  const mm = String(startDate.getMinutes()).padStart(2, '0');
+  // 24-hour HH:MM, matching how every other surface in the app prints a time.
+  return i18n.t('notificationStartsAt', {time: `${hh}:${mm}`});
+};
 
 export const scheduleEventNotification = async (
   params: ScheduleEventNotificationParams,
@@ -143,7 +166,7 @@ export const scheduleEventNotification = async (
     {
       id: params.eventId,
       title: params.title || ' ',
-      body: ' ',
+      body: notificationBody(params.startDate),
       android: {
         channelId: CHANNEL_ID,
         pressAction: {id: 'default'},

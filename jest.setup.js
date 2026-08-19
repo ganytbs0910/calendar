@@ -75,10 +75,18 @@ jest.mock('@notifee/react-native', () => ({
   __esModule: true,
   default: {
     requestPermission: jest.fn().mockResolvedValue({authorizationStatus: 1}),
+    // Reminder delivery is now permission-aware — the app falls back to the
+    // calendar's own alarm when the OS has not authorised us — so the settings
+    // read has to exist here or that branch is untestable.
+    getNotificationSettings: jest.fn().mockResolvedValue({authorizationStatus: 1}),
     createChannel: jest.fn().mockResolvedValue('default'),
     createTriggerNotification: jest.fn().mockResolvedValue('id'),
+    displayNotification: jest.fn().mockResolvedValue('id'),
     cancelNotification: jest.fn().mockResolvedValue(undefined),
     cancelAllNotifications: jest.fn().mockResolvedValue(undefined),
+    cancelTriggerNotification: jest.fn().mockResolvedValue(undefined),
+    cancelTriggerNotifications: jest.fn().mockResolvedValue(undefined),
+    getTriggerNotifications: jest.fn().mockResolvedValue([]),
     getTriggerNotificationIds: jest.fn().mockResolvedValue([]),
     onForegroundEvent: jest.fn(() => jest.fn()),
   },

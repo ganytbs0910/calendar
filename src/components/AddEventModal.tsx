@@ -32,8 +32,11 @@ import EventPhotoSection from './EventPhotoSection';
 import SuccessOverlay from './SuccessOverlay';
 import {
   cancelEventNotification,
+  hasNotificationPermission,
   isNotificationsEnabled,
+  requestNotificationPermission,
   scheduleEventNotification,
+  setNotificationsEnabled,
 } from '../services/notificationService';
 import {useTranslation} from 'react-i18next';
 import {combineDateAndTime} from '../utils/dateParts';
@@ -303,6 +306,61 @@ const MonthDayPicker: React.FC<MonthDayPickerProps & {t: (key: string, opts?: an
 });
 
 // Duration options (labels are i18n keys)
+const isSameDay = (a: Date, b: Date): boolean =>
+  a.getFullYear() === b.getFullYear() &&
+  a.getMonth() === b.getMonth() &&
+  a.getDate() === b.getDate();
+
+/**
+ * Earliest sensible start on `day`, given the clock.
+ *
+ * For today that is the next o'clock — nobody adds a shift that started
+ * twenty minutes ago, so 17:20 suggests 18:00. Past days and future days keep
+ * whatever the caller worked out; only today is constrained.
+ *
+ * Late at night the next o'clock is tomorrow, and "add to today" must not
+ * silently create a tomorrow event, so it falls back to the next quarter hour
+ * and stops at 23:45.
+ */
+const earliestStartOn = (day: Date, now: Date): Date | null => {
+  if (!isSameDay(day, now)) return null;
+  const slot = new Date(day);
+  if (now.getMinutes() === 0 && now.getSeconds() === 0) {
+    slot.setHours(now.getHours(), 0, 0, 0);
+    return slot;
+  }
+  if (now.getHours() >= 23) {
+    const q = Math.min(Math.ceil((now.getMinutes() + 1) / 15) * 15, 45);
+    slot.setHours(23, q, 0, 0);
+    return slot;
+  }
+  slot.setHours(now.getHours() + 1, 0, 0, 0);
+  return slot;
+};
+
+/** Where a new event should start on `day`, after the day's existing events. */
+export const suggestStart = (
+  day: Date,
+  dayEvents: Array<{allDay?: boolean; endDate?: string}>,
+  now: Date = new Date(),
+): Date => {
+  const start = new Date(day);
+  const timed = dayEvents.filter(e => !e.allDay && e.endDate);
+  if (timed.length > 0) {
+    const latestEnd = timed.reduce((latest, e) => {
+      const end = new Date(e.endDate!);
+      return end > latest ? end : latest;
+    }, new Date(0));
+    // Clamp: an event ending at 23:30 used to suggest hour 24, which rolls the
+    // suggestion onto the next day.
+    start.setHours(Math.min(latestEnd.getHours() + 1, 23), 0, 0, 0);
+  } else {
+    start.setHours(14, 0, 0, 0);
+  }
+  const floor = earliestStartOn(day, now);
+  return floor && start < floor ? floor : start;
+};
+
 const DURATION_OPTIONS = [
   {label: 'duration30min', minutes: 30},
   {label: 'duration45min', minutes: 45},
@@ -558,27 +616,13 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           const dayEnd = new Date(initialDate);
           dayEnd.setHours(23, 59, 59, 999);
           RNCalendarEvents.fetchAllEvents(dayStart.toISOString(), dayEnd.toISOString()).then(events => {
-            const nonAllDayEvents = events.filter(e => !e.allDay && e.endDate);
-            const start = new Date(initialDate);
-            if (nonAllDayEvents.length > 0) {
-              const latestEnd = nonAllDayEvents.reduce((latest, e) => {
-                const end = new Date(e.endDate!);
-                return end > latest ? end : latest;
-              }, new Date(0));
-              start.setHours(latestEnd.getHours() + 1);
-              start.setMinutes(0);
-            } else {
-              start.setHours(14);
-              start.setMinutes(0);
-            }
-            start.setSeconds(0);
+            const start = suggestStart(initialDate, events);
             setStartDate(start);
             const end = new Date(start);
             end.setHours(end.getHours() + 1);
             setEndDate(end);
           }).catch(() => {
-            const start = new Date(initialDate);
-            start.setHours(14, 0, 0, 0);
+            const start = suggestStart(initialDate, []);
             setStartDate(start);
             const end = new Date(start);
             end.setHours(end.getHours() + 1);
@@ -599,27 +643,13 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         const dayEnd = new Date(today);
         dayEnd.setHours(23, 59, 59, 999);
         RNCalendarEvents.fetchAllEvents(dayStart.toISOString(), dayEnd.toISOString()).then(events => {
-          const nonAllDayEvents = events.filter(e => !e.allDay && e.endDate);
-          const start = new Date(today);
-          if (nonAllDayEvents.length > 0) {
-            const latestEnd = nonAllDayEvents.reduce((latest, e) => {
-              const end = new Date(e.endDate!);
-              return end > latest ? end : latest;
-            }, new Date(0));
-            start.setHours(latestEnd.getHours() + 1);
-            start.setMinutes(0);
-          } else {
-            start.setHours(14);
-            start.setMinutes(0);
-          }
-          start.setSeconds(0);
+          const start = suggestStart(today, events);
           setStartDate(start);
           const end = new Date(start);
           end.setHours(end.getHours() + 1);
           setEndDate(end);
         }).catch(() => {
-          const start = new Date(today);
-          start.setHours(14, 0, 0, 0);
+          const start = suggestStart(today, []);
           setStartDate(start);
           const end = new Date(start);
           end.setHours(end.getHours() + 1);
@@ -812,9 +842,12 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
     }
 
     try {
-      // When in-app notifications are on we own the delivery, so don't ask the
-      // OS calendar to alarm too (would cause duplicates).
-      const inAppOn = await isNotificationsEnabled();
+      // When we can deliver in-app we own the reminder, so the OS calendar is
+      // not asked to alarm too (that would double-ping). "Can deliver" has to
+      // include the OS permission: notifee accepts a schedule without it and
+      // then delivers nothing, so an app the user had declined used to drop
+      // the reminder entirely rather than fall back.
+      const inAppOn = (await isNotificationsEnabled()) && (await hasNotificationPermission());
       const osAlarms = !inAppOn && reminder !== null ? [{date: reminder}] : [];
       const eventTitle = title.trim() || t('noTitle');
 
@@ -839,6 +872,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
             eventId: editingEvent.id,
             title: eventTitle,
             fireDate,
+            startDate,
           });
         }
       } else {
@@ -877,6 +911,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
               eventId,
               title: eventTitle,
               fireDate,
+              startDate,
               recurrence,
             });
           }
@@ -943,6 +978,51 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
       return t('hoursMinutesFmt', {h: hours, m: minutes});
     }
   };
+
+  // Whole minutes between start and end, for highlighting the matching preset.
+  // Rounded because a custom end time picked to the second would otherwise
+  // never equal a preset.
+  const selectedDurationMinutes = useMemo(
+    () => Math.round((endDate.getTime() - startDate.getTime()) / 60000),
+    [startDate, endDate],
+  );
+
+  // Asked at most once per opening of the sheet — picking 15分 then 30分 then
+  // 1時間 should not raise three dialogs.
+  const reminderPermissionAsked = useRef(false);
+
+  /**
+   * Picking a reminder is the moment the user first expresses that they want
+   * to be notified, so it is where we ask for permission — not at launch.
+   *
+   * Saving still falls back to the calendar's own alarm if this is declined,
+   * so the copy invites rather than warns: with permission the reminder comes
+   * from this app (and honours the in-app sound setting), without it, it comes
+   * from the OS calendar.
+   */
+  const ensureReminderCanFire = useCallback(async () => {
+    if (reminderPermissionAsked.current) return;
+    reminderPermissionAsked.current = true;
+    try {
+      if (await hasNotificationPermission()) return;
+      if (await requestNotificationPermission()) {
+        // The OS dialog only appears once ever; if the user had previously
+        // turned our own switch off, honour the fresh yes.
+        if (!(await isNotificationsEnabled())) await setNotificationsEnabled(true);
+        return;
+      }
+      Alert.alert(t('reminderPermissionTitle'), t('reminderPermissionBody'), [
+        {text: t('cancel'), style: 'cancel'},
+        {text: t('openSettings'), onPress: () => Linking.openSettings()},
+      ]);
+    } catch {
+      // Never let a permission check block choosing a reminder.
+    }
+  }, [t]);
+
+  useEffect(() => {
+    if (visible) reminderPermissionAsked.current = false;
+  }, [visible]);
 
   const handleSetDuration = useCallback((minutes: number) => {
     const newEnd = new Date(startDate);
@@ -1021,7 +1101,11 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         return;
       }
       const defaultCalendar = writableCalendars.find(cal => cal.isPrimary) || writableCalendars[0];
-      const inAppOn = await isNotificationsEnabled();
+      // notifee happily accepts a schedule without OS permission and then
+      // delivers nothing, and we skip the calendar's own alarm when in-app
+      // delivery is on — so an unpermitted app used to drop the reminder
+      // entirely. Fall back to the OS alarm whenever we cannot deliver.
+      const inAppOn = (await isNotificationsEnabled()) && (await hasNotificationPermission());
       const osAlarms = !inAppOn && reminder !== null ? [{date: reminder}] : [];
       const copyTitle = title.trim() || t('noTitle');
       const parsedCopyWage = parseFloat(hourlyWage);
@@ -1059,6 +1143,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
               eventId,
               title: copyTitle,
               fireDate,
+              startDate: newStart,
             });
           }
         }
@@ -1254,6 +1339,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
             {isEditing ? t('editEvent') : isCopying ? t('copyEvent') : t('addEvent')}
           </Text>
           <TouchableOpacity
+            testID="save-event"
             onPress={handleSave}
             accessibilityLabel={t('save')}
             accessibilityRole="button">
@@ -1480,31 +1566,39 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
               </Text>
             </View>
             <View style={styles.durationChipRow}>
-              {DURATION_OPTIONS.map((option) => (
-                <TouchableOpacity
-                  key={option.minutes}
-                  style={[
-                    styles.durationChipSmall,
-                    option.minutes === -1
-                      ? {backgroundColor: colors.inputBackground}
-                      : {backgroundColor: colors.primary},
-                  ]}
-                  onPress={() => {
-                    if (option.minutes === -1) {
-                      const durationMs = endDate.getTime() - startDate.getTime();
-                      const durationEnd = new Date(startDate.getTime() + Math.max(durationMs, 5 * 60 * 1000));
-                      setTempDate(durationEnd);
-                      setShowEndTimePicker(true);
-                    } else {
-                      handleSetDuration(option.minutes);
-                    }
-                  }}>
-                  <Text style={[
-                    styles.durationChipSmallText,
-                    {color: option.minutes === -1 ? colors.textSecondary : '#fff'},
-                  ]}>{t(option.label)}</Text>
-                </TouchableOpacity>
-              ))}
+              {DURATION_OPTIONS.map((option) => {
+                // Every preset used to be painted primary, so nothing showed
+                // which one was in effect. Highlight matches the reminder and
+                // repeat rows: selected is filled, the rest are plain.
+                const isCustom = option.minutes === -1;
+                const selected = isCustom
+                  ? !DURATION_OPTIONS.some(o => o.minutes === selectedDurationMinutes)
+                  : option.minutes === selectedDurationMinutes;
+                return (
+                  <TouchableOpacity
+                    key={option.minutes}
+                    testID={`duration-chip-${option.minutes}`}
+                    style={[
+                      styles.durationChipSmall,
+                      {backgroundColor: selected ? colors.primary : colors.inputBackground},
+                    ]}
+                    onPress={() => {
+                      if (isCustom) {
+                        const durationMs = endDate.getTime() - startDate.getTime();
+                        const durationEnd = new Date(startDate.getTime() + Math.max(durationMs, 5 * 60 * 1000));
+                        setTempDate(durationEnd);
+                        setShowEndTimePicker(true);
+                      } else {
+                        handleSetDuration(option.minutes);
+                      }
+                    }}>
+                    <Text style={[
+                      styles.durationChipSmallText,
+                      {color: selected ? '#fff' : colors.textSecondary},
+                    ]}>{t(option.label)}</Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           </View>
 
@@ -1519,12 +1613,16 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                 {REMINDER_OPTIONS.map((option) => (
                   <TouchableOpacity
                     key={option.label}
+                    testID={`reminder-chip-${option.value}`}
                     style={[
                       styles.reminderButton,
                       {backgroundColor: colors.inputBackground},
                       reminder === option.value && [styles.reminderButtonSelected, {backgroundColor: colors.primary}],
                     ]}
-                    onPress={() => setReminder(option.value)}>
+                    onPress={() => {
+                      setReminder(option.value);
+                      if (option.value !== null) ensureReminderCanFire();
+                    }}>
                     <Text style={[
                       styles.reminderButtonText,
                       {color: colors.text},
