@@ -1,0 +1,8 @@
+■ Corregido
+• Los recordatorios podían no llegar aunque los hubieras activado
+• Al añadir un evento podía proponerse una hora ya pasada
+
+■ Cambiado
+• Los recordatorios ahora indican a qué hora empieza el evento
+• Solo se resalta la duración seleccionada
+• Al elegir un recordatorio te llevamos a Ajustes si las notificaciones están desactivadas

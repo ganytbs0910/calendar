@@ -1,0 +1,8 @@
+■ Corrigido
+• Os lembretes podiam não chegar mesmo depois de definidos
+• Ao adicionar um evento, podia ser sugerido um horário que já havia passado
+
+■ Alterado
+• Os lembretes agora mostram a que horas o evento começa
+• Apenas a duração selecionada fica destacada
+• Ao escolher um lembrete, levamos você aos Ajustes se as notificações estiverem desativadas

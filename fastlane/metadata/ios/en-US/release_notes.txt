@@ -1,0 +1,8 @@
+■ Fixed
+• Reminders could fail to arrive even after you had set one
+• Adding an event could start you on a time that had already passed
+
+■ Changed
+• Reminders now say what time the event starts
+• Only the duration you picked is highlighted
+• Choosing a reminder points you to Settings if notifications are off

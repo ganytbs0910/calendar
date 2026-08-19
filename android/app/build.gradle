@@ -89,7 +89,7 @@ android {
         applicationId "com.calenderappGan"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 19
+        versionCode 20
         versionName "2.11.0"
         missingDimensionStrategy 'store', 'play'
     }

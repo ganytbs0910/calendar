@@ -1,0 +1,8 @@
+■ Perbaikan
+• Pengingat kadang tidak muncul meski sudah diatur
+• Saat menambah acara, jam mulai bisa terisi dengan waktu yang sudah lewat
+
+■ Perubahan
+• Pengingat kini menampilkan jam mulai acara
+• Hanya durasi yang dipilih yang disorot
+• Saat memilih pengingat, kami arahkan ke Pengaturan jika notifikasi perangkat mati

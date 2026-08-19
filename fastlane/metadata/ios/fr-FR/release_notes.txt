@@ -1,0 +1,8 @@
+■ Corrigé
+• Les rappels pouvaient ne pas arriver, même après en avoir choisi un
+• L'ajout d'un événement pouvait proposer une heure déjà passée
+
+■ Modifié
+• Les rappels indiquent désormais l'heure de début de l'événement
+• Seule la durée sélectionnée est mise en évidence
+• Choisir un rappel renvoie vers les Réglages si les notifications sont désactivées

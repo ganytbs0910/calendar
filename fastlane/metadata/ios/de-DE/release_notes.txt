@@ -1,0 +1,8 @@
+■ Behoben
+• Erinnerungen kamen manchmal nicht an, obwohl eine eingestellt war
+• Beim Anlegen eines Termins konnte eine bereits vergangene Uhrzeit vorgeschlagen werden
+
+■ Geändert
+• Erinnerungen zeigen jetzt, wann der Termin beginnt
+• Nur die gewählte Dauer ist hervorgehoben
+• Beim Wählen einer Erinnerung führen wir zu den Einstellungen, wenn Mitteilungen aus sind
