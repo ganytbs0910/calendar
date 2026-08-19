@@ -1,6 +1,7 @@
 ■ Corrigé
 • Les rappels pouvaient ne pas arriver, même après en avoir choisi un
 • L'ajout d'un événement pouvait proposer une heure déjà passée
+• Déplacer un événement laissait son rappel à l'ancienne heure
 
 ■ Modifié
 • Les rappels indiquent désormais l'heure de début de l'événement

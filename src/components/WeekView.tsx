@@ -22,6 +22,7 @@ import {freeMinutesForDay} from '../services/freeTimeService';
 import {eventDayKeys} from '../utils/eventDays';
 import TaskBottomSheet, {TaskBottomSheetRef} from './TaskBottomSheet';
 import OneTimeHint from './OneTimeHint';
+import {shiftEventNotification} from '../services/notificationService';
 
 const TIME_LABEL_WIDTH = 48;
 const DEFAULT_HOUR_HEIGHT = 44;
@@ -975,13 +976,27 @@ const DayColumn = React.memo(function DayColumn({
           newEnd.setHours(Math.floor(endMin / 60), endMin % 60, 0, 0);
           // Optimistic UI update first
           onEventMoved?.(me.event.id, newStart, newEnd);
-          // Save in background
+          // Save in background. `alarms` is carried over deliberately: the
+          // month view's move does the same, and dropping the field here is
+          // how a moved event lost the calendar's own alarm.
+          const movedFrom = me.event.startDate ? new Date(me.event.startDate).getTime() : null;
           RNCalendarEvents.saveEvent(me.event.title || '', {
             id: me.event.id,
             calendarId: me.event.calendar?.id,
             startDate: newStart.toISOString(),
             endDate: newEnd.toISOString(),
             allDay: me.event.allDay,
+            alarms: me.event.alarms,
+          }).then(() => {
+            // The reminder is an absolute timestamp and does not follow the
+            // event on its own — move it by however far the event went.
+            if (movedFrom === null) return;
+            shiftEventNotification({
+              eventId: me.event.id!,
+              title: me.event.title || '',
+              deltaMs: newStart.getTime() - movedFrom,
+              newStartDate: newStart,
+            }).catch(() => {});
           }).catch(() => {});
         }
         setMovingEvent(null);

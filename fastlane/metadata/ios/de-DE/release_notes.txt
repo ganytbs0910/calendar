@@ -1,6 +1,7 @@
 ■ Behoben
 • Erinnerungen kamen manchmal nicht an, obwohl eine eingestellt war
 • Beim Anlegen eines Termins konnte eine bereits vergangene Uhrzeit vorgeschlagen werden
+• Beim Verschieben eines Termins blieb die Erinnerung bei der alten Uhrzeit
 
 ■ Geändert
 • Erinnerungen zeigen jetzt, wann der Termin beginnt

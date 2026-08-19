@@ -16,7 +16,7 @@ import {
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
 import {getAllEventColors} from './AddEventModal';
 import {getAllEventPhotoCounts} from '../services/eventPhotoService';
-import {cancelEventNotification} from '../services/notificationService';
+import {cancelEventNotification, shiftEventNotification} from '../services/notificationService';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {fetchWeather, WeatherDay} from '../services/weatherService';
 import {useTheme} from '../theme/ThemeContext';
@@ -399,6 +399,14 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
           url: originalEvent.url,
           alarms: originalEvent.alarms,
         }).then(() => {
+          // The reminder is an absolute timestamp, so it does not follow the
+          // event on its own — move it by the same number of days.
+          shiftEventNotification({
+            eventId: originalEvent.id!,
+            title: originalEvent.title || '',
+            deltaMs: dayDiff,
+            newStartDate: newStartDate,
+          }).catch(() => {});
           // Refresh events cache for current month
           const cacheKey = getMonthKeyRef.current(currentDateRef.current.getFullYear(), currentDateRef.current.getMonth());
           eventsCache.current.delete(cacheKey);

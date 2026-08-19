@@ -150,23 +150,40 @@ export const scheduleEventNotification = async (
     timestamp += missed * step;
   }
 
+  await putTrigger({
+    eventId: params.eventId,
+    title: params.title,
+    startDate: params.startDate,
+    timestamp,
+    repeatFrequency: freq,
+  });
+};
+
+/** Create (or replace) the trigger notification for an event id. */
+const putTrigger = async (opts: {
+  eventId: string;
+  title: string;
+  startDate?: Date;
+  timestamp: number;
+  repeatFrequency?: RepeatFrequency;
+}): Promise<void> => {
   await ensureChannel();
   const sound = await isSoundEnabled();
 
   const trigger: TimestampTrigger = {
     type: TriggerType.TIMESTAMP,
-    timestamp,
+    timestamp: opts.timestamp,
     alarmManager: Platform.OS === 'android' ? {allowWhileIdle: true} : undefined,
   };
-  if (freq !== undefined) {
-    trigger.repeatFrequency = freq;
+  if (opts.repeatFrequency !== undefined) {
+    trigger.repeatFrequency = opts.repeatFrequency;
   }
 
   await notifee.createTriggerNotification(
     {
-      id: params.eventId,
-      title: params.title || ' ',
-      body: notificationBody(params.startDate),
+      id: opts.eventId,
+      title: opts.title || ' ',
+      body: notificationBody(opts.startDate),
       android: {
         channelId: CHANNEL_ID,
         pressAction: {id: 'default'},
@@ -179,6 +196,56 @@ export const scheduleEventNotification = async (
     },
     trigger,
   );
+};
+
+/**
+ * Move an event's reminder by the same amount the event itself moved.
+ *
+ * Dragging an event to another day or time rewrites it in the calendar, but the
+ * trigger here is an absolute timestamp keyed by event id — so without this the
+ * reminder stayed behind and fired at the old moment, now while stating the old
+ * start time in its body.
+ *
+ * Shifting by the delta rather than recomputing from a stored offset is what
+ * makes this safe for repeats: the reminder keeps its distance from the start
+ * because both ends moved together, and no offset has to be derived from a
+ * timestamp that may already have been rolled forward.
+ */
+export const shiftEventNotification = async (params: {
+  eventId: string;
+  title: string;
+  deltaMs: number;
+  newStartDate: Date;
+}): Promise<void> => {
+  if (!params.eventId || !params.deltaMs) return;
+  try {
+    const entries = await notifee.getTriggerNotifications();
+    const existing = entries.find(e => e.notification.id === params.eventId);
+    // No trigger means this event has no in-app reminder — nothing to move.
+    if (!existing) return;
+    const trigger: any = (existing as any).trigger;
+    if (!trigger || trigger.type !== TriggerType.TIMESTAMP) return;
+    if (typeof trigger.timestamp !== 'number') return;
+
+    const timestamp = trigger.timestamp + params.deltaMs;
+    const repeatFrequency =
+      trigger.repeatFrequency === null ? undefined : trigger.repeatFrequency;
+
+    await notifee.cancelTriggerNotification(params.eventId);
+    // A one-off dragged into the past has no moment left to fire at; a repeat
+    // still has every later occurrence, and notifee rolls it forward itself.
+    if (repeatFrequency === undefined && timestamp <= Date.now()) return;
+
+    await putTrigger({
+      eventId: params.eventId,
+      title: params.title,
+      startDate: params.newStartDate,
+      timestamp,
+      repeatFrequency,
+    });
+  } catch {
+    // Never let a reminder move break the drag that triggered it.
+  }
 };
 
 export const cancelEventNotification = async (eventId: string): Promise<void> => {

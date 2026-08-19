@@ -1,6 +1,7 @@
 ■ Fixed
 • Reminders could fail to arrive even after you had set one
 • Adding an event could start you on a time that had already passed
+• Dragging an event to a new time left its reminder at the old one
 
 ■ Changed
 • Reminders now say what time the event starts

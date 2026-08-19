@@ -1,6 +1,7 @@
 ■ Perbaikan
 • Pengingat kadang tidak muncul meski sudah diatur
 • Saat menambah acara, jam mulai bisa terisi dengan waktu yang sudah lewat
+• Menggeser acara ke waktu lain membuat pengingatnya tertinggal di waktu lama
 
 ■ Perubahan
 • Pengingat kini menampilkan jam mulai acara

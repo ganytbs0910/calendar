@@ -1,6 +1,7 @@
 ■ Corregido
 • Los recordatorios podían no llegar aunque los hubieras activado
 • Al añadir un evento podía proponerse una hora ya pasada
+• Al arrastrar un evento a otra hora, su recordatorio se quedaba en la anterior
 
 ■ Cambiado
 • Los recordatorios ahora indican a qué hora empieza el evento

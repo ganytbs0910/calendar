@@ -1,6 +1,7 @@
 ■ Corrigido
 • Os lembretes podiam não chegar mesmo depois de definidos
 • Ao adicionar um evento, podia ser sugerido um horário que já havia passado
+• Ao arrastar um evento para outro horário, o lembrete ficava no anterior
 
 ■ Alterado
 • Os lembretes agora mostram a que horas o evento começa
