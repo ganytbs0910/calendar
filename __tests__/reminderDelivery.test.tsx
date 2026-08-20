@@ -31,6 +31,24 @@ jest.mock('react-native-calendar-events', () => ({
 
 jest.mock('@react-native-community/datetimepicker', () => 'DateTimePicker');
 
+// Freeze the clock, leaving timers real so async rendering still runs.
+//
+// The sheet defaults to the next o'clock, so a 15-minutes-before reminder is
+// only in the future when the current minute is below 45 — this suite passed
+// or failed depending on the time of day it was run. 09:00 puts the default
+// 14:00 slot, and its reminder, safely ahead.
+beforeAll(() => {
+  jest.useFakeTimers({
+    doNotFake: [
+      'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval',
+      'setImmediate', 'clearImmediate', 'nextTick', 'queueMicrotask',
+      'performance', 'requestAnimationFrame', 'cancelAnimationFrame',
+    ],
+    now: new Date(2030, 0, 15, 9, 0, 0),
+  });
+});
+afterAll(() => jest.useRealTimers());
+
 // A successful save plays a 520ms animation that outlives the test and then
 // touches Animated after the environment is gone. Nothing here is about the
 // animation.
