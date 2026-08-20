@@ -176,3 +176,61 @@ export const codeFromUrl = (url: string): string | null => {
   const m = url.match(/[?&]code=([0-9a-f]{32})\b/i);
   return m ? m[1].toLowerCase() : null;
 };
+
+// ── 同期 ────────────────────────────────────────────────────────────────────
+
+/**
+ * 1つの共有カレンダーを一往復させる。押してから引く。
+ *
+ * 押す→引くの順なのは、こちらの変更をサーバに載せてから、それを含んだ最新を
+ * 受け取るため。逆順だと、送った直後の状態を取り逃して次回まで反映が遅れる。
+ *
+ * カーソル（前回どこまで取り込んだか）は **サーバが返した時刻** を使う。端末の
+ * 時計は信用できず、数分ずれているだけで「自分が送った変更が降ってこない」
+ * または「毎回全部降ってくる」のどちらかになる。
+ */
+export const syncSharedCalendar = async (
+  calendarId: string,
+  deps: {
+    readCalendar: () => Promise<LocalCalendar | undefined>;
+    readEvents: () => Promise<LocalEvent[]>;
+    writeCalendar: (c: LocalCalendar) => Promise<void>;
+    writeEvents: (list: LocalEvent[]) => Promise<void>;
+  },
+): Promise<{pushed: number; pulled: number} | null> => {
+  const code = await getShareCode(calendarId);
+  if (!code) return null;
+
+  const since = await getCursor(calendarId);
+  const [cal, events] = await Promise.all([deps.readCalendar(), deps.readEvents()]);
+  if (!cal) return null;
+
+  const outgoing = changedSince(events, since);
+  const calChanged = !since || Date.parse(cal.updatedAt) > Date.parse(since);
+
+  const res = outgoing.length || calChanged
+    ? await pushShare(code, calChanged ? cal : null, outgoing)
+    : await pullShare(code, since);
+  if (!res) return null;
+
+  const remoteEvents: LocalEvent[] = (res.events ?? []).map((r: any) =>
+    fromRemoteEvent(r, calendarId));
+  const merged = mergeEvents(events, remoteEvents);
+  await deps.writeEvents(merged);
+
+  if (res.calendar) {
+    const remoteCal: LocalCalendar = {
+      ...cal,
+      name: res.calendar.name,
+      color: res.calendar.color,
+      emoji: res.calendar.emoji,
+      updatedAt: res.calendar.updated_at,
+      deleted: !!res.calendar.deleted,
+    };
+    await deps.writeCalendar(pickNewer(cal, remoteCal));
+  }
+
+  // push は全件を返すので、そのときのカーソルは「今」。pull は差分だけ。
+  if (res.now) await setCursor(calendarId, res.now);
+  return {pushed: outgoing.length, pulled: remoteEvents.length};
+};
