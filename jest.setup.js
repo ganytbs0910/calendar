@@ -109,3 +109,12 @@ jest.mock('react-native-iap', () => ({
   purchaseUpdatedListener: jest.fn(() => ({remove: jest.fn()})),
   purchaseErrorListener: jest.fn(() => ({remove: jest.fn()})),
 }));
+
+// レビュー依頼はネイティブに降りるので、テストではダミーに差し替える。
+jest.mock('react-native-in-app-review', () => ({
+  __esModule: true,
+  default: {
+    isAvailable: jest.fn(() => true),
+    RequestInAppReview: jest.fn().mockResolvedValue(true),
+  },
+}));

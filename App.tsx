@@ -101,6 +101,7 @@ import {
   sendTestNotification,
   cleanupExpiredEventNotifications,
 } from './src/services/notificationService';
+import {maybeAskForReview, recordActiveDay} from './src/services/reviewPromptService';
 import {clearDevSeedEvents, clearDevMaySeedEvents, clearDevJuneSeedEvents, seedDevJuneEventsIfNeeded, seedDevMayEventsIfNeeded, seedDevSummerEventsIfNeeded} from './src/services/devSeedData';
 import LockScreen, {PinSetupModal} from './src/components/LockScreen';
 import NLEventInput from './src/components/NLEventInput';
@@ -628,6 +629,8 @@ function AppContent() {
       // e.g. left over after the system clock jumped forward or a delivery
       // failed silently. Repeating reminders are preserved.
       cleanupExpiredEventNotifications().catch(() => {});
+      // Counts distinct days, so three launches in one afternoon stay one day.
+      recordActiveDay().catch(() => {});
     })();
   }, []);
 
@@ -1147,6 +1150,10 @@ function AppContent() {
     calendarRef.current?.refreshEvents();
     weekViewRef.current?.refreshEvents();
     setFreeTimeRefreshKey(k => k + 1);
+    // Saving an event is the app doing the thing it exists for, so it is the
+    // one moment worth spending a review prompt on. The service decides
+    // whether this particular time qualifies.
+    maybeAskForReview(DeviceInfo.getVersion()).catch(() => {});
   }, []);
 
   // Handle event tap to directly open edit modal

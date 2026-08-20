@@ -1,1 +1,1 @@
-calendar,schedule,planner,weekly,monthly,timetable,tasks,reminder,drag,diary,dark mode,simple,free
+shift,work schedule,part time,pay calculator,timesheet,free time,availability,scheduling,planner
