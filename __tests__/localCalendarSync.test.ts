@@ -42,7 +42,7 @@ describe('共有に向けたローカルカレンダー', () => {
 
   it('編集すると updatedAt だけが進む', async () => {
     const cal = await addLocalCalendar('サークル', '#007AFF', '🍻');
-    await new Promise(r => setTimeout(r, 5));
+    await new Promise<void>(r => setTimeout(() => r(), 5));
     await updateLocalCalendar(cal.id, {name: '打ち上げ'});
 
     const after = (await getLocalCalendars())[0];
