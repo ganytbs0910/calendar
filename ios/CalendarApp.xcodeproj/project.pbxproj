@@ -549,6 +549,7 @@
 					"-ObjC",
 					"-lc++",
 				);
+				CODE_SIGN_ENTITLEMENTS = CalendarApp/CalendarApp.entitlements;
 				PRODUCT_BUNDLE_IDENTIFIER = org.reactjs.native.example.CalendarAppGan;
 				PRODUCT_NAME = CalendarApp;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -578,6 +579,7 @@
 					"-ObjC",
 					"-lc++",
 				);
+				CODE_SIGN_ENTITLEMENTS = CalendarApp/CalendarApp.entitlements;
 				PRODUCT_BUNDLE_IDENTIFIER = org.reactjs.native.example.CalendarAppGan;
 				PRODUCT_NAME = CalendarApp;
 				SWIFT_VERSION = 5.0;

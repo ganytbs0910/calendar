@@ -42,6 +42,30 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     return true
   }
+
+  // 共有カレンダーの招待リンク。cold start の分は launchOptions 経由で
+  // RCTLinkingManager が拾ってくれるが、起動済みのアプリに飛んでくる分は
+  // ここで渡さないと JS 側の Linking イベントが一度も発火しない。
+  func application(
+    _ app: UIApplication,
+    open url: URL,
+    options: [UIApplication.OpenURLOptionsKey: Any] = [:]
+  ) -> Bool {
+    RCTLinkingManager.application(app, open: url, options: options)
+  }
+
+  // https:// の招待リンク (Universal Links) はこちらを通る。
+  func application(
+    _ application: UIApplication,
+    continue userActivity: NSUserActivity,
+    restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void
+  ) -> Bool {
+    RCTLinkingManager.application(
+      application,
+      continue: userActivity,
+      restorationHandler: restorationHandler
+    )
+  }
 }
 
 class ReactNativeDelegate: RCTDefaultReactNativeFactoryDelegate {
