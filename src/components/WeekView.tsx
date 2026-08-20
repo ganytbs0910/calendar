@@ -459,6 +459,19 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
     a.getDate() === b.getDate(),
   []);
 
+  // 終日の予定が1件も無い週でも、空の帯が 28pt ぶん居座っていた。列ごとに畳むと
+  // 曜日ヘッダーの高さが揃わなくなるので、**画面に出ている7日をまとめて**見て
+  // 決める。currentDate はスワイプが止まったときだけ更新される中央の日なので、
+  // スクロール中に高さがガタつくこともない。
+  const allDayRowHeight = useMemo(() => {
+    for (let off = -3; off <= 3; off += 1) {
+      const d = new Date(currentDate);
+      d.setDate(d.getDate() + off);
+      if ((allDayEventsByKey.get(dayKey(d)) || []).length > 0) return ALL_DAY_ROW_HEIGHT;
+    }
+    return 0;
+  }, [currentDate, allDayEventsByKey]);
+
   const renderHeaderItem = useCallback(({index}: {index: number}) => {
     const date = getDateForIndex(index);
     const k = dayKey(date);
@@ -532,7 +545,11 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
             {freeMin === null ? '' : formatFreeShort(freeMin)}
           </Text>
         </TouchableOpacity>
-        <View style={[styles.allDayCell, {width: dayWidth, borderBottomColor: colors.border}]}>
+        <View style={[
+          styles.allDayCell,
+          {width: dayWidth, borderBottomColor: colors.border,
+           minHeight: allDayRowHeight, paddingVertical: allDayRowHeight ? 2 : 0},
+        ]}>
           {allDayList.slice(0, 2).map(event => {
             const evColor = eventColors[event.id] || event.calendar?.color || colors.primary;
             return (
@@ -554,7 +571,7 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
         </View>
       </View>
     );
-  }, [getDateForIndex, timedEventsByKey, allDayEventsByKey, colors, isSameDay, today, WEEKDAYS_JA, currentDate, onDayChange, onEventPress, dayWidth, sleepSettings, formatFreeShort, eventColors]);
+  }, [getDateForIndex, timedEventsByKey, allDayEventsByKey, colors, isSameDay, today, WEEKDAYS_JA, currentDate, onDayChange, onEventPress, dayWidth, sleepSettings, formatFreeShort, eventColors, allDayRowHeight]);
 
   const renderBodyItem = useCallback(({index}: {index: number}) => {
     const date = getDateForIndex(index);
@@ -618,6 +635,7 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
           data={Array.from({length: TOTAL_DAYS})}
           keyExtractor={keyExtractorHeader}
           renderItem={renderHeaderItem}
+          extraData={allDayRowHeight}
           horizontal
           showsHorizontalScrollIndicator={false}
           initialScrollIndex={ANCHOR_INDEX}
