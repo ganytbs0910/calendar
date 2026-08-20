@@ -168,10 +168,21 @@ export const pushShare = async (
     p_events: events.slice(0, MAX_EVENTS_PER_PUSH).map(toRemoteEvent),
   });
 
-/** 招待リンク。アプリが無い相手にも「何のリンクか」は分かる形にしておく。 */
+/**
+ * 招待リンク。https を配るのは、アプリを持っていない相手にも「何のリンクか」が
+ * 分かり、開けば案内ページに着けるから。
+ *
+ * ただし現状 https からアプリは開かない（Universal Links / App Links を
+ * 張っていない）。それには apple-app-site-association と assetlinks.json を
+ * gan-67f.pages.dev に置き、iOS 側に associated-domains を足す必要がある。
+ * それまでの間、確実にアプリが開くのは idealcal:// の方。
+ */
 export const shareUrl = (code: string): string =>
   `https://gan-67f.pages.dev/join?app=calendar&code=${code}`;
 
+export const appLinkUrl = (code: string): string => `idealcal://join?code=${code}`;
+
+/** https でも idealcal:// でも、コードだけ取り出す。 */
 export const codeFromUrl = (url: string): string | null => {
   const m = url.match(/[?&]code=([0-9a-f]{32})\b/i);
   return m ? m[1].toLowerCase() : null;
@@ -233,4 +244,66 @@ export const syncSharedCalendar = async (
   // push は全件を返すので、そのときのカーソルは「今」。pull は差分だけ。
   if (res.now) await setCursor(calendarId, res.now);
   return {pushed: outgoing.length, pulled: remoteEvents.length};
+};
+
+// ── 画面から呼ぶ入口 ────────────────────────────────────────────────────────
+//
+// ここだけが localCalendarService に触る。画面側は共有かどうかを気にせず、
+// 「共有する」「参加する」「同期する」の3つだけ知っていればいい。
+
+import {
+  addLocalCalendar,
+  getLocalCalendars,
+  getLocalEventsRaw,
+  replaceLocalCalendar,
+  replaceLocalEvents,
+} from './localCalendarService';
+
+const io = (calendarId: string) => ({
+  readCalendar: async () =>
+    (await getLocalCalendars()).find(c => c.id === calendarId),
+  readEvents: () => getLocalEventsRaw(calendarId),
+  writeCalendar: replaceLocalCalendar,
+  writeEvents: (list: LocalEvent[]) => replaceLocalEvents(calendarId, list),
+});
+
+/** 既存のローカルカレンダーを共有に切り替え、配るリンクを返す。 */
+export const shareLocalCalendar = async (cal: LocalCalendar): Promise<string> => {
+  const existing = await getShareCode(cal.id);
+  if (existing) return shareUrl(existing);
+  const code = await createShare(cal);
+  await setShareCode(cal.id, code);
+  // 手元の予定を最初に一度載せる。ここを忘れると、招待された側が空の
+  // カレンダーを見ることになる。
+  await syncSharedCalendar(cal.id, io(cal.id));
+  return shareUrl(code);
+};
+
+/**
+ * 招待リンクから参加する。端末ごとにローカルの id は別で構わない
+ * （サーバ側はコードで束ねていて、予定は自分の id を持って回る）。
+ */
+export const joinSharedCalendar = async (code: string): Promise<LocalCalendar | null> => {
+  const meta = await fetchShareMeta(code);
+  if (!meta) return null;
+  const cal = await addLocalCalendar(meta.name, meta.color, meta.emoji);
+  await setShareCode(cal.id, code);
+  await syncSharedCalendar(cal.id, io(cal.id));
+  return cal;
+};
+
+/** 1つ同期する。共有していなければ何もしない。 */
+export const syncCalendar = (calendarId: string) =>
+  syncSharedCalendar(calendarId, io(calendarId));
+
+/** 共有中のものを全部同期する。前面復帰時などに。 */
+export const syncAllShared = async (): Promise<void> => {
+  const cals = await getLocalCalendars();
+  for (const c of cals) {
+    try {
+      await syncCalendar(c.id);
+    } catch {
+      // 1つ失敗しても残りは続ける
+    }
+  }
 };

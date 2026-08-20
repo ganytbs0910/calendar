@@ -29,7 +29,7 @@ const remoteRow = (id: string, title: string, updated_at: string, deleted = fals
 
 let calls: Array<{fn: string; body: any}>;
 const reply = (payload: any) => {
-  (global as any).fetch = jest.fn(async (url: string, init: any) => {
+  (globalThis as any).fetch = jest.fn(async (url: string, init: any) => {
     calls.push({fn: String(url).split('/rpc/')[1], body: JSON.parse(init.body)});
     return {ok: true, json: async () => payload} as any;
   });

@@ -3,7 +3,7 @@
 // only the on-device localCalendarService.
 
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
-import {View, Text, StyleSheet, TouchableOpacity} from 'react-native';
+import {View, Text, StyleSheet, TouchableOpacity, Alert, Share, ActivityIndicator} from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {useTranslation} from 'react-i18next';
 import {useTheme} from '../../theme/ThemeContext';
@@ -11,6 +11,9 @@ import {ThemeColors} from '../../theme/colors';
 import {LocalCalendar, LocalEvent, getLocalEvents} from '../../services/localCalendarService';
 import LocalCalendarMonth from './LocalCalendarMonth';
 import LocalEventModal from './LocalEventModal';
+import {
+  getShareCode, shareLocalCalendar, syncCalendar,
+} from '../../services/sharedCalendarService';
 
 interface Props {
   calendar: LocalCalendar;
@@ -27,6 +30,8 @@ const LocalCalendarDetail: React.FC<Props> = ({calendar, onBack}) => {
   const [modalVisible, setModalVisible] = useState(false);
   const [editing, setEditing] = useState<LocalEvent | null>(null);
   const [initialDate, setInitialDate] = useState(() => new Date());
+  const [shared, setShared] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   const reload = useCallback(async () => {
     setEvents(await getLocalEvents(calendar.id));
@@ -35,6 +40,39 @@ const LocalCalendarDetail: React.FC<Props> = ({calendar, onBack}) => {
   useEffect(() => {
     reload();
   }, [reload]);
+
+  // 開いたときに一度だけ取りに行く。共有していなければ何も起きない。
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const code = await getShareCode(calendar.id);
+      if (!alive) return;
+      setShared(!!code);
+      if (!code) return;
+      try {
+        await syncCalendar(calendar.id);
+        if (alive) await reload();
+      } catch {
+        // 圏外でも自分の予定は見られる。黙って諦める。
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [calendar.id, reload]);
+
+  const onShare = useCallback(async () => {
+    setBusy(true);
+    try {
+      const url = await shareLocalCalendar(calendar);
+      setShared(true);
+      await Share.share({message: t('shareCalMessage', {name: calendar.name, url})});
+    } catch {
+      Alert.alert(t('shareCalFailedTitle'), t('shareCalFailedBody'));
+    } finally {
+      setBusy(false);
+    }
+  }, [calendar, t]);
 
   const monthLabel = t('localCalMonthLabel', {
     year: month.getFullYear(),
@@ -55,6 +93,9 @@ const LocalCalendarDetail: React.FC<Props> = ({calendar, onBack}) => {
   const handleSaved = async () => {
     setModalVisible(false);
     await reload();
+    // 送るのは背景で。失敗しても手元の予定は保存済みなので、次に開いたときに
+    // まとめて流れる。
+    syncCalendar(calendar.id).catch(() => {});
   };
 
   return (
@@ -67,7 +108,17 @@ const LocalCalendarDetail: React.FC<Props> = ({calendar, onBack}) => {
           <Text style={styles.emoji}>{calendar.emoji}</Text>
           <Text style={styles.title} numberOfLines={1}>{calendar.name}</Text>
         </View>
-        <View style={styles.backBtn} />
+        <TouchableOpacity onPress={onShare} style={styles.backBtn} disabled={busy}>
+          {busy ? (
+            <ActivityIndicator color={colors.primary} />
+          ) : (
+            <Ionicons
+              name={shared ? 'people' : 'person-add-outline'}
+              size={shared ? 24 : 22}
+              color={shared ? colors.primary : colors.textSecondary}
+            />
+          )}
+        </TouchableOpacity>
       </View>
 
       <View style={styles.monthBar}>

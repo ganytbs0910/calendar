@@ -6,6 +6,7 @@
  */
 
 import {
+  appLinkUrl,
   changedSince,
   codeFromUrl,
   fromRemoteEvent,
@@ -130,5 +131,9 @@ describe('招待リンク', () => {
 
   it('長さの足りないコードは受け取らない', () => {
     expect(codeFromUrl('https://x/join?code=abc123')).toBeNull();
+  });
+
+  it('アプリスキームからも読める（https はまだアプリを開けない）', () => {
+    expect(codeFromUrl(appLinkUrl(code))).toBe(code);
   });
 });

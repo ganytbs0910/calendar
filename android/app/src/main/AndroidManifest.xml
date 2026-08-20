@@ -22,6 +22,14 @@
         android:launchMode="singleTask"
         android:windowSoftInputMode="adjustResize"
         android:exported="true">
+        <!-- 共有カレンダーの招待リンク。https の方はまだ Universal Links /
+             App Links を張っていないので、いまアプリを開けるのはこちらだけ。 -->
+        <intent-filter>
+          <action android:name="android.intent.action.VIEW" />
+          <category android:name="android.intent.category.DEFAULT" />
+          <category android:name="android.intent.category.BROWSABLE" />
+          <data android:scheme="idealcal" />
+        </intent-filter>
       </activity>
 
       <activity-alias

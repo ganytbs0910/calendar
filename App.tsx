@@ -102,6 +102,9 @@ import {
   cleanupExpiredEventNotifications,
 } from './src/services/notificationService';
 import {maybeAskForReview, recordActiveDay} from './src/services/reviewPromptService';
+import {
+  codeFromUrl, fetchShareMeta, joinSharedCalendar, syncAllShared,
+} from './src/services/sharedCalendarService';
 import {clearDevSeedEvents, clearDevMaySeedEvents, clearDevJuneSeedEvents, seedDevJuneEventsIfNeeded, seedDevMayEventsIfNeeded, seedDevSummerEventsIfNeeded} from './src/services/devSeedData';
 import LockScreen, {PinSetupModal} from './src/components/LockScreen';
 import NLEventInput from './src/components/NLEventInput';
@@ -526,19 +529,69 @@ function AppContent() {
       .catch(() => {});
   }, []);
 
+  /**
+   * 招待リンクを開いたとき。参加は取り消しの利きにくい操作（相手の予定が
+   * こちらに流れ込み、こちらの編集も相手に見える）なので、必ず何に参加するのか
+   * を見せてから聞く。
+   */
+  const handleJoinShare = useCallback(async (code: string) => {
+    try {
+      const meta = await fetchShareMeta(code);
+      if (!meta) {
+        Alert.alert(t('joinShareGoneTitle'), t('joinShareGoneBody'));
+        return;
+      }
+      const ok = await new Promise<boolean>(resolve => {
+        Alert.alert(
+          t('joinShareTitle'),
+          t('joinShareBody', {emoji: meta.emoji, name: meta.name, count: meta.events}),
+          [
+            {text: t('cancel'), style: 'cancel', onPress: () => resolve(false)},
+            {text: t('joinShareAction'), onPress: () => resolve(true)},
+          ],
+        );
+      });
+      if (!ok) return;
+      const cal = await joinSharedCalendar(code);
+      if (!cal) {
+        Alert.alert(t('joinShareGoneTitle'), t('joinShareGoneBody'));
+        return;
+      }
+      Alert.alert(t('joinShareDoneTitle'), t('joinShareDoneBody', {name: cal.name}));
+      openLocalCal();
+    } catch {
+      Alert.alert(t('joinShareGoneTitle'), t('joinShareGoneBody'));
+    }
+  }, [t, openLocalCal]);
+
   const launchUrlHandled = useRef(false);
   useEffect(() => {
+    const route = (url: string | null) => {
+      if (!url) return;
+      const code = codeFromUrl(url);
+      if (code) {
+        handleJoinShare(code);
+        return;
+      }
+      if (url.endsWith('.json')) handleImportBackup(url);
+    };
     if (!launchUrlHandled.current) {
       launchUrlHandled.current = true;
-      Linking.getInitialURL().then(url => {
-        if (url && url.endsWith('.json')) handleImportBackup(url);
-      }).catch(() => {});
+      Linking.getInitialURL().then(route).catch(() => {});
     }
-    const sub = Linking.addEventListener('url', ({url}) => {
-      if (url && url.endsWith('.json')) handleImportBackup(url);
-    });
+    const sub = Linking.addEventListener('url', ({url}) => route(url));
     return () => sub.remove();
-  }, [handleImportBackup]);
+  }, [handleImportBackup, handleJoinShare]);
+
+  // 前面に戻ったら共有ぶんを取りに行く。相手の編集が「開き直したら入っている」
+  // ようにするための最低限。常時接続は持たない。
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', state => {
+      if (state === 'active') syncAllShared().catch(() => {});
+    });
+    syncAllShared().catch(() => {});
+    return () => sub.remove();
+  }, []);
 
   const openCalendarCreate = useCallback(() => {
     setEditingCalendarId(null);

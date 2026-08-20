@@ -201,6 +201,32 @@ export const saveLocalEvent = async (
     return saved;
   });
 
+/**
+ * 1カレンダーぶんの予定をまとめて置き換える。同期の取り込み用。
+ *
+ * 1件ずつ saveLocalEvent を呼ぶと、取り込みのたびに updatedAt が「今」に
+ * 書き換わってしまい、サーバから受け取った時刻が消える。合流の勝ち負けが
+ * 次の同期で狂うので、受け取った値のまま書く経路が要る。
+ */
+export const replaceLocalEvents = async (
+  calendarId: string, list: LocalEvent[],
+): Promise<void> =>
+  withLock(async () => {
+    const map = await loadEventMap();
+    map[calendarId] = list;
+    await writeEventMap(map);
+  });
+
+/** 同期で受け取ったカレンダー情報をそのまま書く（updatedAt を保つ）。 */
+export const replaceLocalCalendar = async (cal: LocalCalendar): Promise<void> =>
+  withLock(async () => {
+    const list = await getLocalCalendarsRaw();
+    const idx = list.findIndex(c => c.id === cal.id);
+    if (idx === -1) list.push(cal);
+    else list[idx] = cal;
+    await writeCalendars(list);
+  });
+
 export const deleteLocalEvent = async (
   calendarId: string,
   eventId: string,
