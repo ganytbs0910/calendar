@@ -16,6 +16,10 @@ export interface LocalCalendar {
   color: string;
   emoji: string;
   createdAt: string;
+  /** 最終更新時刻。共有時にどちらの編集が新しいかを決めるのに使う。 */
+  updatedAt: string;
+  /** 論理削除。物理削除すると「消したこと」が相手に伝わらない。 */
+  deleted?: boolean;
 }
 
 export interface LocalEvent {
@@ -29,6 +33,8 @@ export interface LocalEvent {
   endTime?: string; // HH:mm (when !allDay)
   memo?: string;
   createdAt: string;
+  updatedAt: string;
+  deleted?: boolean;
 }
 
 type EventMap = Record<string, LocalEvent[]>; // calendarId -> events
@@ -46,15 +52,26 @@ const withLock = <T,>(fn: () => Promise<T>): Promise<T> => {
 
 // ── Calendars ────────────────────────────────────────────────────────────────
 
-export const getLocalCalendars = async (): Promise<LocalCalendar[]> => {
+/**
+ * 生の保存内容。論理削除ぶんも含む。同期層はこちらを見る。
+ *
+ * updatedAt が無い時代のデータは createdAt で補う。移行スクリプトを別に持つと
+ * 「走ったかどうか」を気にし続けることになるので、読むたびに埋める。
+ */
+export const getLocalCalendarsRaw = async (): Promise<LocalCalendar[]> => {
   const raw = await AsyncStorage.getItem(CAL_KEY);
   if (!raw) return [];
   try {
-    return JSON.parse(raw) as LocalCalendar[];
+    const list = JSON.parse(raw) as LocalCalendar[];
+    return list.map(c => (c.updatedAt ? c : {...c, updatedAt: c.createdAt}));
   } catch {
     return [];
   }
 };
+
+/** 画面に出すぶん。消したものは除く。 */
+export const getLocalCalendars = async (): Promise<LocalCalendar[]> =>
+  (await getLocalCalendarsRaw()).filter(c => !c.deleted);
 
 const writeCalendars = async (list: LocalCalendar[]): Promise<void> => {
   await AsyncStorage.setItem(CAL_KEY, JSON.stringify(list));
@@ -66,13 +83,15 @@ export const addLocalCalendar = async (
   emoji: string,
 ): Promise<LocalCalendar> =>
   withLock(async () => {
-    const list = await getLocalCalendars();
+    const now = new Date().toISOString();
+    const list = await getLocalCalendarsRaw();
     const cal: LocalCalendar = {
       id: genId('lc'),
       name: name.trim(),
       color,
       emoji,
-      createdAt: new Date().toISOString(),
+      createdAt: now,
+      updatedAt: now,
     };
     list.push(cal);
     await writeCalendars(list);
@@ -84,7 +103,7 @@ export const updateLocalCalendar = async (
   patch: Partial<Pick<LocalCalendar, 'name' | 'color' | 'emoji'>>,
 ): Promise<void> =>
   withLock(async () => {
-    const list = await getLocalCalendars();
+    const list = await getLocalCalendarsRaw();
     const idx = list.findIndex(c => c.id === id);
     if (idx === -1) return;
     list[idx] = {
@@ -92,17 +111,24 @@ export const updateLocalCalendar = async (
       ...(patch.name !== undefined ? {name: patch.name.trim()} : {}),
       ...(patch.color !== undefined ? {color: patch.color} : {}),
       ...(patch.emoji !== undefined ? {emoji: patch.emoji} : {}),
+      updatedAt: new Date().toISOString(),
     };
     await writeCalendars(list);
   });
 
 export const deleteLocalCalendar = async (id: string): Promise<void> =>
   withLock(async () => {
-    const list = await getLocalCalendars();
-    await writeCalendars(list.filter(c => c.id !== id));
+    const now = new Date().toISOString();
+    const list = await getLocalCalendarsRaw();
+    const idx = list.findIndex(c => c.id === id);
+    if (idx === -1) return;
+    list[idx] = {...list[idx], deleted: true, updatedAt: now};
+    await writeCalendars(list);
+    // 中の予定も消したことにする。残しておくと、共有先で親だけ消えて
+    // 子が孤児として残る。
     const map = await loadEventMap();
     if (map[id]) {
-      delete map[id];
+      map[id] = map[id].map(e => ({...e, deleted: true, updatedAt: now}));
       await writeEventMap(map);
     }
   });
@@ -123,22 +149,30 @@ const writeEventMap = async (map: EventMap): Promise<void> => {
   await AsyncStorage.setItem(EVT_KEY, JSON.stringify(map));
 };
 
-export const getLocalEvents = async (calendarId: string): Promise<LocalEvent[]> => {
+/** 生の予定。論理削除ぶんも含む。同期層はこちらを見る。 */
+export const getLocalEventsRaw = async (calendarId: string): Promise<LocalEvent[]> => {
   const map = await loadEventMap();
-  return map[calendarId] ?? [];
+  return (map[calendarId] ?? []).map(e => (e.updatedAt ? e : {...e, updatedAt: e.createdAt}));
 };
+
+/** 画面に出すぶん。消したものは除く。 */
+export const getLocalEvents = async (calendarId: string): Promise<LocalEvent[]> =>
+  (await getLocalEventsRaw(calendarId)).filter(e => !e.deleted);
 
 /** calendarId -> event count, for the calendar list. */
 export const getLocalEventCounts = async (): Promise<Record<string, number>> => {
   const map = await loadEventMap();
   const counts: Record<string, number> = {};
-  for (const id of Object.keys(map)) counts[id] = map[id]?.length ?? 0;
+  for (const id of Object.keys(map)) {
+    counts[id] = (map[id] ?? []).filter(e => !e.deleted).length;
+  }
   return counts;
 };
 
 /** Create (no id) or update (existing id) an event. Returns the saved event. */
 export const saveLocalEvent = async (
-  evt: Omit<LocalEvent, 'id' | 'createdAt'> & {id?: string; createdAt?: string},
+  evt: Omit<LocalEvent, 'id' | 'createdAt' | 'updatedAt' | 'deleted'> &
+    {id?: string; createdAt?: string},
 ): Promise<LocalEvent> =>
   withLock(async () => {
     const map = await loadEventMap();
@@ -146,17 +180,21 @@ export const saveLocalEvent = async (
     if (evt.id) {
       const idx = list.findIndex(e => e.id === evt.id);
       if (idx !== -1) {
-        const saved: LocalEvent = {...list[idx], ...evt, id: evt.id} as LocalEvent;
+        const saved: LocalEvent = {
+          ...list[idx], ...evt, id: evt.id, updatedAt: new Date().toISOString(),
+        } as LocalEvent;
         list[idx] = saved;
         map[evt.calendarId] = list;
         await writeEventMap(map);
         return saved;
       }
     }
+    const now = new Date().toISOString();
     const saved: LocalEvent = {
       ...evt,
       id: genId('le'),
-      createdAt: new Date().toISOString(),
+      createdAt: now,
+      updatedAt: now,
     } as LocalEvent;
     map[evt.calendarId] = [...list, saved];
     await writeEventMap(map);
@@ -171,6 +209,10 @@ export const deleteLocalEvent = async (
     const map = await loadEventMap();
     const list = map[calendarId];
     if (!list) return;
-    map[calendarId] = list.filter(e => e.id !== eventId);
+    // 物理削除だと「消した」という事実が残らず、共有相手から次の同期で
+    // 復活してくる。印だけ付けて残す。
+    map[calendarId] = list.map(e =>
+      e.id === eventId ? {...e, deleted: true, updatedAt: new Date().toISOString()} : e,
+    );
     await writeEventMap(map);
   });
