@@ -1,0 +1,43 @@
+Um calendário que abre com um número só: quantas horas de hoje ainda são suas.
+
+Um calendário diz quais horas estão ocupadas. O que você quer saber é justamente o contrário.
+
+
+■ Seu tempo livre, na tela de início
+
+Pegue as horas em que você está acordado. Subtraia o que ainda vem pela frente.
+
+"Dormir às 23h. Agora são 19h. Uma hora marcada às 21h."
+— sobram três horas.
+
+É a primeira coisa que você vê ao abrir o app. Adicione um compromisso e o número cai na hora.
+
+
+■ Sem manual
+
+Toque e segure para criar um compromisso.
+Arraste para movê-lo.
+Deslize para apagá-lo.
+
+Todos esses anos usando um celular são o único manual de que você precisa.
+
+"Deve funcionar assim…"
+— e sua intuição acerta sempre.
+
+
+■ No que esse tempo se transforma
+
+Adicione um turno e o pagamento é calculado a partir do seu valor por hora, com adicionais noturno, de hora extra e de feriado. Você vê no que o seu tempo livre virou.
+
+
+■ Além disso
+
+• Um toque para alternar entre mês e semana
+• Arraste na visão semanal para criar; arraste um compromisso para movê-lo
+• Classifique por cores e leia o mês de relance
+• Anexe fotos aos compromissos e revisite depois
+• Um widget na tela bloqueada com o tempo livre de hoje
+• Seus compromissos, tarefas e fotos ficam no aparelho. Sem conta
+
+
+Monte o seu dia do seu jeito.

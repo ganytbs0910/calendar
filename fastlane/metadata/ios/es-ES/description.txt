@@ -1,0 +1,43 @@
+Un calendario que se abre con un solo número: cuántas horas de hoy siguen siendo tuyas.
+
+Un calendario te dice qué horas están ocupadas. Lo que de verdad quieres saber es lo contrario.
+
+
+■ Tu tiempo libre, en la pantalla de inicio
+
+Coge las horas que pasas despierto. Resta lo que tienes por delante.
+
+«A la cama a las 23:00. Ahora son las 19:00. Una hora ocupada a las 21:00.»
+— quedan tres horas.
+
+Es lo primero que ves al abrir la app. Añade un evento y el número baja al instante.
+
+
+■ Sin manual
+
+Mantén pulsado para crear un evento.
+Arrastra para moverlo.
+Desliza para borrarlo.
+
+Todos los años que llevas con un móvil son el único manual que necesitas.
+
+«Seguro que funciona así…»
+— y tu intuición siempre acierta.
+
+
+■ En qué se convierte ese tiempo
+
+Añade un turno y tu sueldo se calcula a partir de tu tarifa por hora, con recargos de noche, horas extra y festivos. Así ves en qué se ha convertido tu tiempo libre.
+
+
+■ Además
+
+• Un toque para pasar de mes a semana
+• Arrastra en la vista semanal para crear; arrastra un evento para moverlo
+• Clasifica por colores y lee el mes de un vistazo
+• Adjunta fotos a los eventos y recuérdalos después
+• Un widget en la pantalla bloqueada con el tiempo libre de hoy
+• Tus eventos, tareas y fotos se quedan en tu dispositivo. Sin cuenta
+
+
+Organiza tu día a tu manera.

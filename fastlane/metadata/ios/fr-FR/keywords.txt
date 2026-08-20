@@ -1,0 +1,1 @@
+agenda,calendrier,planning,semaine,mois,emploi du temps,taches,rappel,mode sombre,simple

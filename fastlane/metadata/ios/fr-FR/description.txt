@@ -1,0 +1,43 @@
+Un agenda qui s'ouvre sur un seul chiffre : combien d'heures d'aujourd'hui sont encore à vous.
+
+Un agenda vous dit quelles heures sont prises. Ce que vous voulez savoir, c'est l'inverse.
+
+
+■ Votre temps libre, sur l'écran d'accueil
+
+Prenez les heures où vous êtes éveillé. Soustrayez ce qui vous attend.
+
+« Au lit à 23 h. Il est 19 h. Une heure réservée à 21 h. »
+— trois heures restantes.
+
+C'est la première chose que vous voyez en ouvrant l'app. Ajoutez un événement et le chiffre baisse aussitôt.
+
+
+■ Pas de mode d'emploi
+
+Appui long pour créer un événement.
+Glisser pour le déplacer.
+Balayer pour le supprimer.
+
+Toutes ces années passées avec un téléphone sont le seul mode d'emploi nécessaire.
+
+« Ça doit marcher comme ça… »
+— et votre intuition a toujours raison.
+
+
+■ Ce que ce temps devient
+
+Ajoutez un créneau de travail et votre paie se calcule à partir de votre taux horaire, majorations de nuit, heures supplémentaires et jours fériés comprises. Vous voyez en quoi votre temps libre s'est transformé.
+
+
+■ Également
+
+• Un appui pour passer du mois à la semaine
+• Glissez sur la vue semaine pour créer, glissez un événement pour le déplacer
+• Classez par couleur et lisez le mois d'un coup d'œil
+• Attachez des photos aux événements et revenez-y plus tard
+• Un widget sur l'écran verrouillé pour le temps libre du jour
+• Vos événements, tâches et photos restent sur votre appareil. Aucun compte requis
+
+
+Construisez votre journée à votre façon.

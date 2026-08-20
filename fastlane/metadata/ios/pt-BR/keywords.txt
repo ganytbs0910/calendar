@@ -1,0 +1,1 @@
+calendario,agenda,horario,semanal,mensal,planejador,tarefas,lembrete,diario,modo escuro,simples
