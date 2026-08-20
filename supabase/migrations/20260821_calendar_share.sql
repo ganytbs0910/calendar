@@ -12,8 +12,13 @@
 -- 「誰であるか」を区別する必要が無い。区別が要らないならログインも要らない。
 --
 -- 代わりに **招待コードそのものを鍵として扱う**（capability方式）。コードを
--- 知っている＝その共有に参加している、とみなす。gen_random_bytes(16) の16進で
--- 128ビットあるので、総当たりで当てられる量ではない。
+-- 知っている＝その共有に参加している、とみなす。UUIDv4 のハイフンを抜いた32桁で
+-- 122ビットあるので、総当たりで当てられる量ではない。
+--
+-- gen_random_bytes(16) の方が素直だが、あれは pgcrypto のもので extensions
+-- スキーマに入っている。security definer 関数は search_path を固定するのが
+-- 定石で、そこに extensions を足すと拡張側の関数名に乗っ取られる余地を作る。
+-- gen_random_uuid() は Postgres 本体（pg_catalog）にあるので、その心配が無い。
 --
 -- これで得たもの:
 --   * 掲載説明文の「アカウント登録は不要です」を維持できる
@@ -97,7 +102,7 @@ begin
   if coalesce(length(p_name), 0) = 0 or length(p_name) > 60 then
     raise exception 'bad name';
   end if;
-  v_code := encode(gen_random_bytes(16), 'hex');
+  v_code := replace(gen_random_uuid()::text, '-', '');
   insert into calendar_shared (code, name, color, emoji, updated_at)
   values (v_code, p_name, p_color, p_emoji, now());
   return v_code;
