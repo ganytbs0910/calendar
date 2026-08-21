@@ -193,13 +193,15 @@ const NOOP = () => {};
 const BULK_UNDO_DURATION_MS = 12000;
 
 // The tab bar carries only what the app is *for*: the calendar, the intentions
-// that fill it, and the time/pay those add up to. Settings, my-calendars and
-// photos are real features but sit off that axis, so they open as full screens
-// from the header gear / Settings rather than holding a permanent slot.
-type TabKey = 'home' | 'tasks' | 'stats';
+// that fill it, the time/pay those add up to, and — since it became a headline
+// feature — the calendars shared with other people. Settings and photos are
+// real features but sit off that axis, so they open as full screens from the
+// header gear / Settings rather than holding a permanent slot.
+type TabKey = 'home' | 'tasks' | 'stats' | 'share';
 const TABS: {key: TabKey; labelKey: string; icon: string; iconOutline: string}[] = [
   {key: 'home', labelKey: 'tabHome', icon: 'home', iconOutline: 'home-outline'},
   {key: 'tasks', labelKey: 'tabTasks', icon: 'checkbox', iconOutline: 'checkbox-outline'},
+  {key: 'share', labelKey: 'tabShared', icon: 'people', iconOutline: 'people-outline'},
   {key: 'stats', labelKey: 'tabStats', icon: 'stats-chart', iconOutline: 'stats-chart-outline'},
 ];
 
@@ -354,7 +356,6 @@ function AppContent() {
   // Former tabs, now full-screen destinations: Settings opens from the header
   // gear, the other two from inside Settings.
   const [showSettingsScreen, setShowSettingsScreen] = useState(false);
-  const [showLocalCal, setShowLocalCal] = useState(false);
   const [showPhotos, setShowPhotos] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
   // Bumped whenever the events change, so the free-time bar recounts instead of
@@ -383,8 +384,6 @@ function AppContent() {
   const openSettingsModal = useCallback(() => setShowSettingsModal(true), []);
   const openSettingsScreen = useCallback(() => setShowSettingsScreen(true), []);
   const closeSettingsScreen = useCallback(() => setShowSettingsScreen(false), []);
-  const openLocalCal = useCallback(() => setShowLocalCal(true), []);
-  const closeLocalCal = useCallback(() => setShowLocalCal(false), []);
   const openPhotos = useCallback(() => setShowPhotos(true), []);
   const closePhotos = useCallback(() => setShowPhotos(false), []);
   const openFeedback = useCallback(() => setShowFeedback(true), []);
@@ -509,7 +508,7 @@ function AppContent() {
   // no other way to reach a screen that only opens from a tap.
   //
   // Set the key from outside, then relaunch:
-  //   @dev_open_screen = incomeWall | shareAvail | poll | jobs | stats | tasks | week
+  //   @dev_open_screen = incomeWall | shareAvail | poll | jobs | stats | tasks | share | week
   useEffect(() => {
     if (!__DEV__) return;
     AsyncStorageRoot.getItem('@dev_open_screen')
@@ -521,6 +520,7 @@ function AppContent() {
           case 'jobs': setShowJobsManager(true); break;
           case 'stats': setActiveTab('stats'); break;
           case 'tasks': setActiveTab('tasks'); break;
+          case 'share': setActiveTab('share'); break;
           case 'week': setViewMode('week'); break;
           case 'addEvent': setShowAddModal(true); break;
           default: break;
@@ -558,11 +558,11 @@ function AppContent() {
         return;
       }
       Alert.alert(t('joinShareDoneTitle'), t('joinShareDoneBody', {name: cal.name}));
-      openLocalCal();
+      setActiveTab('share');
     } catch {
       Alert.alert(t('joinShareGoneTitle'), t('joinShareGoneBody'));
     }
-  }, [t, openLocalCal]);
+  }, [t]);
 
   const launchUrlHandled = useRef(false);
   useEffect(() => {
@@ -1781,6 +1781,16 @@ function AppContent() {
           </View>
         )}
 
+        {visitedTabs.has('share') && (
+          <View style={[styles.tabPage, activeTab !== 'share' && styles.tabHidden]}>
+            {/* 端末内に独立保存するサブカレンダー。招待リンクを配ると、そのまま
+                共同編集できる共有カレンダーになる。メインの iCloud カレンダーと
+                は完全に別物（[[two-calendar-concepts]]）。
+                onClose を渡さないのはタブの根だから — 閉じる先が無い。 */}
+            <LocalCalendarsScreen visible={activeTab === 'share'} />
+          </View>
+        )}
+
         {visitedTabs.has('stats') && (
           <View style={[styles.tabPage, activeTab !== 'stats' && styles.tabHidden]}>
             {/* 統計タブ: 活動サマリー・月の給料集計を表示。年収の壁は設定からのみ。
@@ -2691,7 +2701,9 @@ function AppContent() {
                 accessibilityState={{selected: active}}
                 accessibilityLabel={t(tb.labelKey)}>
                 <Ionicons name={(active ? tb.icon : tb.iconOutline) as any} size={22} color={tint} />
-                <Text style={[styles.bottomTabLabel, {color: tint}]}>{t(tb.labelKey)}</Text>
+                <Text style={[styles.bottomTabLabel, {color: tint}]} numberOfLines={1}>
+                  {t(tb.labelKey)}
+                </Text>
               </TouchableOpacity>
             );
           })}
@@ -2707,7 +2719,6 @@ function AppContent() {
             onOpenSettings={openSettingsModal}
             onOpenIncomeWall={openIncomeWall}
             onOpenJobs={openJobs}
-            onOpenLocalCal={openLocalCal}
             onOpenPhotos={openPhotos}
             onExportBackup={handleExportBackup}
             onOpenFeedback={openFeedback}
@@ -2719,12 +2730,6 @@ function AppContent() {
             and Settings is itself an overlay hosting Modals. */}
         <ScreenOverlay visible={showFeedback} onClose={closeFeedback}>
           <FeedbackScreen onClose={closeFeedback} />
-        </ScreenOverlay>
-
-        <ScreenOverlay visible={showLocalCal} onClose={closeLocalCal}>
-          {/* 端末内に独立保存するTimeTree風サブカレンダー。
-              メインのiCloudカレンダーとは完全分離。 */}
-          <LocalCalendarsScreen visible={showLocalCal} onClose={closeLocalCal} />
         </ScreenOverlay>
 
         <ScreenOverlay visible={showPhotos} onClose={closePhotos}>

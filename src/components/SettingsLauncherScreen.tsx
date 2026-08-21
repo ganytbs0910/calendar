@@ -55,7 +55,6 @@ interface Props {
   onOpenSettings: () => void;
   onOpenIncomeWall: () => void;
   onOpenJobs: () => void;
-  onOpenLocalCal: () => void;
   onOpenPhotos: () => void;
   onExportBackup: () => void;
   onOpenFeedback: () => void;
@@ -69,7 +68,6 @@ const SettingsLauncherScreen: React.FC<Props> = ({
   onOpenSettings,
   onOpenIncomeWall,
   onOpenJobs,
-  onOpenLocalCal,
   onOpenPhotos,
   onExportBackup,
   onOpenFeedback,
@@ -160,18 +158,12 @@ const SettingsLauncherScreen: React.FC<Props> = ({
           />
         </Section>
 
-        {/* Both used to be bottom tabs. They are real features but sit off the
-            app's core axis, so they live here rather than holding a permanent
-            slot next to the calendar. */}
+        {/* Photos used to be a bottom tab. It is a real feature but sits off
+            the app's core axis, so it lives here rather than holding a
+            permanent slot next to the calendar. (My-calendars moved back out
+            to a tab of its own once sharing became a headline feature — it now
+            has exactly one entry point, like Stats.) */}
         <Section title={t('settingsSectionContent')}>
-          <Row
-            colors={colors}
-            icon="albums-outline"
-            tint="#5856D6"
-            label={t('tabLocalCal')}
-            sublabel={t('setLocalCalSub')}
-            onPress={onOpenLocalCal}
-          />
           <Row
             colors={colors}
             icon="images-outline"
