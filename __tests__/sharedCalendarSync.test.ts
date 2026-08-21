@@ -9,6 +9,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {
   setShareCode, getCursor, syncSharedCalendar,
+  getMembers, setMyName, sortMembers, fromRemoteMember,
 } from '../src/services/sharedCalendarService';
 import type {LocalCalendar, LocalEvent} from '../src/services/localCalendarService';
 
@@ -158,5 +159,60 @@ describe('共有カレンダーの一往復', () => {
 
     expect(res).toBeNull();
     expect(calls).toHaveLength(0);
+  });
+
+  it('名乗りを一緒に送り、返ってきた参加者を覚える', async () => {
+    await setMyName('あかり');
+    // 1回目でカーソルを立てておく。そうしないと push の枝に入る。
+    reply({calendar: null, events: [], now: '2030-02-01T00:00:00.000Z', members: []});
+    await syncSharedCalendar('lc-1', deps(CAL, []).io);
+    calls = [];
+
+    reply({
+      calendar: null, events: [], now: '2030-02-02T00:00:00.000Z',
+      members: [
+        {member_id: 'm1', name: 'あかり', emoji: '',
+         last_seen_at: '2030-02-01T00:00:00.000Z', updated_at: '2030-01-01T00:00:00.000Z'},
+        {member_id: 'm2', name: 'ばん', emoji: '',
+         last_seen_at: '2030-01-31T00:00:00.000Z', updated_at: '2030-01-01T00:00:00.000Z'},
+      ],
+    });
+    const d = deps(CAL, []);
+
+    await syncSharedCalendar('lc-1', d.io);
+
+    // 予定に変更が無いので pull。そこにも名乗りが載る。
+    const call = calls[calls.length - 1];
+    expect(call.fn).toBe('calendar_share_pull');
+    expect(call.body.p_member.name).toBe('あかり');
+    expect(call.body.p_member.id).toEqual(expect.any(String));
+
+    expect((await getMembers('lc-1')).map(m => m.name)).toEqual(['あかり', 'ばん']);
+  });
+
+  // 名前を決めていない人が一覧に出てこないと、招待した側は相手が参加したのか
+  // どうか分からない。仮の名前でも先に名乗らせる。
+  it('名前を決めていなくても名乗りは送る', async () => {
+    reply({calendar: null, events: [], now: '2030-02-01T00:00:00.000Z', members: []});
+    const d = deps(CAL, []);
+
+    await syncSharedCalendar('lc-1', d.io);
+
+    const sent = calls[calls.length - 1].body.p_member;
+    expect(sent).not.toBeNull();
+    expect(typeof sent.name).toBe('string');
+    expect(sent.name.length).toBeGreaterThan(0);
+  });
+
+  // 一度これで事故った。i18next は訳が無いとキーをそのまま返すので、仮名が
+  // 「shareNameUnset」になって相手の一覧に並んだ。自分の画面には出ないので
+  // 気づけない類の不具合。
+  it('仮の名前に翻訳キーが漏れない', async () => {
+    reply({calendar: null, events: [], now: '2030-02-01T00:00:00.000Z', members: []});
+    await syncSharedCalendar('lc-1', deps(CAL, []).io);
+
+    const sent = calls[calls.length - 1].body.p_member;
+    expect(sent.name).not.toMatch(/^share[A-Z]/);
+    expect(sent.name).toBe('名前未設定');
   });
 });

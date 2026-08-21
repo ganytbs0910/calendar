@@ -19,6 +19,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {
   createShare, setShareCode, syncSharedCalendar, fetchShareMeta,
+  getMembers, setMyName,
 } from '../src/services/sharedCalendarService';
 import type {LocalCalendar, LocalEvent} from '../src/services/localCalendarService';
 
@@ -33,6 +34,15 @@ const ev = (id: string, title: string, updatedAt: string, deleted = false): Loca
   id, calendarId: 'x', title, startDate: '2030-01-15', endDate: '2030-01-15',
   allDay: true, createdAt: updatedAt, updatedAt, deleted,
 });
+
+/**
+ * 名乗りを別人に付け替える。setMyName は既存の id を引き継ぐので、
+ * 消してから呼ばないと2台目が1台目と同じ人になってしまう。
+ */
+const becomeSomeoneElse = async (name: string) => {
+  await AsyncStorage.removeItem('@shared_calendar_me');
+  await setMyName(name);
+};
 
 /** 1台ぶんの端末。ストレージは自分だけのものを持つ。 */
 const device = (calendarId: string, events: LocalEvent[] = []) => {
@@ -93,6 +103,56 @@ d('本物のサーバ相手に2台で同期する', () => {
     await syncSharedCalendar('A', A.io);
 
     expect(A.s.events.find(e => e.id === 'e1')!.deleted).toBe(true);
+  });
+
+  // 名乗りは共有ごとに溜まっていくので、前の it が作った人が混ざらないよう
+  // このかたまりだけ専用のコードを引く。
+  describe('参加者の一覧', () => {
+    let mcode = '';
+    beforeAll(async () => {
+      mcode = await createShare(cal('M'));
+    });
+    beforeEach(async () => {
+      await AsyncStorage.removeItem('@shared_calendar_cursors');
+    });
+
+    it('お互いの名前が一覧に出る', async () => {
+      await becomeSomeoneElse('あかり');
+      const A = device('mA');
+      await setShareCode('mA', mcode);
+      await syncSharedCalendar('mA', A.io);
+
+      await becomeSomeoneElse('ばん');
+      const B = device('mB');
+      await setShareCode('mB', mcode);
+      await syncSharedCalendar('mB', B.io);
+
+      const seenByB = await getMembers('mB');
+      expect(seenByB.map(m => m.name).sort()).toEqual(['あかり', 'ばん']);
+      expect(seenByB.find(m => m.isMe)!.name).toBe('ばん');
+    });
+
+    it('名乗り直すと相手側の表示も変わる', async () => {
+      // 同じ id のまま改名する。別人が増えるのではなく、その行が書き換わる。
+      await setMyName('ばんちゃん');
+      const B = device('mB');
+      await syncSharedCalendar('mB', B.io);
+
+      await becomeSomeoneElse('あかり2');
+      const A = device('mA');
+      await setShareCode('mA', mcode);
+      await syncSharedCalendar('mA', A.io);
+
+      const names = (await getMembers('mA')).map(m => m.name);
+      expect(names).toContain('ばんちゃん');
+      expect(names).not.toContain('ばん');
+    });
+  });
+
+  it('参加前プレビューでは人数だけ分かる（名前は出ない）', async () => {
+    const meta: any = await fetchShareMeta(code);
+    expect(meta.members).toBeGreaterThan(0);
+    expect(JSON.stringify(meta)).not.toContain('ばん');
   });
 
   it('参加前プレビューが引ける', async () => {

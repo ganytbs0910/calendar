@@ -3,7 +3,7 @@
 // only the on-device localCalendarService.
 
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
-import {View, Text, StyleSheet, TouchableOpacity, Alert, Share, ActivityIndicator} from 'react-native';
+import {View, Text, StyleSheet, TouchableOpacity} from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {useTranslation} from 'react-i18next';
 import {useTheme} from '../../theme/ThemeContext';
@@ -11,9 +11,8 @@ import {ThemeColors} from '../../theme/colors';
 import {LocalCalendar, LocalEvent, getLocalEvents} from '../../services/localCalendarService';
 import LocalCalendarMonth from './LocalCalendarMonth';
 import LocalEventModal from './LocalEventModal';
-import {
-  getShareCode, shareLocalCalendar, syncCalendar,
-} from '../../services/sharedCalendarService';
+import ShareMembersModal from './ShareMembersModal';
+import {getShareCode, syncCalendar} from '../../services/sharedCalendarService';
 
 interface Props {
   calendar: LocalCalendar;
@@ -31,7 +30,7 @@ const LocalCalendarDetail: React.FC<Props> = ({calendar, onBack}) => {
   const [editing, setEditing] = useState<LocalEvent | null>(null);
   const [initialDate, setInitialDate] = useState(() => new Date());
   const [shared, setShared] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [membersOpen, setMembersOpen] = useState(false);
 
   const reload = useCallback(async () => {
     setEvents(await getLocalEvents(calendar.id));
@@ -61,18 +60,16 @@ const LocalCalendarDetail: React.FC<Props> = ({calendar, onBack}) => {
     };
   }, [calendar.id, reload]);
 
-  const onShare = useCallback(async () => {
-    setBusy(true);
-    try {
-      const url = await shareLocalCalendar(calendar);
-      setShared(true);
-      await Share.share({message: t('shareCalMessage', {name: calendar.name, url})});
-    } catch {
-      Alert.alert(t('shareCalFailedTitle'), t('shareCalFailedBody'));
-    } finally {
-      setBusy(false);
-    }
-  }, [calendar, t]);
+  // 「共有する」と「誰と共有しているか見る」を1枚にまとめたシートを開く。
+  // 招待リンクの送信もその中。ここから分岐させると、共有済みかどうかで
+  // 同じボタンの意味が変わることになる。
+  const onShare = useCallback(() => setMembersOpen(true), []);
+
+  const onMembersClose = useCallback(async () => {
+    setMembersOpen(false);
+    setShared(!!(await getShareCode(calendar.id)));
+    await reload();
+  }, [calendar.id, reload]);
 
   const monthLabel = t('localCalMonthLabel', {
     year: month.getFullYear(),
@@ -108,16 +105,16 @@ const LocalCalendarDetail: React.FC<Props> = ({calendar, onBack}) => {
           <Text style={styles.emoji}>{calendar.emoji}</Text>
           <Text style={styles.title} numberOfLines={1}>{calendar.name}</Text>
         </View>
-        <TouchableOpacity onPress={onShare} style={styles.backBtn} disabled={busy}>
-          {busy ? (
-            <ActivityIndicator color={colors.primary} />
-          ) : (
-            <Ionicons
-              name={shared ? 'people' : 'person-add-outline'}
-              size={shared ? 24 : 22}
-              color={shared ? colors.primary : colors.textSecondary}
-            />
-          )}
+        <TouchableOpacity
+          onPress={onShare}
+          style={styles.backBtn}
+          accessibilityRole="button"
+          accessibilityLabel={t('shareMembersTitle')}>
+          <Ionicons
+            name={shared ? 'people' : 'person-add-outline'}
+            size={shared ? 24 : 22}
+            color={shared ? colors.primary : colors.textSecondary}
+          />
         </TouchableOpacity>
       </View>
 
@@ -147,6 +144,12 @@ const LocalCalendarDetail: React.FC<Props> = ({calendar, onBack}) => {
         onPress={() => openNew(new Date())}>
         <Ionicons name="add" size={30} color="#fff" />
       </TouchableOpacity>
+
+      <ShareMembersModal
+        visible={membersOpen}
+        calendar={calendar}
+        onClose={onMembersClose}
+      />
 
       <LocalEventModal
         visible={modalVisible}

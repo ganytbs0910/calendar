@@ -14,6 +14,7 @@ import {
   pickNewer,
   shareUrl,
   toRemoteEvent,
+  sortMembers, fromRemoteMember,
 } from '../src/services/sharedCalendarService';
 import type {LocalEvent} from '../src/services/localCalendarService';
 
@@ -137,3 +138,29 @@ describe('招待リンク', () => {
     expect(codeFromUrl(appLinkUrl(code))).toBe(code);
   });
 });
+
+describe('参加者の並び', () => {
+  const m = (id: string, name: string, lastSeenAt: string, isMe = false) =>
+    ({id, name, emoji: '', lastSeenAt, updatedAt: lastSeenAt, isMe});
+
+  it('自分が先頭、あとは最後に開いた順', () => {
+    const out = sortMembers([
+      m('c', 'ふるい', '2030-01-01T00:00:00.000Z'),
+      m('a', 'わたし', '2029-01-01T00:00:00.000Z', true),
+      m('b', 'あたらしい', '2030-02-01T00:00:00.000Z'),
+    ]);
+    expect(out.map(x => x.name)).toEqual(['わたし', 'あたらしい', 'ふるい']);
+  });
+
+  it('サーバの行を端末の形に直す', () => {
+    const out = fromRemoteMember({
+      member_id: 'm1', name: 'ばん', emoji: '🐶',
+      last_seen_at: '2030-02-01T00:00:00.000Z', updated_at: '2030-01-01T00:00:00.000Z',
+    });
+    expect(out).toEqual({
+      id: 'm1', name: 'ばん', emoji: '🐶',
+      lastSeenAt: '2030-02-01T00:00:00.000Z', updatedAt: '2030-01-01T00:00:00.000Z',
+    });
+  });
+});
+
