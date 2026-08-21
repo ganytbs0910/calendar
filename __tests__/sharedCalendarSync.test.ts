@@ -115,4 +115,48 @@ describe('共有カレンダーの一往復', () => {
     expect(state.cal.name).toBe('打ち上げ係');
     expect(state.cal.id).toBe('lc-1');   // ローカルの id は保つ
   });
+
+  // 200件は1回の push の上限。かつて超過分を slice で捨てていて、しかも
+  // カーソルだけは進んでいたので、201件目以降は二度と送られなかった。
+  // 手元には見えているぶん、相手に見えていないと言われるまで気づけない。
+  it('上限を超える予定は分けて全部送る', async () => {
+    const many = Array.from({length: 450}, (_, i) =>
+      ev(`e${i}`, `予定${i}`, '2030-01-02T00:00:00.000Z'));
+    reply({calendar: null, events: [], now: '2030-02-01T00:00:00.000Z'});
+    const d = deps(CAL, many);
+
+    await syncSharedCalendar('lc-1', d.io);
+
+    const pushes = calls.filter(c => c.fn === 'calendar_share_push');
+    expect(pushes.map(p => p.body.p_events.length)).toEqual([200, 200, 50]);
+    // 全件が過不足なく載っている
+    const sent = pushes.flatMap(p => p.body.p_events.map((e: any) => e.id));
+    expect(new Set(sent).size).toBe(450);
+    // カレンダー本体は最初の1回だけ
+    expect(pushes.map(p => p.body.p_calendar === null)).toEqual([false, true, true]);
+    expect(await getCursor('lc-1')).toBe('2030-02-01T00:00:00.000Z');
+  });
+
+  // 共有カレンダーを消す＝自分が抜ける、であって、相手の予定を消すことでは
+  // ない。deleteLocalCalendar は中の予定にも削除印を付けるので、消したあとに
+  // 一度でも push されると全員のデータが消える。読み出しが削除済みを弾く
+  // ことでそれを防いでいる。壊れても手元では気づけない種類の事故なので、
+  // 振る舞いとして固定しておく。
+  it('消したカレンダーは同期の対象にならない', async () => {
+    reply({calendar: null, events: [], now: '2030-02-01T00:00:00.000Z'});
+    const gone = {...CAL, deleted: true, updatedAt: '2030-01-09T00:00:00.000Z'};
+    const io = {
+      // getLocalCalendars 相当。削除済みは画面にも同期にも出てこない。
+      readCalendar: async () => undefined,
+      readEvents: async () => [ev('e1', '飲み会', '2030-01-09T00:00:00.000Z')],
+      writeCalendar: async () => {},
+      writeEvents: async () => {},
+    };
+    void gone;
+
+    const res = await syncSharedCalendar('lc-1', io);
+
+    expect(res).toBeNull();
+    expect(calls).toHaveLength(0);
+  });
 });

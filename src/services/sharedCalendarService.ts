@@ -156,17 +156,28 @@ export const fetchShareMeta = async (
 export const pullShare = async (code: string, since: string | null) =>
   rpc('calendar_share_pull', {p_code: code, p_since: since ?? '-infinity'});
 
+/**
+ * 1回ぶんの push。**1回に載せられるのは MAX_EVENTS_PER_PUSH 件まで**で、
+ * 超えた分をここで切り捨ててはいけない。切り捨てるとカーソルだけが進んで、
+ * あふれた予定は二度と送られなくなる（本人の画面には見えているので、
+ * 気づけるのは相手に見えていないと言われたときだけ）。
+ * 分割は syncSharedCalendar の責任。
+ */
 export const pushShare = async (
   code: string, calendar: LocalCalendar | null, events: LocalEvent[],
-) =>
-  rpc('calendar_share_push', {
+) => {
+  if (events.length > MAX_EVENTS_PER_PUSH) {
+    throw new Error(`pushShare: ${events.length} events exceeds ${MAX_EVENTS_PER_PUSH}`);
+  }
+  return rpc('calendar_share_push', {
     p_code: code,
     p_calendar: calendar
       ? {name: calendar.name, color: calendar.color, emoji: calendar.emoji,
          deleted: !!calendar.deleted, updatedAt: calendar.updatedAt}
       : null,
-    p_events: events.slice(0, MAX_EVENTS_PER_PUSH).map(toRemoteEvent),
+    p_events: events.map(toRemoteEvent),
   });
+};
 
 /**
  * 招待リンク。https を配るのは、アプリを持っていない相手にも「何のリンクか」が
@@ -219,9 +230,21 @@ export const syncSharedCalendar = async (
   const outgoing = changedSince(events, since);
   const calChanged = !since || Date.parse(cal.updatedAt) > Date.parse(since);
 
-  const res = outgoing.length || calChanged
-    ? await pushShare(code, calChanged ? cal : null, outgoing)
-    : await pullShare(code, since);
+  // 送るものが多いときは分けて全部送り切る。初回共有では手元の予定が丸ごと
+  // outgoing になるので、ここが1回で済む保証はない。カレンダー本体は最初の
+  // 1回にだけ載せれば足りる。
+  let res: any;
+  if (outgoing.length || calChanged) {
+    for (let i = 0; i < Math.max(outgoing.length, 1); i += MAX_EVENTS_PER_PUSH) {
+      res = await pushShare(
+        code,
+        i === 0 && calChanged ? cal : null,
+        outgoing.slice(i, i + MAX_EVENTS_PER_PUSH),
+      );
+    }
+  } else {
+    res = await pullShare(code, since);
+  }
   if (!res) return null;
 
   const remoteEvents: LocalEvent[] = (res.events ?? []).map((r: any) =>

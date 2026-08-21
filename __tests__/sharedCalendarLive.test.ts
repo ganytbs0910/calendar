@@ -12,6 +12,9 @@
  * （syncSharedCalendar とマージ）をサーバ相手に走らせる。
  */
 
+// @types/node を入れていないので、この1つだけ自前で宣言する。
+declare const process: {env: Record<string, string | undefined>};
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {
