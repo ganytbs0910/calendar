@@ -28,7 +28,6 @@ const TIME_LABEL_WIDTH = 48;
 const DEFAULT_HOUR_HEIGHT = 44;
 const MIN_HOUR_HEIGHT = 30;
 const MAX_HOUR_HEIGHT = 200;
-const ALL_DAY_ROW_HEIGHT = 28;
 
 // Virtual day range (±3500 days ≈ ±9.6 years). Enough that the user will
 // basically never hit the edge during a session.
@@ -459,19 +458,6 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
     a.getDate() === b.getDate(),
   []);
 
-  // 終日の予定が1件も無い週でも、空の帯が 28pt ぶん居座っていた。列ごとに畳むと
-  // 曜日ヘッダーの高さが揃わなくなるので、**画面に出ている7日をまとめて**見て
-  // 決める。currentDate はスワイプが止まったときだけ更新される中央の日なので、
-  // スクロール中に高さがガタつくこともない。
-  const allDayRowHeight = useMemo(() => {
-    for (let off = -3; off <= 3; off += 1) {
-      const d = new Date(currentDate);
-      d.setDate(d.getDate() + off);
-      if ((allDayEventsByKey.get(dayKey(d)) || []).length > 0) return ALL_DAY_ROW_HEIGHT;
-    }
-    return 0;
-  }, [currentDate, allDayEventsByKey]);
-
   const renderHeaderItem = useCallback(({index}: {index: number}) => {
     const date = getDateForIndex(index);
     const k = dayKey(date);
@@ -545,33 +531,9 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
             {freeMin === null ? '' : formatFreeShort(freeMin)}
           </Text>
         </TouchableOpacity>
-        <View style={[
-          styles.allDayCell,
-          {width: dayWidth, borderBottomColor: colors.border,
-           minHeight: allDayRowHeight, paddingVertical: allDayRowHeight ? 2 : 0},
-        ]}>
-          {allDayList.slice(0, 2).map(event => {
-            const evColor = eventColors[event.id] || event.calendar?.color || colors.primary;
-            return (
-              <TouchableOpacity
-                key={event.id}
-                style={[styles.allDayEvent, {backgroundColor: evColor + '22', borderLeftColor: evColor}]}
-                onPress={() => onEventPress?.(event)}>
-                <Text style={[styles.allDayEventText, {color: evColor}]} numberOfLines={1}>
-                  {event.title}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-          {allDayList.length > 2 && (
-            <Text style={{fontSize: 9, color: colors.textTertiary, textAlign: 'center'}}>
-              +{allDayList.length - 2}
-            </Text>
-          )}
-        </View>
       </View>
     );
-  }, [getDateForIndex, timedEventsByKey, allDayEventsByKey, colors, isSameDay, today, WEEKDAYS_JA, currentDate, onDayChange, onEventPress, dayWidth, sleepSettings, formatFreeShort, eventColors, allDayRowHeight]);
+  }, [getDateForIndex, timedEventsByKey, allDayEventsByKey, colors, isSameDay, today, WEEKDAYS_JA, currentDate, onDayChange, dayWidth, sleepSettings, formatFreeShort]);
 
   const renderBodyItem = useCallback(({index}: {index: number}) => {
     const date = getDateForIndex(index);
@@ -635,7 +597,7 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
           data={Array.from({length: TOTAL_DAYS})}
           keyExtractor={keyExtractorHeader}
           renderItem={renderHeaderItem}
-          extraData={allDayRowHeight}
+          extraData={allDayEventsByKey}
           horizontal
           showsHorizontalScrollIndicator={false}
           initialScrollIndex={ANCHOR_INDEX}
@@ -1399,22 +1361,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     height: 12,
     lineHeight: 12,
-  },
-  allDayCell: {
-    minHeight: ALL_DAY_ROW_HEIGHT,
-    paddingHorizontal: 1,
-    paddingVertical: 2,
-    gap: 2,
-  },
-  allDayEvent: {
-    borderRadius: 3,
-    paddingHorizontal: 3,
-    paddingVertical: 2,
-    borderLeftWidth: 2,
-  },
-  allDayEventText: {
-    fontSize: 10,
-    fontWeight: '600',
   },
   bodyScroll: {
     flex: 1,
