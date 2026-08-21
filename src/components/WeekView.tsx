@@ -18,7 +18,6 @@ import {getAllEventColors} from './AddEventModal';
 import {useTheme} from '../theme/ThemeContext';
 import {useTranslation} from 'react-i18next';
 import {SleepSettings, getSettingsForDate} from '../services/sleepSettingsService';
-import {freeMinutesForDay} from '../services/freeTimeService';
 import {eventDayKeys} from '../utils/eventDays';
 import TaskBottomSheet, {TaskBottomSheetRef} from './TaskBottomSheet';
 import OneTimeHint from './OneTimeHint';
@@ -83,13 +82,6 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
   const {colors, isDark} = useTheme();
   const {t} = useTranslation();
   const WEEKDAYS_JA = t('weekdaysSingle', {returnObjects: true}) as string[];
-
-  // A day column is barely wider than the date in it, so the free-time figure
-  // is rounded to whole hours above an hour and only shows minutes below it.
-  const formatFreeShort = useCallback((min: number): string => {
-    const h = Math.floor(min / 60);
-    return h > 0 ? t('freeShortHours', {h}) : t('freeShortMinutes', {m: min});
-  }, [t]);
 
   // Responsive to rotation / iPad multitasking via useWindowDimensions
   const {width: screenWidth} = useWindowDimensions();
@@ -467,19 +459,6 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
     const allDayList = allDayEventsByKey.get(k) || [];
     const eventCount = timedList.length + allDayList.length;
 
-    // Free hours left on this day. A bedtime after midnight puts the tail of
-    // the waking day in tomorrow's bucket, so tomorrow's events are offered
-    // too — anything outside the window is clamped away regardless.
-    const nextDay = new Date(date);
-    nextDay.setDate(nextDay.getDate() + 1);
-    const freeMin = sleepSettings
-      ? freeMinutesForDay(
-          [...timedList, ...(timedEventsByKey.get(dayKey(nextDay)) || [])],
-          sleepSettings,
-          date,
-        )
-      : null;
-
     return (
       <View style={{width: dayWidth}}>
         <TouchableOpacity
@@ -520,20 +499,10 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
               {date.getDate()}
             </Text>
           </View>
-          {/* How much of this day is still yours — the same figure the header
-              bar shows for today, carried across the whole week. */}
-          <Text
-            style={[
-              styles.headerFree,
-              {color: isTodayDate ? colors.primary : colors.textTertiary},
-            ]}
-            numberOfLines={1}>
-            {freeMin === null ? '' : formatFreeShort(freeMin)}
-          </Text>
         </TouchableOpacity>
       </View>
     );
-  }, [getDateForIndex, timedEventsByKey, allDayEventsByKey, colors, isSameDay, today, WEEKDAYS_JA, currentDate, onDayChange, dayWidth, sleepSettings, formatFreeShort]);
+  }, [getDateForIndex, timedEventsByKey, allDayEventsByKey, colors, isSameDay, today, WEEKDAYS_JA, currentDate, onDayChange, dayWidth]);
 
   const renderBodyItem = useCallback(({index}: {index: number}) => {
     const date = getDateForIndex(index);
@@ -1356,12 +1325,6 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   // Fixed height so a day with no figure to show doesn't shorten its column.
-  headerFree: {
-    fontSize: 9,
-    fontWeight: '600',
-    height: 12,
-    lineHeight: 12,
-  },
   bodyScroll: {
     flex: 1,
   },
