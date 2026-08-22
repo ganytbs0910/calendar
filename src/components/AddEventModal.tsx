@@ -852,7 +852,9 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         if (recurrence !== 'none') {
           eventConfig.recurrenceRule = {
             frequency: recurrence,
-            occurrence: recurrence === 'monthly' ? 60 : 260, // ~5 years
+            // occurrence counts occurrences, not years: daily needs 365×5.
+            occurrence:
+              recurrence === 'daily' ? 1825 : recurrence === 'monthly' ? 60 : 260, // ~5 years
           };
         }
         const eventId = await RNCalendarEvents.saveEvent(eventTitle, eventConfig);
@@ -1172,10 +1174,15 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   };
 
   const confirmStartDate = () => {
-    const newDate = new Date(startDate);
-    newDate.setFullYear(tempDate.getFullYear());
-    newDate.setMonth(tempDate.getMonth());
-    newDate.setDate(tempDate.getDate());
+    // Construct fresh instead of setMonth on the old date: mutating month while
+    // the old day-of-month is still set overflows (Jan 31 + Feb → Mar).
+    const newDate = new Date(
+      tempDate.getFullYear(),
+      tempDate.getMonth(),
+      tempDate.getDate(),
+      startDate.getHours(),
+      startDate.getMinutes(),
+    );
     setStartDate(newDate);
 
     const startDay = new Date(newDate.getFullYear(), newDate.getMonth(), newDate.getDate());
@@ -1202,10 +1209,13 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   };
 
   const confirmEndDate = () => {
-    const newDate = new Date(endDate);
-    newDate.setFullYear(tempDate.getFullYear());
-    newDate.setMonth(tempDate.getMonth());
-    newDate.setDate(tempDate.getDate());
+    const newDate = new Date(
+      tempDate.getFullYear(),
+      tempDate.getMonth(),
+      tempDate.getDate(),
+      endDate.getHours(),
+      endDate.getMinutes(),
+    );
     setEndDate(newDate);
     setShowEndDatePicker(false);
   };
