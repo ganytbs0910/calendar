@@ -10,7 +10,7 @@
 import RNCalendarEvents from 'react-native-calendar-events';
 
 import {computePayroll, getIncomeThresholds} from './statisticsService';
-import {getAllEventWages, getAllEventJobs} from './eventWageService';
+import {getAllEventWages, getAllEventJobs, getAllEventBreaks} from './eventWageService';
 import {getJobs} from './jobService';
 
 export interface WallThreshold {
@@ -37,12 +37,14 @@ export const getYearWorkTotal = async (year: number): Promise<number> => {
   } catch {
     return 0;
   }
-  const [wages, ejobs, jobs] = await Promise.all([
+  const [wages, ejobs, jobs, breaks] = await Promise.all([
     getAllEventWages(),
     getAllEventJobs(),
     getJobs(),
+    getAllEventBreaks(),
   ]);
-  return computePayroll(events, wages, ejobs, jobs).total;
+  // Pass per-event break overrides so the wall total matches the Stats screen.
+  return computePayroll(events, wages, ejobs, jobs, breaks).total;
 };
 
 /** Current standing against every configured wall. */
