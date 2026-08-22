@@ -92,9 +92,10 @@ export function parseEventText(text: string, base: Date = new Date()): ParsedEve
       const sameWeekDiff = (target - baseDay + 7) % 7;
       let diff: number;
       if (m[1] === '来週') {
-        diff = sameWeekDiff + 7;          // exactly one week ahead from same-week match
+        // Anchor to next week's Sunday (weeks start on 日), then add the weekday.
+        diff = 7 - baseDay + target;
       } else if (m[1] === '再来週') {
-        diff = sameWeekDiff + 14;         // two weeks ahead
+        diff = 14 - baseDay + target;
       } else {
         diff = sameWeekDiff === 0 ? 7 : sameWeekDiff; // never the same day
       }
