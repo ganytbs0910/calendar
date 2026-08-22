@@ -170,9 +170,10 @@ const frequencyOf = (frag: string): number | undefined => {
     const n = toNum(m[1]);
     if (!isNaN(n)) return n;
   }
+  // 平日毎日 must be checked before bare 毎日, which would otherwise match first.
+  if (/平日毎日|平日は毎日/.test(frag)) return 5;
   if (/毎日/.test(frag)) return 7;
   if (/隔日|一日おき/.test(frag)) return 4;
-  if (/平日毎日|平日は毎日/.test(frag)) return 5;
   return undefined;
 };
 
