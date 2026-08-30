@@ -51,6 +51,16 @@ const fmtKey = (d: Date): string =>
 const winToMin = (w?: TimeWindow): Interval | null =>
   w ? {s: w.startHour * 60, e: w.endHour * 60} : null;
 
+/** The last weekday (Mon-Fri) on or before the last calendar day of the
+ * given 1-based month (e.g. m=9 for September). Doesn't account for public
+ * holidays — just Sat/Sun. */
+const lastBusinessDayKey = (y: number, m: number): string => {
+  let d = new Date(y, m, 0); // day 0 of the next (0-based) month = last day of month `m`
+  if (d.getDay() === 0) d = new Date(d.getFullYear(), d.getMonth(), d.getDate() - 2);
+  else if (d.getDay() === 6) d = new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1);
+  return fmtKey(d);
+};
+
 // Intra-day energy curve in [0,1]; morning and late-afternoon peaks, post-lunch dip.
 const energyAt = (mid: number): number => {
   const h = mid / 60;
@@ -115,7 +125,7 @@ interface Demand {
 }
 
 const orderRank = (k: Intention['kind']): number =>
-  ({fixed: 0, focus: 1, deadline: 2, recurring: 3, preference: 9} as Record<string, number>)[k] ?? 5;
+  ({fixed: 0, focus: 1, event: 1, monthly: 1, deadline: 2, recurring: 3, preference: 9} as Record<string, number>)[k] ?? 5;
 
 export const solve = (input: SolveInput): SchedulePlan => {
   const {startDate, horizonDays, intentions, busy, dayWindow} = input;
@@ -156,20 +166,113 @@ export const solve = (input: SolveInput): SchedulePlan => {
   const demands: Demand[] = [];
   const conflicts: string[] = [];
   const horizonKeys = days.map(d => d.dateKey);
+  // An all-day 'event' (no time given) is a calendar marker, not time to
+  // defend — it places unconditionally rather than competing for a free slot.
+  const allDayEventBlocks: PlacedBlock[] = [];
+  // A crosses-midnight fixed/focus/event ("22時から翌1時") can't be expressed
+  // as a same-day search window — TimeWindow caps at 24:00 — so it's pinned
+  // directly at its declared start time instead of going through
+  // findSlot/occupy. Best-effort like the all-day case above: no conflict
+  // check against that day's other bookings.
+  const pinnedBlocks: PlacedBlock[] = [];
+  const pinBlock = (intn: Intention, dateKey: string): PlacedBlock => {
+    const startMin = (intn.window?.startHour ?? 0) * 60;
+    return {
+      id: `blk-${dateKey}-pin-${intn.id}`,
+      intentionId: intn.id,
+      title: intn.title,
+      kind: intn.kind,
+      dateKey,
+      startMin,
+      endMin: startMin + intn.durationMin,
+      color: intn.color,
+      protect: intn.protect,
+      status: 'planned',
+      reason: '深夜をまたぐため直接配置しました',
+    };
+  };
 
   for (const intn of intentions) {
     if (!intn.active || intn.kind === 'preference') continue;
     const allowedDays = (dow: DayOfWeek) => !intn.days || intn.days.includes(dow);
 
-    if (intn.kind === 'fixed' || intn.kind === 'focus') {
+    if (intn.kind === 'event') {
+      if (!intn.eventDate) continue;
+      if (intn.allDay) {
+        allDayEventBlocks.push({
+          id: `blk-${intn.eventDate}-allday-${intn.id}`,
+          intentionId: intn.id,
+          title: intn.title,
+          kind: intn.kind,
+          dateKey: intn.eventDate,
+          startMin: 0,
+          endMin: 0,
+          color: intn.color,
+          allDay: true,
+          status: 'planned',
+          reason: '指定日',
+        });
+      } else if (intn.crossesMidnight) {
+        pinnedBlocks.push(pinBlock(intn, intn.eventDate));
+      } else {
+        demands.push({
+          intention: intn,
+          durationMin: intn.durationMin,
+          candidateKeys: [intn.eventDate],
+          required: true,
+          urgency: intn.priority + 3,
+          label: intn.title,
+        });
+      }
+    } else if (intn.kind === 'fixed' || intn.kind === 'focus') {
       for (const day of days) {
         if (!allowedDays(day.dow)) continue;
+        if (intn.crossesMidnight) {
+          pinnedBlocks.push(pinBlock(intn, day.dateKey));
+          continue;
+        }
         demands.push({
           intention: intn,
           durationMin: intn.durationMin,
           candidateKeys: [day.dateKey],
           required: true,
           urgency: intn.priority + (intn.kind === 'fixed' ? 2 : 1),
+          label: intn.title,
+        });
+      }
+    } else if (intn.kind === 'monthly') {
+      // "毎月1日" (day-of-month) / "第2土曜日" (Nth weekday) / "毎月末"
+      // (last calendar day) / "最終営業日" (last weekday) — checked per
+      // day-in-horizon like fixed's weekday check, just against a different
+      // rule for "does this date match". "隔月"/"3ヶ月に1回" (monthInterval)
+      // additionally requires the date's month to be an eligible multiple of
+      // that interval away from the solve's start month.
+      const anchorMonthIdx = startDate.getFullYear() * 12 + startDate.getMonth();
+      for (const day of days) {
+        const [dy, dm, dd] = day.dateKey.split('-').map(n => parseInt(n, 10));
+        if (intn.monthInterval && intn.monthInterval > 1) {
+          const monthIdx = dy * 12 + (dm - 1);
+          if (((monthIdx - anchorMonthIdx) % intn.monthInterval + intn.monthInterval) % intn.monthInterval !== 0) {
+            continue;
+          }
+        }
+        let matches = false;
+        if (intn.lastBusinessDayOfMonth) {
+          matches = day.dateKey === lastBusinessDayKey(dy, dm);
+        } else if (intn.lastDayOfMonth) {
+          matches = dd === new Date(dy, dm, 0).getDate();
+        } else if (intn.monthDay !== undefined) {
+          matches = dd === intn.monthDay;
+        } else if (intn.monthWeek !== undefined && intn.days?.length) {
+          matches = day.dow === intn.days[0] && Math.ceil(dd / 7) === intn.monthWeek;
+        }
+        if (!matches) continue;
+        demands.push({
+          intention: intn,
+          durationMin: intn.durationMin,
+          candidateKeys: [day.dateKey],
+          required: true,
+          urgency: intn.priority + 2,
           label: intn.title,
         });
       }
@@ -269,6 +372,17 @@ export const solve = (input: SolveInput): SchedulePlan => {
           title: dem.label,
           reason: win ? '希望の時間帯に空きが足りませんでした' : '空き時間が足りませんでした',
         });
+      } else if (dem.required && dem.intention.priority >= 5) {
+        // A required occurrence the user explicitly marked 死守 (priority 5)
+        // silently not landing on its declared day is exactly the kind of
+        // failure that must never be quiet — unlike a routine "missed one
+        // weekday out of five" (see the comment below this loop), the user
+        // said this one must never be skipped, so every miss gets its own
+        // advisory note even though the intention may still land on other
+        // days within the horizon.
+        conflicts.push(
+          `「${dem.label}」を${dem.candidateKeys[0]}に死守できませんでした（既存の予定と重複しています）`,
+        );
       }
       continue;
     }
@@ -295,12 +409,61 @@ export const solve = (input: SolveInput): SchedulePlan => {
       endMin: best.start + dem.durationMin,
       color: dem.intention.color,
       protect: dem.intention.protect,
+      monthDay: dem.intention.monthDay,
+      monthWeek: dem.intention.monthWeek,
+      lastDayOfMonth: dem.intention.lastDayOfMonth,
+      lastBusinessDayOfMonth: dem.intention.lastBusinessDayOfMonth,
+      monthInterval: dem.intention.monthInterval,
       status: 'planned',
       reason: reasonParts.join('・'),
     });
   }
 
-  // 6. Time-defense notes: focus/protected blocks adjacent to existing busy.
+  blocks.push(...allDayEventBlocks, ...pinnedBlocks);
+
+  // 6. A required (fixed/focus) demand that never lands anywhere still needs a
+  // human-visible reason — the per-demand loop above deliberately skips
+  // logging "unplaced" for those (a focus block missing one day out of five
+  // weekdays is normal), but an intention that ends up with *zero* placed
+  // blocks in the whole horizon — e.g. "毎週月曜10-12" whose only Monday was
+  // already busy — must not fail completely silently. That looks identical to
+  // the feature being broken.
+  //
+  // The most common reason a required slot is busy is that this exact
+  // commitment was already applied to the calendar on an earlier run — a
+  // same-titled busy entry sitting inside the intention's own window/days is
+  // a near-certain signal of that, and re-declaring it isn't a bug, it's
+  // "already done". That reads very differently from a genuine clash with an
+  // unrelated event, so it gets its own message.
+  const placedIntentionIds = new Set(blocks.map(b => b.intentionId));
+  for (const intn of intentions) {
+    if (!intn.active || intn.kind === 'preference') continue;
+    if (placedIntentionIds.has(intn.id)) continue;
+    if (unplaced.some(u => u.intentionId === intn.id)) continue;
+
+    const allowedDays = (dow: DayOfWeek) => !intn.days || intn.days.includes(dow);
+    const win = winToMin(intn.window);
+    const alreadyScheduled = busy.some(b => {
+      if (b.title !== intn.title) return false;
+      const day = keyToDay.get(b.dateKey);
+      if (!day || !allowedDays(day.dow)) return false;
+      return win ? overlap({s: b.startMin, e: b.endMin}, win) > 0 : true;
+    });
+
+    unplaced.push({
+      intentionId: intn.id,
+      title: intn.title,
+      reason: alreadyScheduled
+        ? 'すでに同じ内容の予定がカレンダーに入っています'
+        : intn.kind === 'event' || intn.kind === 'monthly'
+        ? '指定した日に空きがありませんでした'
+        : intn.window
+        ? '指定した曜日・時間帯に空きがありませんでした'
+        : '指定した曜日に空き時間が足りませんでした',
+    });
+  }
+
+  // 7. Time-defense notes: focus/protected blocks adjacent to existing busy.
   for (const blk of blocks) {
     if (!blk.protect) continue;
     const touchesBusy = busy.some(
