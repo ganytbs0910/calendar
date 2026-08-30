@@ -182,3 +182,33 @@ describe('Calendar selection mode', () => {
     expect(styleOf('Lunch').opacity).toBe(0.35);
   });
 });
+
+// Long-pressing an event used to start a drag-and-drop move; it now hands the
+// event to the caller so it can enter selection mode with that event already
+// picked, matching the top-left checkmark button's destination.
+describe('long-pressing an event enters selection instead of dragging', () => {
+  it('reports the event via onEventLongPressSelect when not selecting', async () => {
+    const onEventLongPressSelect = jest.fn();
+    const tree = await render({onEventLongPressSelect});
+
+    const chip = pressablesWithText(tree, 'Gym').pop();
+    expect(chip!.props.onLongPress).toBeDefined();
+    await ReactTestRenderer.act(async () => { chip!.props.onLongPress(); });
+
+    expect(onEventLongPressSelect).toHaveBeenCalledTimes(1);
+    expect(onEventLongPressSelect.mock.calls[0][0].title).toBe('Gym');
+  });
+
+  it('is inert while already selecting (a tap already handles selection there)', async () => {
+    const onEventLongPressSelect = jest.fn();
+    const tree = await render({
+      selectionMode: true,
+      selectedEventKeys: new Set<string>(),
+      onToggleEventSelection: jest.fn(),
+      onEventLongPressSelect,
+    });
+
+    const chip = pressablesWithText(tree, 'Gym').pop();
+    expect(chip!.props.onLongPress).toBeUndefined();
+  });
+});

@@ -95,8 +95,6 @@ export default {
   titleClear: 'Titel löschen',
   eventTitleHint: 'Terminbezeichnung eingeben',
   loadFailed: 'Termine konnten nicht geladen werden',
-  moveFailed: 'Termin konnte nicht verschoben werden. Bitte erneut versuchen.',
-  updateError: 'Aktualisierungsfehler',
   allDay: 'Ganztägig',
   duration: 'Dauer',
   color: 'Farbe',

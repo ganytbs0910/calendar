@@ -9,6 +9,7 @@ import React, {useCallback, useEffect, useState} from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   ScrollView,
   StyleSheet,
   Text,
@@ -16,6 +17,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import RNCalendarEvents from 'react-native-calendar-events';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 
 import {useTheme} from '../theme/ThemeContext';
@@ -24,6 +26,7 @@ import {
   addIntentions,
   applyPlanToCalendar,
   clearIntentions,
+  clearPlan,
   deleteIntention,
   getIntentions,
   getPlan,
@@ -44,13 +47,18 @@ const intentionMeta = (i: Intention, t: TFunc, dow: string[]): string => {
   const days = daysList ? t('agentDaysFmt', {days: daysList}) : '';
   const win = i.window ? t('agentWin', {start: i.window.startHour, end: i.window.endHour}) : '';
   const dur = t('agentDurMin', {n: i.durationMin});
+  // fixed/focus: whether this repeats for ~3 months (毎週 etc. was said) or
+  // only applies to what the current solve horizon actually covers — silent
+  // either way used to read as "of course it repeats", which is exactly what
+  // surprised a user who wrote a bare weekday+time expecting just this week.
+  const span = t(i.explicitRecurrence ? 'agentStandingWeekly' : 'agentThisHorizonOnly');
   switch (i.kind) {
     case 'focus':
-      return [t('agentKindFocus'), days, win, dur].filter(Boolean).join(' · ');
+      return [t('agentKindFocus'), days, win, dur, span].filter(Boolean).join(' · ');
     case 'recurring':
       return [t('agentPerWeek', {n: i.timesPerWeek ?? 3}), dur, win].filter(Boolean).join(' · ');
     case 'fixed':
-      return [days, win, dur].filter(Boolean).join(' · ');
+      return [days, win, dur, span].filter(Boolean).join(' · ');
     case 'deadline':
       return [
         t('agentDeadline', {date: i.deadline ?? '—'}),
@@ -58,12 +66,38 @@ const intentionMeta = (i: Intention, t: TFunc, dow: string[]): string => {
       ]
         .filter(Boolean)
         .join(' · ');
+    case 'event':
+      return [
+        t('agentEventDate', {date: i.eventDate ?? '—'}),
+        i.allDay ? t('allDay') : win,
+        i.allDay ? '' : dur,
+      ]
+        .filter(Boolean)
+        .join(' · ');
+    case 'monthly': {
+      const cadence = i.lastBusinessDayOfMonth
+        ? t('agentMonthlyLastBizDay')
+        : i.lastDayOfMonth
+        ? t('agentMonthlyLastDay')
+        : i.monthDay !== undefined
+        ? t('agentMonthlyDay', {day: i.monthDay})
+        : t('agentMonthlyWeek', {week: i.monthWeek, dow: i.days?.[0] !== undefined ? dow[i.days[0]] : ''});
+      const interval = i.monthInterval && i.monthInterval > 1 ? t('agentMonthlyEveryN', {n: i.monthInterval}) : '';
+      return [interval, cadence, win, dur].filter(Boolean).join(' · ');
+    }
     default:
       return t('agentKindPreference');
   }
 };
 
-const AgentScreen: React.FC = () => {
+interface AgentScreenProps {
+  /** Called after applyPlanToCalendar writes real calendar events, so the
+   * already-mounted Calendar/WeekView (they don't poll) can refetch. Without
+   * this, newly-applied events are invisible until the app relaunches. */
+  onApplied?: () => void;
+}
+
+const AgentScreen: React.FC<AgentScreenProps> = ({onApplied}) => {
   const {colors} = useTheme();
   const {t} = useTranslation();
   const [text, setText] = useState('');
@@ -71,11 +105,26 @@ const AgentScreen: React.FC = () => {
   const [plan, setPlan] = useState<SchedulePlan | null>(null);
   const [loading, setLoading] = useState(true);
   const [solving, setSolving] = useState(false);
+  // Guard declare()/apply() against a double-tap firing the async handler
+  // twice before the button visually reacts — without this, a fast double
+  // tap on 決定/適用 parses+adds (or applies) the same declaration twice,
+  // silently doubling every calendar event it produces.
+  const [declaring, setDeclaring] = useState(false);
+  const [applying, setApplying] = useState(false);
 
   const reload = useCallback(async () => {
     const [ins, pl] = await Promise.all([getIntentions(), getPlan()]);
     setIntentions(ins);
-    setPlan(pl);
+    // A plan with no intentions behind it is always stale (apply() clears
+    // intentions but plans are keyed on them existing) — belt-and-suspenders
+    // alongside apply()'s own clearPlan(), in case some other path someday
+    // empties the intentions list without also clearing the plan.
+    if (pl && ins.length === 0) {
+      clearPlan().catch(() => {});
+      setPlan(null);
+    } else {
+      setPlan(pl);
+    }
   }, []);
 
   useEffect(() => {
@@ -98,17 +147,23 @@ const AgentScreen: React.FC = () => {
   }, [t]);
 
   const declare = useCallback(async () => {
-    const parsed = parseIntentions(text);
-    if (!parsed.length) {
-      Alert.alert(t('agentParseFailTitle'), t('agentParseFailMsg'));
-      return;
+    if (declaring) return;
+    setDeclaring(true);
+    try {
+      const parsed = parseIntentions(text);
+      if (!parsed.length) {
+        Alert.alert(t('agentParseFailTitle'), t('agentParseFailMsg'));
+        return;
+      }
+      await addIntentions(parsed);
+      setText('');
+      const ins = await getIntentions();
+      setIntentions(ins);
+      await reSolve();
+    } finally {
+      setDeclaring(false);
     }
-    await addIntentions(parsed);
-    setText('');
-    const ins = await getIntentions();
-    setIntentions(ins);
-    await reSolve();
-  }, [text, reSolve, t]);
+  }, [declaring, text, reSolve, t]);
 
   // Swipe-to-delete fires this directly (the swipe is already a deliberate
   // action, so no extra confirm).
@@ -119,16 +174,47 @@ const AgentScreen: React.FC = () => {
   }, [reSolve]);
 
   const apply = useCallback(async () => {
-    if (!plan) return;
-    const n = await applyPlanToCalendar(plan);
-    // Generating the calendar clears the input list so the next batch starts
-    // from a clean slate.
-    await clearIntentions();
-    setIntentions([]);
-    setPlan(null);
-    setText('');
-    Alert.alert(t('agentAppliedTitle'), t('agentAppliedMsg', {count: n}));
-  }, [plan, t]);
+    if (!plan || applying) return;
+    setApplying(true);
+    try {
+      // The plan is now written as real calendar events, so it needs the same
+      // write permission AddEventModal asks for — without this check notifee's
+      // caller-side saveEvent calls would just fail one by one, silently.
+      const permissionStatus: string = await RNCalendarEvents.checkPermissions();
+      if (permissionStatus !== 'authorized' && permissionStatus !== 'fullAccess') {
+        const requested: string = await RNCalendarEvents.requestPermissions();
+        if (requested !== 'authorized' && requested !== 'fullAccess') {
+          Alert.alert(
+            t('calendarAccess'),
+            t('calendarFullAccessMessage'),
+            [
+              {text: t('cancel'), style: 'cancel'},
+              {text: t('openSettings'), onPress: () => Linking.openSettings()},
+            ],
+          );
+          return;
+        }
+      }
+
+      const n = await applyPlanToCalendar(plan);
+      if (n === 0) {
+        Alert.alert(t('error'), t('noWritableCalendar'));
+        return;
+      }
+      // Generating the calendar clears the input list so the next batch starts
+      // from a clean slate — the persisted plan goes with it, or its leftover
+      // "入りきらなかった予定" notes resurface next time this tab opens.
+      await clearIntentions();
+      await clearPlan();
+      setIntentions([]);
+      setPlan(null);
+      setText('');
+      onApplied?.();
+      Alert.alert(t('agentAppliedTitle'), t('agentAppliedMsg', {count: n}));
+    } finally {
+      setApplying(false);
+    }
+  }, [plan, applying, t, onApplied]);
 
   const s = makeStyles(colors);
   const dow = t('weekdaysSingle', {returnObjects: true}) as unknown as string[];
@@ -177,10 +263,14 @@ const AgentScreen: React.FC = () => {
         />
         <View style={[s.declareRow, {justifyContent: 'flex-end'}]}>
           <TouchableOpacity
-            style={[s.declareBtn, {backgroundColor: colors.primary, opacity: text.trim() ? 1 : 0.4}]}
-            disabled={!text.trim()}
+            style={[s.declareBtn, {backgroundColor: colors.primary, opacity: text.trim() && !declaring ? 1 : 0.4}]}
+            disabled={!text.trim() || declaring}
             onPress={declare}>
-            <Ionicons name="sparkles" size={16} color={colors.onPrimary} />
+            {declaring ? (
+              <ActivityIndicator size="small" color={colors.onPrimary} />
+            ) : (
+              <Ionicons name="sparkles" size={16} color={colors.onPrimary} />
+            )}
             <Text style={[s.declareBtnText, {color: colors.onPrimary}]}>{t('agentDeclareBtn')}</Text>
           </TouchableOpacity>
         </View>
@@ -218,15 +308,21 @@ const AgentScreen: React.FC = () => {
         </View>
       )}
 
-      {/* Apply — the creation result goes straight to the calendar */}
-      {plan && placed > 0 && (
+      {/* Apply — the creation result goes straight to the calendar.
+          Shown whenever there's something to report, not just on success —
+          a required (fixed/focus) intention that placed nowhere at all used
+          to render nothing here, which looked identical to the feature being
+          broken instead of "this slot is already busy". */}
+      {plan && (placed > 0 || plan.unplaced.length > 0) && (
         <View style={s.section}>
-          <View style={s.resultRow}>
-            <Ionicons name="checkmark-circle" size={18} color={colors.primary} />
-            <Text style={[s.resultText, {color: colors.textSecondary}]}>
-              {t('agentPlaced', {count: placed})}{solving ? '…' : ''}
-            </Text>
-          </View>
+          {placed > 0 && (
+            <View style={s.resultRow}>
+              <Ionicons name="checkmark-circle" size={18} color={colors.primary} />
+              <Text style={[s.resultText, {color: colors.textSecondary}]}>
+                {t('agentPlaced', {count: placed})}{solving ? '…' : ''}
+              </Text>
+            </View>
+          )}
 
           {plan.unplaced.length > 0 && (
             <View style={[s.noteBox, {backgroundColor: colors.surface, borderColor: colors.border}]}>
@@ -247,10 +343,19 @@ const AgentScreen: React.FC = () => {
             </View>
           )}
 
-          <TouchableOpacity style={[s.applyBtn, {backgroundColor: colors.primary}]} onPress={apply}>
-            <Ionicons name="calendar" size={16} color={colors.onPrimary} />
-            <Text style={[s.applyText, {color: colors.onPrimary}]}>{t('agentApplyBtn')}</Text>
-          </TouchableOpacity>
+          {placed > 0 && (
+            <TouchableOpacity
+              style={[s.applyBtn, {backgroundColor: colors.primary, opacity: applying ? 0.6 : 1}]}
+              disabled={applying}
+              onPress={apply}>
+              {applying ? (
+                <ActivityIndicator size="small" color={colors.onPrimary} />
+              ) : (
+                <Ionicons name="calendar" size={16} color={colors.onPrimary} />
+              )}
+              <Text style={[s.applyText, {color: colors.onPrimary}]}>{t('agentApplyBtn')}</Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
 

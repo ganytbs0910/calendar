@@ -95,8 +95,6 @@ export default {
   titleClear: 'Limpar título',
   eventTitleHint: 'Digite o título do evento',
   loadFailed: 'Falha ao carregar eventos',
-  moveFailed: 'Falha ao mover evento. Tente novamente.',
-  updateError: 'Erro ao Atualizar',
   allDay: 'Dia Inteiro',
   duration: 'Duração',
   color: 'Cor',

@@ -95,8 +95,6 @@ export default {
   titleClear: 'ล้างชื่อ',
   eventTitleHint: 'กรอกชื่อกิจกรรม',
   loadFailed: 'โหลดกิจกรรมไม่สำเร็จ',
-  moveFailed: 'ย้ายกิจกรรมไม่สำเร็จ กรุณาลองอีกครั้ง',
-  updateError: 'เกิดข้อผิดพลาดในการอัปเดต',
   allDay: 'ทั้งวัน',
   duration: 'ระยะเวลา',
   color: 'สี',

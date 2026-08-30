@@ -187,6 +187,7 @@ export const solve = (input: SolveInput): SchedulePlan => {
       endMin: startMin + intn.durationMin,
       color: intn.color,
       protect: intn.protect,
+      explicitRecurrence: intn.explicitRecurrence,
       status: 'planned',
       reason: '深夜をまたぐため直接配置しました',
     };
@@ -409,6 +410,7 @@ export const solve = (input: SolveInput): SchedulePlan => {
       endMin: best.start + dem.durationMin,
       color: dem.intention.color,
       protect: dem.intention.protect,
+      explicitRecurrence: dem.intention.explicitRecurrence,
       monthDay: dem.intention.monthDay,
       monthWeek: dem.intention.monthWeek,
       lastDayOfMonth: dem.intention.lastDayOfMonth,

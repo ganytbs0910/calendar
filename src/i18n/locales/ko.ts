@@ -95,8 +95,6 @@ export default {
   titleClear: '제목 지우기',
   eventTitleHint: '일정 제목을 입력하세요',
   loadFailed: '일정 불러오기 실패',
-  moveFailed: '일정 이동 실패. 다시 시도해 주세요.',
-  updateError: '업데이트 오류',
   allDay: '종일',
   duration: '소요 시간',
   color: '색상',

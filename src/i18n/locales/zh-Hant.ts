@@ -95,8 +95,6 @@ export default {
   titleClear: '清除標題',
   eventTitleHint: '輸入活動標題',
   loadFailed: '載入活動失敗',
-  moveFailed: '移動活動失敗，請再試一次。',
-  updateError: '更新錯誤',
   allDay: '全天',
   duration: '持續時間',
   color: '顏色',

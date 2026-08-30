@@ -107,8 +107,6 @@ export default {
   titleClear: 'タイトルをクリア',
   eventTitleHint: '予定のタイトルを入力してください',
   loadFailed: '予定の読み込みに失敗しました',
-  moveFailed: '予定の移動に失敗しました。もう一度お試しください。',
-  updateError: '更新エラー',
   allDay: '終日',
   duration: '所要時間',
   color: '色',
@@ -636,6 +634,8 @@ export default {
   agentPerWeek: '週{{n}}回',
   agentDeadline: '締切 {{date}}',
   agentApproxH: '約{{h}}h',
+  agentStandingWeekly: '毎週(約3ヶ月)',
+  agentThisHorizonOnly: '今回のみ',
 
   // Rule-based planning — parser title lexicon
   lexSchool: '大学',

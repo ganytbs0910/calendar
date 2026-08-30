@@ -95,8 +95,6 @@ export default {
   titleClear: '清除标题',
   eventTitleHint: '请输入日程标题',
   loadFailed: '加载日程失败',
-  moveFailed: '移动日程失败，请重试。',
-  updateError: '更新错误',
   allDay: '全天',
   duration: '时长',
   color: '颜色',

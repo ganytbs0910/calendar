@@ -95,8 +95,6 @@ export default {
   titleClear: 'Hapus judul',
   eventTitleHint: 'Masukkan judul acara',
   loadFailed: 'Gagal memuat acara',
-  moveFailed: 'Gagal memindahkan acara. Silakan coba lagi.',
-  updateError: 'Kesalahan Pembaruan',
   allDay: 'Sepanjang Hari',
   duration: 'Durasi',
   color: 'Warna',

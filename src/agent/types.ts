@@ -13,6 +13,8 @@ export type IntentionKind =
   | 'recurring' // a goal with a weekly frequency, e.g. 週3で筋トレ
   | 'fixed' // an immovable recurring commitment, e.g. 金曜夜は夕飯
   | 'deadline' // a project to finish by a date, e.g. 今月末までにリリース
+  | 'event' // a single-occurrence date, e.g. 9月10日は誕生日 — no work to distribute
+  | 'monthly' // once a month, e.g. 毎月1日に家賃支払い / 第2土曜日にサークル活動
   | 'preference'; // a global preference that only scores, e.g. 移動はまとめたい
 
 /** 0 = Sunday … 6 = Saturday (matches Date.getDay()). */
@@ -37,7 +39,24 @@ export interface Intention {
   window?: TimeWindow; // preferred time-of-day window
   deadline?: string; // deadline kind: YYYY-MM-DD
   totalEstimateMin?: number; // deadline kind: total work to distribute
+  eventDate?: string; // event kind: the single date it lands on, YYYY-MM-DD
+  allDay?: boolean; // event kind: no time given — a full-day marker, not a slot
+  monthDay?: number; // monthly kind: day-of-month (1-31), e.g. 毎月1日
+  monthWeek?: number; // monthly kind: which occurrence (1-5) of `days[0]` in the month, e.g. 第2土曜日 → 2
+  lastDayOfMonth?: boolean; // monthly kind: the last calendar day, e.g. 毎月末
+  lastBusinessDayOfMonth?: boolean; // monthly kind: the last weekday, e.g. 最終営業日
+  monthInterval?: number; // monthly kind: every N months (default 1); 隔月 → 2
+  // fixed/focus/event: the declared range rolls past midnight (e.g. "22時から
+  // 翌1時") — window/durationMin already hold the correct start + full real
+  // duration, but the solver must pin this directly rather than search a
+  // same-day window, since TimeWindow can't express crossing a day boundary.
+  crossesMidnight?: boolean;
   protect?: boolean; // focus: defend the block against incoming meetings
+  // fixed/focus: an explicit standing-commitment marker was present (毎週/
+  // ずっと/常に/...). Without one, "火曜と木曜は10-12にバイト" reads as a plan
+  // for the days actually in the solve horizon, not a months-long series the
+  // user never asked for — see applyPlanToCalendar's use of this flag.
+  explicitRecurrence?: boolean;
   tag?: string; // batching category, e.g. exercise / errand / work
   color: string;
   createdAt: string;
@@ -56,6 +75,16 @@ export interface PlacedBlock {
   color: string;
   protect?: boolean;
   locked?: boolean; // user pinned this — solver must not move it
+  allDay?: boolean; // event kind: write as a full-day calendar entry
+  // fixed/focus: carried over from Intention — see its doc comment.
+  explicitRecurrence?: boolean;
+  // monthly kind: carried over so applyPlanToCalendar can compute future
+  // months' occurrences without needing the original Intention.
+  monthDay?: number;
+  monthWeek?: number;
+  lastDayOfMonth?: boolean;
+  lastBusinessDayOfMonth?: boolean;
+  monthInterval?: number;
   status: 'planned' | 'done' | 'skipped';
   reason: string; // why the solver chose this slot (explainability)
 }
@@ -104,5 +133,7 @@ export const KIND_META: Record<
   recurring: {icon: 'repeat-outline', labelJa: '習慣', defaultColor: '#34C759'},
   fixed: {icon: 'calendar-outline', labelJa: '毎週の予定', defaultColor: '#FF3B30'},
   deadline: {icon: 'flag-outline', labelJa: '締切', defaultColor: '#FF9500'},
+  event: {icon: 'bookmark-outline', labelJa: '単発の予定', defaultColor: '#FF2D92'},
+  monthly: {icon: 'calendar-number-outline', labelJa: '毎月の予定', defaultColor: '#5AC8FA'},
   preference: {icon: 'options-outline', labelJa: 'こだわり', defaultColor: '#AF52DE'},
 };

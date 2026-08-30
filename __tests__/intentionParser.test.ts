@@ -447,3 +447,59 @@ test.each([
   expect(intn.kind).toBe('recurring');
   expect(intn.timesPerWeek).toBe(expectedFreq);
 });
+
+// 「火曜と木曜は10時から12時までバイト」 reads just as naturally as this
+// week's plan as it does a standing shift pattern — without an explicit
+// 毎週/ずっと-style marker, applyPlanToCalendar must not extrapolate this
+// into a ~3-month series (see explicitRecurrence's doc comment in types.ts).
+test('a bare fixed weekday+time commitment has no explicitRecurrence by default', () => {
+  const [intn] = parseIntentions('火曜と木曜は10時から12時までバイト', now);
+  expect(intn.kind).toBe('fixed');
+  expect(intn.explicitRecurrence).toBeFalsy();
+});
+
+test.each([
+  '毎週火曜と木曜は10時から12時までバイト',
+  '火曜と木曜は10時から12時までずっとバイト',
+  '火曜と木曜は10時から12時まで定期的にバイト',
+])('"%s" sets explicitRecurrence from a standing-commitment marker', text => {
+  const [intn] = parseIntentions(text, now);
+  expect(intn.kind).toBe('fixed');
+  expect(intn.explicitRecurrence).toBe(true);
+});
+
+// "10時から12時にバイト" has a concrete time but names no weekday at all —
+// there is no day-of-week to build a standing commitment out of, so this
+// must not silently default to every weekday (Mon-Fri). The only day a
+// dayless time mention can sensibly mean is today.
+test('a bare time range with no weekday at all is a one-off event today, not a Mon-Fri commitment', () => {
+  const [intn] = parseIntentions('10時から12時にバイト', now);
+  expect(intn.kind).toBe('event');
+  expect(intn.eventDate).toBe('2026-08-26'); // `now` is Wed 2026-08-26
+  expect(intn.window).toEqual({startHour: 10, endHour: 12});
+  expect(intn.title).toBe('バイト');
+});
+
+test('a vague time-of-day word with no weekday is also a one-off event today', () => {
+  const [intn] = parseIntentions('夜に日記を書く', now);
+  expect(intn.kind).toBe('event');
+  expect(intn.eventDate).toBe('2026-08-26');
+});
+
+// Naming an actual weekday (even just one, even without ever using 毎週)
+// still legitimately means "on that day" — this must keep working exactly
+// as before; only the *no day at all* case changed.
+test('naming an actual weekday still reads as fixed, not event', () => {
+  const [intn] = parseIntentions('火曜と木曜は10時から12時までバイト', now);
+  expect(intn.kind).toBe('fixed');
+  expect(intn.days).toEqual([2, 4]);
+});
+
+test('an explicit 死守 focus block still needs its own recurrence marker for the multi-month write', () => {
+  const [intn] = parseIntentions('平日午前は深い作業を死守', now);
+  expect(intn.kind).toBe('focus');
+  expect(intn.explicitRecurrence).toBeFalsy();
+
+  const [withMarker] = parseIntentions('平日午前は深い作業をずっと死守', now);
+  expect(withMarker.explicitRecurrence).toBe(true);
+});

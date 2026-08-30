@@ -1413,6 +1413,15 @@ function AppContent() {
     }
   }, []);
 
+  // Long-pressing an event on the month grid (outside selection mode) enters
+  // selection mode with that event pre-selected, instead of starting a
+  // drag-to-move — the same destination as the top-left checkmark button, just
+  // pre-loaded with the event that was pressed.
+  const handleEventLongPressSelect = useCallback((event: CalendarEventReadable) => {
+    enterSelectionMode();
+    toggleEventSelection(event);
+  }, [enterSelectionMode, toggleEventSelection]);
+
   const runBulkDelete = useCallback(async (events: CalendarEventReadable[]) => {
     // Delete one at a time and remember what actually went through, so a
     // failure part-way leaves undo offering exactly the events that are gone.
@@ -1736,6 +1745,7 @@ function AppContent() {
               selectionMode={selectionMode}
               selectedEventKeys={selectedEventKeys}
               onToggleEventSelection={toggleEventSelection}
+              onEventLongPressSelect={handleEventLongPressSelect}
             />
         ) : (
           <WeekView

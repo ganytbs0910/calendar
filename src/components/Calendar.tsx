@@ -7,7 +7,6 @@ import {
   useWindowDimensions,
   ScrollView,
   FlatList,
-  Alert,
   ActivityIndicator,
   Modal,
   Animated,
@@ -16,12 +15,13 @@ import {
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
 import {getAllEventColors} from './AddEventModal';
 import {getAllEventPhotoCounts} from '../services/eventPhotoService';
-import {cancelEventNotification, shiftEventNotification} from '../services/notificationService';
+import {cancelEventNotification} from '../services/notificationService';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {fetchWeather, WeatherDay} from '../services/weatherService';
 import {useTheme} from '../theme/ThemeContext';
 import {useTranslation} from 'react-i18next';
 import {eventDayKeys, eventDayRange} from '../utils/eventDays';
+import {CalendarEventStore} from '../types/calendarEventStore';
 
 const MONTH_ANCHOR = 120; // Center index for infinite-like scrolling
 // Container has paddingHorizontal: 12 (both sides = 24) total. The real grid
@@ -45,13 +45,21 @@ interface CalendarProps {
   filterColor?: string | null;
   /**
    * Bulk-selection mode: tapping an event marks it instead of opening it, and
-   * the gestures that would compete for the same tap (day sheet, drag-to-move,
-   * date-range drag) are suspended.
+   * the gestures that would compete for the same tap (day sheet, date-range
+   * drag) are suspended.
    */
   selectionMode?: boolean;
   /** Keys from eventOccurrenceKey — one entry per selected occurrence. */
   selectedEventKeys?: ReadonlySet<string>;
   onToggleEventSelection?: (event: CalendarEventReadable) => void;
+  /**
+   * Long-pressing an event outside selection mode used to start a
+   * drag-to-move; it now hands the event here so the caller can enter
+   * selection mode with this event pre-selected instead.
+   */
+  onEventLongPressSelect?: (event: CalendarEventReadable) => void;
+  /** Uses the identical calendar UI with a non-EventKit backing store. */
+  eventStore?: CalendarEventStore;
 }
 
 export interface CalendarRef {
@@ -103,7 +111,7 @@ const ConditionalScroll: React.FC<{fullscreen: boolean; children: React.ReactNod
     ? <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{paddingBottom: 80}} nestedScrollEnabled>{children}</ScrollView>
     : <>{children}</>;
 
-export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, onDateDoubleSelect, onEventPress, onDateRangeSelect, onMonthChange, hasPermission: hasPermissionProp, fullscreenMode, filterColor, selectionMode, selectedEventKeys, onToggleEventSelection}, ref) => {
+export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, onDateDoubleSelect, onEventPress, onDateRangeSelect, onMonthChange, hasPermission: hasPermissionProp, fullscreenMode, filterColor, selectionMode, selectedEventKeys, onToggleEventSelection, onEventLongPressSelect, eventStore}, ref) => {
   const {colors} = useTheme();
   const {t} = useTranslation();
   // Seeds for the first paint only; both are replaced by the measured grid
@@ -136,7 +144,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
   }, []);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [hasPermissionInternal, setHasPermissionInternal] = useState(false);
-  const hasPermission = hasPermissionProp ?? hasPermissionInternal;
+  const hasPermission = eventStore ? true : (hasPermissionProp ?? hasPermissionInternal);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Cache version - increment to trigger re-render when cache updates
@@ -161,20 +169,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
   const calendarDaysRef = useRef<Array<{day: number; date: Date | null; isCurrentMonth: boolean}>>([]);
   const numberOfWeeksRef = useRef(5);
 
-  const isSavingRef = useRef(false);
-
-  // Event drag-and-drop state
-  const [draggingEvent, setDraggingEvent] = useState<{
-    event: CalendarEventReadable;
-    originalDate: Date;
-    currentDate: Date;
-  } | null>(null);
-  const draggingEventRef = useRef<{
-    event: CalendarEventReadable;
-    originalDate: Date;
-    currentDate: Date;
-  } | null>(null);
-  const dragModeRef = useRef<'dateRange' | 'moveEvent' | null>(null);
+  const dragModeRef = useRef<'dateRange' | null>(null);
 
   // Swipe gesture for month navigation and drag selection
   const currentDateRef = useRef(currentDate);
@@ -185,7 +180,6 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchEventsRef = useRef<(forceRefresh?: boolean) => void>(() => {});
-  const getMonthKeyRef = useRef<(year: number, month: number) => string>((y, m) => `${y}-${m}`);
   const dayHeightRef = useRef(Math.floor((windowHeight - HEIGHT_CHROME) / 5));
   // Actual space available for the grid, measured at runtime so the last week
   // never gets clipped by the tab bar (the window-derived value is only a
@@ -248,37 +242,12 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
     return null;
   }, []);
 
-  // Handle long press on an event to start drag-and-drop move
-  const handleEventLongPress = useCallback((event: CalendarEventReadable, date: Date) => {
-    if (!event.startDate || !event.endDate) return;
-
-    // Skip all-day and multi-day events
-    if (event.allDay) return;
-    const eventStart = new Date(event.startDate);
-    const eventEnd = new Date(event.endDate);
-    const startDay = new Date(eventStart);
-    startDay.setHours(0, 0, 0, 0);
-    const endDay = new Date(eventEnd);
-    endDay.setHours(0, 0, 0, 0);
-    if (startDay.getTime() !== endDay.getTime()) return;
-
-    const dragData = {
-      event,
-      originalDate: date,
-      currentDate: date,
-    };
-
-    draggingEventRef.current = dragData;
-    dragModeRef.current = 'moveEvent';
-    isDraggingRef.current = true;
-    setDraggingEvent(dragData);
-
-    // Cancel any pending long press timer for date range selection
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-  }, []);
+  // Long-pressing an event outside selection mode enters selection mode with
+  // this event pre-selected, rather than starting a drag-to-move.
+  const handleEventLongPress = useCallback((event: CalendarEventReadable) => {
+    if (!event.id) return;
+    onEventLongPressSelect?.(event);
+  }, [onEventLongPressSelect]);
 
   // A tap on an event marks it while bulk-selection is on, and opens it
   // otherwise. Events the calendar has no id for can't be tracked in the
@@ -299,14 +268,9 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
   const panResponder = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => false,
     onMoveShouldSetPanResponder: (_, _gestureState) => {
-      return isDraggingRef.current || dragModeRef.current === 'moveEvent';
+      return isDraggingRef.current;
     },
     onPanResponderGrant: (evt) => {
-      // If already in moveEvent mode (started by event onLongPress), skip date-range setup
-      if (dragModeRef.current === 'moveEvent') return;
-      // Don't start new interactions while saving
-      if (isSavingRef.current) return;
-
       const startPageX = evt.nativeEvent.pageX;
       const startPageY = evt.nativeEvent.pageY;
       isDraggingRef.current = false;
@@ -332,18 +296,6 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
         }
       }
 
-      // If dragging an event to move it
-      if (isDraggingRef.current && dragModeRef.current === 'moveEvent' && draggingEventRef.current) {
-        const date = getDateFromPosition(evt.nativeEvent.pageX, evt.nativeEvent.pageY);
-        if (date) {
-          const prev = draggingEventRef.current.currentDate;
-          if (prev.getTime() === date.getTime()) return;
-          draggingEventRef.current = {...draggingEventRef.current, currentDate: date};
-          setDraggingEvent({...draggingEventRef.current});
-        }
-        return;
-      }
-
       // If dragging for date selection, update end date
       if (isDraggingRef.current && dragModeRef.current === 'dateRange') {
         const date = getDateFromPosition(evt.nativeEvent.pageX, evt.nativeEvent.pageY);
@@ -358,72 +310,6 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       if (longPressTimer.current) {
         clearTimeout(longPressTimer.current);
         longPressTimer.current = null;
-      }
-
-      // If was dragging an event to move it
-      if (dragModeRef.current === 'moveEvent' && draggingEventRef.current) {
-        const {event: originalEvent, originalDate, currentDate: targetDate} = draggingEventRef.current;
-
-        // Clean up drag state
-        draggingEventRef.current = null;
-        dragModeRef.current = null;
-        isDraggingRef.current = false;
-        setDraggingEvent(null);
-
-        // Only save if date actually changed
-        const origDay = new Date(originalDate);
-        origDay.setHours(0, 0, 0, 0);
-        const targetDay = new Date(targetDate);
-        targetDay.setHours(0, 0, 0, 0);
-        if (origDay.getTime() === targetDay.getTime()) return;
-
-        // Prevent concurrent saves
-        if (isSavingRef.current) return;
-        isSavingRef.current = true;
-
-        // Calculate new start/end preserving original time
-        const eventStart = new Date(originalEvent.startDate!);
-        const eventEnd = new Date(originalEvent.endDate!);
-        const dayDiff = targetDay.getTime() - origDay.getTime();
-        const newStartDate = new Date(eventStart.getTime() + dayDiff);
-        const newEndDate = new Date(eventEnd.getTime() + dayDiff);
-
-        RNCalendarEvents.saveEvent(originalEvent.title || '', {
-          id: originalEvent.id,
-          calendarId: originalEvent.calendar?.id,
-          startDate: newStartDate.toISOString(),
-          endDate: newEndDate.toISOString(),
-          allDay: originalEvent.allDay,
-          location: originalEvent.location,
-          notes: originalEvent.notes,
-          url: originalEvent.url,
-          alarms: originalEvent.alarms,
-        }).then(() => {
-          // The reminder is an absolute timestamp, so it does not follow the
-          // event on its own — move it by the same number of days.
-          shiftEventNotification({
-            eventId: originalEvent.id!,
-            title: originalEvent.title || '',
-            deltaMs: dayDiff,
-            newStartDate: newStartDate,
-          }).catch(() => {});
-          // Refresh events cache for current month
-          const cacheKey = getMonthKeyRef.current(currentDateRef.current.getFullYear(), currentDateRef.current.getMonth());
-          eventsCache.current.delete(cacheKey);
-          fetchEventsRef.current(true);
-        }).catch((_err: unknown) => {
-          Alert.alert(
-            t('updateError'),
-            t('moveFailed'),
-            [{text: 'OK'}],
-          );
-          const cacheKey = getMonthKeyRef.current(currentDateRef.current.getFullYear(), currentDateRef.current.getMonth());
-          eventsCache.current.delete(cacheKey);
-          fetchEventsRef.current(true);
-        }).finally(() => {
-          isSavingRef.current = false;
-        });
-        return;
       }
 
       // If was dragging for date selection, call onDateRangeSelect
@@ -462,12 +348,8 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       isDraggingRef.current = false;
       dragStartDateRef.current = null;
       dragEndDateRef.current = null;
-      // Clear event drag state
-      draggingEventRef.current = null;
-      dragModeRef.current = null;
-      setDraggingEvent(null);
     },
-  }), [getDateFromPosition, t]);
+  }), [getDateFromPosition]);
 
   // Check if date is in drag selection range
   const isInDragRange = useCallback((date: Date): boolean => {
@@ -535,10 +417,12 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
     const startDate = new Date(year, month, 1);
     const endDate = new Date(year, month + 1, 0, 23, 59, 59);
 
-    const calendarEvents = await RNCalendarEvents.fetchAllEvents(
-      startDate.toISOString(),
-      endDate.toISOString(),
-    );
+    const calendarEvents = eventStore
+      ? eventStore.events.filter(event =>
+          !!event.startDate && !!event.endDate &&
+          new Date(event.startDate).getTime() <= endDate.getTime() &&
+          new Date(event.endDate).getTime() >= startDate.getTime())
+      : await RNCalendarEvents.fetchAllEvents(startDate.toISOString(), endDate.toISOString());
 
     // Filter out holiday/subscription calendar events (e.g. 日本の祝日)
     const filteredEvents = calendarEvents.filter(event => {
@@ -555,7 +439,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
     // Store in cache
     eventsCache.current.set(cacheKey, filteredEvents);
     return filteredEvents;
-  }, [getMonthKey]);
+  }, [getMonthKey, eventStore]);
 
   // Prefetch multiple months around the given month
   const prefetchMonths = useCallback(async (year: number, month: number, range: number = 2) => {
@@ -637,7 +521,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
     try {
       // Fetch colors if not cached
       if (!eventColorsCache.current || forceRefresh) {
-        const fetchedColors = await getAllEventColors();
+        const fetchedColors = eventStore ? eventStore.colors : await getAllEventColors();
         eventColorsCache.current = fetchedColors;
         setEventColors(fetchedColors);
       }
@@ -658,11 +542,16 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       setIsLoading(false);
       isFetching.current = false;
     }
-  }, [hasPermission, currentYear, currentMonth, getMonthKey, fetchMonthEvents, prefetchMonths, t]);
+  }, [hasPermission, currentYear, currentMonth, getMonthKey, fetchMonthEvents, prefetchMonths, t, eventStore]);
+
+  useEffect(() => {
+    if (!eventStore) return;
+    clearCache();
+    fetchEvents(true);
+  }, [eventStore?.events, eventStore?.colors]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keep refs in sync for PanResponder callbacks
   useEffect(() => { fetchEventsRef.current = fetchEvents; }, [fetchEvents]);
-  useEffect(() => { getMonthKeyRef.current = getMonthKey; }, [getMonthKey]);
 
   // Run fetchEvents whenever month changes
   useEffect(() => {
@@ -680,6 +569,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
   useImperativeHandle(ref, () => ({
     refreshEvents: () => {
       clearCache();
+      if (eventStore) eventStore.refresh().catch(() => {});
       fetchEvents(true);
     },
     goToToday: () => {
@@ -688,7 +578,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       const idx = MONTH_ANCHOR + (now.getFullYear() - baseDate.getFullYear()) * 12 + (now.getMonth() - baseDate.getMonth());
       monthListRef.current?.scrollToIndex({index: idx, animated: true});
     },
-  }), [fetchEvents, clearCache, baseDate]);
+  }), [fetchEvents, clearCache, baseDate, eventStore]);
 
   const getDaysInMonth = useCallback((year: number, month: number) => {
     return new Date(year, month + 1, 0).getDate();
@@ -1218,18 +1108,8 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                             return max;
                           }, 0) || 0;
                           const multiDayOffset = multiDayRowCount * (EVENT_BAR_HEIGHT + 2);
-                          const totalEvents = singleDayEvents.length + multiDayRowCount;
 
                           const inDragRange = item.date && isInDragRange(item.date);
-                          const isEventDragTarget = draggingEvent && item.date &&
-                            draggingEvent.currentDate.getFullYear() === item.date.getFullYear() &&
-                            draggingEvent.currentDate.getMonth() === item.date.getMonth() &&
-                            draggingEvent.currentDate.getDate() === item.date.getDate() &&
-                            draggingEvent.originalDate.getTime() !== draggingEvent.currentDate.getTime();
-                          const isEventDragSource = draggingEvent && item.date &&
-                            draggingEvent.originalDate.getFullYear() === item.date.getFullYear() &&
-                            draggingEvent.originalDate.getMonth() === item.date.getMonth() &&
-                            draggingEvent.originalDate.getDate() === item.date.getDate();
 
                           return (
                             <TouchableOpacity
@@ -1250,7 +1130,6 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                                   borderLeftWidth: 2,
                                 },
                                 inDragRange && {backgroundColor: colors.dragRange},
-                                isEventDragTarget && {backgroundColor: colors.dragRange},
                               ]}
                               onPress={selectionMode ? undefined : () => handleDateSelect(item.date!)}
                               accessibilityRole="button">
@@ -1285,7 +1164,6 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                                 return (
                                   <View style={[styles.singleDayEventsContainer, {marginTop: multiDayOffset > 0 ? multiDayOffset + 2 : 2}]}>
                                     {visibleSingle.map(event => {
-                                      const isDraggedEvent = isEventDragSource && draggingEvent?.event.id === event.id;
                                       const selected = isEventSelected(event);
                                       return (
                                         <TouchableOpacity
@@ -1293,14 +1171,13 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                                           style={[
                                             styles.singleDayEventBox,
                                             {backgroundColor: (event.id && eventColors[event.id]) || event.calendar?.color || colors.primary},
-                                            isDraggedEvent && {opacity: 0.3},
                                             // Fade what is not picked so the selection reads at a
                                             // glance — the chips are too small for a checkbox.
                                             selectionMode && !selected && styles.unselectedEvent,
                                             selected && styles.selectedEvent,
                                           ]}
                                           onPress={() => handleEventTap(event)}
-                                          onLongPress={selectionMode ? undefined : () => handleEventLongPress(event, item.date!)}
+                                          onLongPress={selectionMode ? undefined : () => handleEventLongPress(event)}
                                           delayLongPress={200}>
                                           <Text style={[styles.singleDayEventTime, {color: colors.onEvent}]}>
                                             {event.startDate && formatTimeCompact(event.startDate)}
@@ -1329,14 +1206,6 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                                   </View>
                                 );
                               })()}
-                              {isEventDragTarget && draggingEvent && totalEvents < 2 && (
-                                <View style={[styles.singleDayEventsContainer, {marginTop: multiDayOffset > 0 ? multiDayOffset + 2 : 2}]}>
-                                  <View style={[styles.singleDayEventBox, {backgroundColor: (draggingEvent.event.id && eventColors[draggingEvent.event.id]) || draggingEvent.event.calendar?.color || colors.primary, opacity: 0.5}]}>
-                                    <Text style={styles.singleDayEventTime}>{draggingEvent.event.startDate && formatTimeCompact(draggingEvent.event.startDate)}</Text>
-                                    <Text style={styles.singleDayEventTitle} numberOfLines={1} ellipsizeMode="clip">{draggingEvent.event.title}</Text>
-                                  </View>
-                                </View>
-                              )}
                             </TouchableOpacity>
                           );
                         })}
@@ -1368,7 +1237,8 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                                 mdSelected && styles.selectedEvent,
                               ]}
                               activeOpacity={0.7}
-                              onPress={() => handleEventTap(mdEvent.event)}>
+                              onPress={() => handleEventTap(mdEvent.event)}
+                              onLongPress={selectionMode ? undefined : () => handleEventLongPress(mdEvent.event)}>
                               {mdSelected && (
                                 <View style={[styles.selectedBadge, {backgroundColor: colors.onEvent}]}>
                                   <Ionicons name="checkmark" size={9} color={evColor} />
@@ -1563,8 +1433,13 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   loadingContainer: {
+    position: 'absolute',
+    top: 40,
+    left: 0,
+    right: 0,
+    zIndex: 2,
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 4,
   },
   errorContainer: {
     backgroundColor: '#FFF3F3',

@@ -95,8 +95,6 @@ export default {
   titleClear: 'Effacer le titre',
   eventTitleHint: "Saisissez le titre de l'événement",
   loadFailed: 'Échec du chargement des événements',
-  moveFailed: "Échec du déplacement de l'événement. Veuillez réessayer.",
-  updateError: 'Erreur de mise à jour',
   allDay: 'Toute la journée',
   duration: 'Durée',
   color: 'Couleur',

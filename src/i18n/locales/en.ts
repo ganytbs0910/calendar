@@ -98,8 +98,6 @@ export default {
   titleClear: 'Clear title',
   eventTitleHint: 'Enter event title',
   loadFailed: 'Failed to load events',
-  moveFailed: 'Failed to move event. Please try again.',
-  updateError: 'Update Error',
   allDay: 'All Day',
   duration: 'Duration',
   color: 'Color',
@@ -613,6 +611,8 @@ export default {
   agentPerWeek: '{{n}}×/week',
   agentDeadline: 'Due {{date}}',
   agentApproxH: '~{{h}}h',
+  agentStandingWeekly: 'Weekly (~3 months)',
+  agentThisHorizonOnly: 'This time only',
 
   // Rule-based planning — parser title lexicon
   lexSchool: 'University',

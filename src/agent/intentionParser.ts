@@ -202,6 +202,15 @@ const singleTimeOf = (frag: string): {hour: number; min: number} | undefined => 
   return {hour: enAdjustAmPm(+en[1], en[3]), min: en[2] ? +en[2] : 0};
 };
 
+// "毎週" or an equivalent standing-commitment word is what actually signals a
+// months-long series — a bare weekday+time fragment like "火曜と木曜は10時
+// から12時までバイト" reads just as naturally as "this week's plan" in
+// Japanese, and applying it for months without being asked surprised the
+// user (see explicitRecurrence's use in applyPlanToCalendar). 当面/しばらく
+// are deliberately excluded — they lean toward "for now", the opposite signal.
+const EXPLICIT_RECURRENCE_RE = /毎週|ずっと|継続的?に|今後(も|ずっと)?|常に|いつも|定期的に/;
+const explicitRecurrenceOf = (frag: string): boolean => EXPLICIT_RECURRENCE_RE.test(frag);
+
 const priorityOf = (frag: string, base: number): number => {
   if (/死守|絶対|必ず|マスト|must|死んでも/i.test(frag)) return 5;
   if (/できれば|なるべく|極力|余裕があれば|nice/i.test(frag)) return 2;
@@ -635,6 +644,12 @@ const parseFragment = (raw: string, idx: number, now: Date): Intention | null =>
   // not a recurring pattern — but a weekday token (`days`) is the stronger,
   // more specific signal when both somehow appear in the same fragment.
   else if (eventDate && !days) kind = 'event';
+  // "10時から12時にバイト" — a concrete time with NO weekday reference at all.
+  // There is no day-of-week to recur on, so this used to fall into 'fixed'
+  // and default `days` to every weekday, silently turning a single shift
+  // into a standing Mon-Fri commitment. With no day named, the only day this
+  // can sensibly mean is today — see base.eventDate's fallback below.
+  else if (win && !days) kind = 'event';
   else if (win || days) kind = 'fixed';
   else kind = 'recurring';
 
@@ -662,6 +677,7 @@ const parseFragment = (raw: string, idx: number, now: Date): Intention | null =>
     base.protect = true;
     base.durationMin = explicitDur ?? durationMin(frag, (base.window.endHour - base.window.startHour) * 60);
     base.priority = priorityOf(frag, 5);
+    base.explicitRecurrence = explicitRecurrenceOf(frag);
     if (crossesMidnight) base.crossesMidnight = true;
   } else if (kind === 'recurring') {
     base.timesPerWeek = freq ?? 3;
@@ -673,6 +689,7 @@ const parseFragment = (raw: string, idx: number, now: Date): Intention | null =>
     base.window = win ?? {startHour: 18, endHour: 20};
     base.durationMin = explicitDur ?? durationMin(frag, 90);
     base.priority = priorityOf(frag, 4);
+    base.explicitRecurrence = explicitRecurrenceOf(frag);
     if (crossesMidnight) base.crossesMidnight = true;
   } else if (kind === 'deadline') {
     base.deadline = deadline;
@@ -681,7 +698,9 @@ const parseFragment = (raw: string, idx: number, now: Date): Intention | null =>
     base.totalEstimateMin = durationMin(frag, 90) > 90 ? durationMin(frag, 90) : 600; // default ~10h
     base.priority = priorityOf(frag, 4);
   } else if (kind === 'event') {
-    base.eventDate = eventDate;
+    // Reached via the `win && !days` branch above with no explicit date —
+    // "today" is the only day a dayless time mention can mean.
+    base.eventDate = eventDate ?? addDaysKey(now, 0);
     if (range) {
       base.window = win!;
       base.durationMin = explicitDur ?? 60;
