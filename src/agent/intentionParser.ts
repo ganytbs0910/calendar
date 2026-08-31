@@ -341,6 +341,9 @@ const cleanTitle = (frag: string): string => {
     // own whole unit before the bare "日" isn't left stranded by nothing else
     // removing it.
     .replace(/(\d+|[０-９]+)\s*日後/g, '')
+    // "2週間後" (relative event date, see relativeEventDateOf) — same reasoning
+    // as 日後 just above.
+    .replace(/(\d+|[０-９]+)\s*週間?後/g, '')
     .replace(/今日中に|明日中に|今年中に|今年末|年内に|今月中|月内|今月末|今週末|今週|再来週|来週|今度|今月|来月|明々後日|明明後日|明後日|今日|明日|までに|まで/g, '')
     // "9月末"/"9末" (explicit month-end, see resolveMonthEndKey) must go
     // before the bare 毎月末|月末 strip right below, or that strip eats just
@@ -589,6 +592,16 @@ const relativeEventDateOf = (frag: string, now: Date): string | undefined => {
     const n = toNum(m[1]);
     if (!isNaN(n)) return addDaysKey(now, n);
   }
+  // "2週間後に歯医者" — checked after 日後 above (a fragment only ever states
+  // one of the two units). Without this, "N週間後" had no eventDate and no
+  // `days` either, so it fell all the way through to the generic 'recurring'
+  // default with a meaningless timesPerWeek — the same failure mode 日後 was
+  // already fixed for.
+  const w = frag.match(/(\d+|[０-９]+)\s*週間?後/);
+  if (w) {
+    const n = toNum(w[1]);
+    if (!isNaN(n)) return addDaysKey(now, n * 7);
+  }
   return undefined;
 };
 
@@ -697,6 +710,8 @@ const weekdayRangeOf = (frag: string): DayOfWeek[] | undefined => {
   return result;
 };
 
+const ALL_DAYS: DayOfWeek[] = [0, 1, 2, 3, 4, 5, 6];
+
 const daysOf = (frag: string): DayOfWeek[] | undefined => {
   // "以外" (except) inverts the named days — must be checked before the plain
   // 土日/平日 matches below, which would otherwise return the literal (and
@@ -707,14 +722,26 @@ const daysOf = (frag: string): DayOfWeek[] | undefined => {
   if (range) return range;
   const found: DayOfWeek[] = [];
   for (const {re, day} of DOW_TOKENS) if (re.test(frag)) found.push(day);
-  if (found.length) return Array.from(new Set(found)) as DayOfWeek[];
+  if (found.length) {
+    const uniq = Array.from(new Set(found)) as DayOfWeek[];
+    // "水曜以外は毎日ジム" — a SPECIFIC weekday (or list), not 土日/平日, still
+    // gets inverted by 以外. Without this, the literal day(s) named were
+    // returned as-is, making the fragment mean the exact opposite of what
+    // was declared (gym ONLY on Wednesday, instead of every day but).
+    if (/以外/.test(frag)) return ALL_DAYS.filter(d => !uniq.includes(d));
+    return uniq;
+  }
   const run = frag.match(BARE_DOW_RUN_RE);
   if (run) {
     const bare = run[0]
       .replace(/[・、,，]/g, '')
       .split('')
       .map(c => BARE_DOW_DAY[c]);
-    if (bare.length) return Array.from(new Set(bare));
+    if (bare.length) {
+      const uniqBare = Array.from(new Set(bare)) as DayOfWeek[];
+      if (/以外/.test(frag)) return ALL_DAYS.filter(d => !uniqBare.includes(d));
+      return uniqBare;
+    }
   }
   if (/平日/.test(frag)) return [...WEEKDAYS];
   if (/週末|土日/.test(frag)) return [...WEEKENDS];

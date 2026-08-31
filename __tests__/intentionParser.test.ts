@@ -688,3 +688,29 @@ test.each([
   const [intn] = parseIntentions(text, now);
   expect(intn.title).not.toContain(marker);
 });
+
+// "N週間後" (in N weeks) used to have no eventDate and no `days`, so it fell
+// through to a meaningless generic 'recurring' default — the exact failure
+// mode "N日後" was already fixed for; 週間 just wasn't included.
+test.each([
+  ['1週間後に美容院', '2026-09-02'],
+  ['2週間後に歯医者', '2026-09-09'],
+])('"%s" resolves to a relative one-off date N weeks out', (text, expected) => {
+  const [intn] = parseIntentions(text, now);
+  expect(intn.kind).toBe('event');
+  expect(intn.eventDate).toBe(expected);
+});
+
+// "水曜以外は毎日ジム" — a SPECIFIC weekday (not just 土日/平日) combined with
+// 以外 used to return the literal day named instead of its complement,
+// meaning the exact opposite of what was declared (gym only on Wednesday).
+test('a specific weekday + 以外 excludes that day, not just 土日/平日以外', () => {
+  const [intn] = parseIntentions('水曜以外は毎日ジム', now);
+  expect(intn.days).toEqual([0, 1, 2, 4, 5, 6]);
+  expect(intn.days).not.toContain(3);
+});
+
+test('a bare weekday-list + 以外 also excludes correctly', () => {
+  const [intn] = parseIntentions('月水以外は毎日ジム', now);
+  expect(intn.days).toEqual([0, 2, 4, 5, 6]);
+});
