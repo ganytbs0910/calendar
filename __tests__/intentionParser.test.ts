@@ -1,4 +1,4 @@
-import {parseIntentions} from '../src/agent/intentionParser';
+import {parseIntentions, hasLowConfidence} from '../src/agent/intentionParser';
 
 const now = new Date(2026, 7, 26); // Wed 2026-08-26
 
@@ -752,4 +752,43 @@ test('a qualified weekday range ("来週の月曜から水曜まで") sets both 
   expect(intn.eventDate).toBe('2026-09-07'); // next week's Monday
   expect(intn.eventEndDate).toBe('2026-09-09'); // through that week's Wednesday
   expect(intn.title).toBe('出張');
+});
+
+// lowConfidence marks the one 'recurring' path reached with NO real signal
+// at all (no day, window, frequency, or date) — the "made up a 3x/week
+// guess" fallback. A future caller can use this to route the raw text
+// through a cloud re-check instead of trusting the guess outright.
+describe('lowConfidence', () => {
+  test.each([
+    '月1で美容院',
+    'なるはやでメール返信',
+    '早めに資料作成',
+    'たまにジム',
+    '暇な時に掃除',
+  ])('"%s" (no real signal) is flagged low-confidence', text => {
+    const [intn] = parseIntentions(text, now);
+    expect(intn.kind).toBe('recurring');
+    expect(intn.lowConfidence).toBe(true);
+  });
+
+  test.each([
+    ['週2でジム行く', 'recurring'], // has a real frequency signal
+    ['毎週月曜日の10時から12時に英語基礎', 'fixed'],
+    ['9時から11時の間で歯医者', 'event'],
+    ['今月末までにレポート提出', 'deadline'],
+    ['毎月1日に家賃支払い', 'monthly'],
+  ])('"%s" (%s, has real signal) is not flagged low-confidence', text => {
+    const [intn] = parseIntentions(text, now);
+    expect(intn.lowConfidence).toBeFalsy();
+  });
+
+  test('hasLowConfidence is true when any parsed intention is low-confidence', () => {
+    const intns = parseIntentions('毎週月曜日の10時から12時に英語基礎。月1で美容院', now);
+    expect(hasLowConfidence(intns)).toBe(true);
+  });
+
+  test('hasLowConfidence is false when every parsed intention has real signal', () => {
+    const intns = parseIntentions('毎週月曜日の10時から12時に英語基礎。週2でジム', now);
+    expect(hasLowConfidence(intns)).toBe(false);
+  });
 });

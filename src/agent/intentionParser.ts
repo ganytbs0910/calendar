@@ -890,6 +890,14 @@ const parseFragment = (raw: string, idx: number, now: Date): Intention | null =>
   else if (win && !days) kind = 'event';
   else if (win || days) kind = 'fixed';
   else kind = 'recurring';
+  // 'recurring' is reached two ways: an actual frequency signal (freq
+  // truthy, via the "else if (freq)" branch above) or this final bare
+  // fallback with NO day/window/frequency/date at all — the "made up a
+  // 3x/week guess" case that produced most of the wrong titles/kinds found
+  // across this session's testing passes ("月1で美容院", "なるはやでメール
+  // 返信", "Sep 10 dentist", ...). freq being falsy here is exactly what
+  // distinguishes the two, so this is a direct (not re-derived) check.
+  const lowConfidence = kind === 'recurring' && !freq;
 
   const title = lex ? i18n.t(lex.titleKey) : cleanTitle(frag) || i18n.t('agentUntitled', {n: idx + 1});
   const tag = lex?.tag;
@@ -908,6 +916,7 @@ const parseFragment = (raw: string, idx: number, now: Date): Intention | null =>
     createdAt: new Date().toISOString(),
     active: true,
   };
+  if (lowConfidence) base.lowConfidence = true;
 
   if (kind === 'focus') {
     base.window = win ?? {startHour: 9, endHour: 12};
@@ -998,3 +1007,7 @@ export const parseIntentions = (text: string, now: Date = new Date()): Intention
   });
   return out;
 };
+
+/** True when at least one intention has no real parsed signal — see Intention.lowConfidence. */
+export const hasLowConfidence = (intentions: Intention[]): boolean =>
+  intentions.some(i => i.lowConfidence);

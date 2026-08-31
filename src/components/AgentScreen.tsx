@@ -21,7 +21,8 @@ import RNCalendarEvents from 'react-native-calendar-events';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 
 import {useTheme} from '../theme/ThemeContext';
-import {parseIntentions} from '../agent/intentionParser';
+import {parseIntentions, hasLowConfidence} from '../agent/intentionParser';
+import {checkWithGemini, mergeLowConfidenceFallback} from '../services/geminiFallbackService';
 import {
   addIntentions,
   applyPlanToCalendar,
@@ -154,10 +155,19 @@ const AgentScreen: React.FC<AgentScreenProps> = ({onApplied}) => {
     if (declaring) return;
     setDeclaring(true);
     try {
-      const parsed = parseIntentions(text);
+      let parsed = parseIntentions(text);
       if (!parsed.length) {
         Alert.alert(t('agentParseFailTitle'), t('agentParseFailMsg'));
         return;
+      }
+      // Only the fragments the local parser truly had no signal for go out
+      // over the network — everything it's confident about stays local and
+      // free. A failed/invalid cloud check just leaves those fragments as
+      // the local guess; it never blocks declaring.
+      if (hasLowConfidence(parsed)) {
+        const raws = parsed.filter(i => i.lowConfidence).map(i => i.raw);
+        const result = await checkWithGemini(raws, new Date());
+        parsed = mergeLowConfidenceFallback(parsed, result);
       }
       await addIntentions(parsed);
       setText('');

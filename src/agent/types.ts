@@ -62,6 +62,12 @@ export interface Intention {
   // for the days actually in the solve horizon, not a months-long series the
   // user never asked for — see applyPlanToCalendar's use of this flag.
   explicitRecurrence?: boolean;
+  // True only when parseFragment found no usable signal at all (no day, no
+  // window, no frequency, no date) and fell all the way through to the
+  // generic 'recurring' default — the "we understood nothing, made up a
+  // 3x/week guess" case. Callers can use this to route the raw text through
+  // a cloud re-check instead of trusting the guess outright.
+  lowConfidence?: boolean;
   tag?: string; // batching category, e.g. exercise / errand / work
   color: string;
   createdAt: string;

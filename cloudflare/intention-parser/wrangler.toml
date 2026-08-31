@@ -1,0 +1,9 @@
+name = "intention-parser"
+main = "src/index.ts"
+compatibility_date = "2026-08-31"
+
+# GEMINI_API_KEY is set as a secret, not here:
+#   wrangler secret put GEMINI_API_KEY
+# See ../../docs/gemini-fallback-setup.md for the full setup walkthrough.
+[vars]
+FALLBACK_SHARED_TOKEN = "calendar-intention-fallback-v1"
