@@ -1423,28 +1423,31 @@ function AppContent() {
   }, [enterSelectionMode, toggleEventSelection]);
 
   const runBulkDelete = useCallback(async (events: CalendarEventReadable[]) => {
-    // Delete one at a time and remember what actually went through, so a
-    // failure part-way leaves undo offering exactly the events that are gone.
-    const deleted: CalendarEventReadable[] = [];
-    for (const event of events) {
-      if (!event.id) continue;
-      try {
+    // Fire every deletion concurrently instead of awaiting them one at a time
+    // — a sequential loop turned N selected events into N native round-trips
+    // stacked back to back, which is exactly the lag a larger selection made
+    // obvious. allSettled keeps the "one failure doesn't stop the rest"
+    // behavior and preserves `events` order in its results regardless of
+    // which promise actually finishes first.
+    const results = await Promise.allSettled(
+      events.filter(event => !!event.id).map(async event => {
         if (event.recurrence) {
           // Take only the occurrence that was tapped. Plain removeEvent would
           // drop the entire series, including dates nowhere near this month.
-          await RNCalendarEvents.removeEvent(event.id, {
+          await RNCalendarEvents.removeEvent(event.id!, {
             exceptionDate: event.occurrenceDate ?? event.startDate,
             futureEvents: false,
           });
         } else {
-          await RNCalendarEvents.removeEvent(event.id);
-          cancelEventNotification(event.id).catch(() => {});
+          await RNCalendarEvents.removeEvent(event.id!);
+          cancelEventNotification(event.id!).catch(() => {});
         }
-        deleted.push(event);
-      } catch {
-        // Keep going; the count reported below reflects what survived.
-      }
-    }
+        return event;
+      }),
+    );
+    const deleted = results
+      .filter((r): r is PromiseFulfilledResult<CalendarEventReadable> => r.status === 'fulfilled')
+      .map(r => r.value);
 
     exitSelectionMode();
     refreshAllViews();

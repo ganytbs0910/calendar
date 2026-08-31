@@ -273,6 +273,31 @@ test('lastBusinessDayOfMonth rolls back off a weekend', () => {
   expect(plan.blocks[0].dateKey).toBe('2026-10-30'); // Friday, not Sat Oct 31
 });
 
+// "毎月最終日曜" — the last occurrence of a specific weekday, not just any
+// weekday in the final week (August 2026 has a 5th Saturday but only a 4th
+// Sunday, so this must land on the 30th, not slip onto the 29th).
+test('lastWeekdayOfMonth lands on the last occurrence of that specific weekday', () => {
+  const plan = solve({
+    startDate: new Date(2026, 7, 1), // Aug 1 2026
+    horizonDays: 31,
+    intentions: [
+      baseIntention({
+        kind: 'monthly',
+        title: 'サークル',
+        lastWeekdayOfMonth: 0, // Sunday
+        days: undefined,
+        window: {startHour: 18, endHour: 20},
+        durationMin: 90,
+      }),
+    ],
+    busy: [],
+    dayWindow: wideOpen,
+  });
+
+  expect(plan.blocks).toHaveLength(1);
+  expect(plan.blocks[0].dateKey).toBe('2026-08-30'); // the last Sunday of August
+});
+
 // "隔月1日" (every other month, on the 1st) must skip the alternating months,
 // not fire every single month like a plain "毎月1日" would.
 test('monthInterval (隔月) skips alternating months', () => {

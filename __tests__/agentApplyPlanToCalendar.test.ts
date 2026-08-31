@@ -250,6 +250,32 @@ test('an all-day event block writes as a full-day calendar entry', async () => {
   expect([end.getHours(), end.getMinutes()]).toEqual([23, 59]);
 });
 
+// A declared multi-day span ("9/10から9/12まで旅行") must write as ONE all-day
+// event covering the whole span, not just its first day.
+test('a multi-day event block (eventEndDate set) spans through its last day', async () => {
+  const count = await applyPlanToCalendar(
+    plan([
+      block({
+        kind: 'event',
+        title: '旅行',
+        dateKey: '2026-09-10',
+        startMin: 0,
+        endMin: 0,
+        allDay: true,
+        eventEndDate: '2026-09-12',
+      }),
+    ]),
+  );
+
+  expect(count).toBe(1);
+  const [, config] = saveEventCalls()[0];
+  const start = new Date(config.startDate);
+  const end = new Date(config.endDate);
+  expect([start.getFullYear(), start.getMonth(), start.getDate()]).toEqual([2026, 8, 10]);
+  expect([end.getFullYear(), end.getMonth(), end.getDate()]).toEqual([2026, 8, 12]);
+  expect([end.getHours(), end.getMinutes()]).toEqual([23, 59]);
+});
+
 // 'monthly' commitments recur by month, not by week — the anchor's own
 // monthDay/monthWeek pattern must be re-applied to each future month, not
 // just "same date + N weeks" like fixed/focus.
@@ -324,6 +350,30 @@ test('a lastBusinessDayOfMonth commitment recomputes the last weekday each month
   // October 2026 ends on a Saturday — its business day must be Oct 30 (Fri).
   const octDate = dates.find(d => d.getMonth() === 9);
   expect(octDate?.getDate()).toBe(30);
+});
+
+test('a lastWeekdayOfMonth commitment recomputes the last occurrence of that weekday each month', async () => {
+  const count = await applyPlanToCalendar(
+    plan([
+      block({
+        kind: 'monthly',
+        title: 'サークル',
+        dateKey: '2026-08-30', // last Sunday of August
+        startMin: 18 * 60,
+        endMin: 20 * 60,
+        lastWeekdayOfMonth: 0, // Sunday
+      }),
+    ]),
+  );
+
+  expect(count).toBe(6);
+  const dates = saveEventCalls().map(([, config]) => new Date(config.startDate));
+  for (const d of dates) {
+    expect(d.getDay()).toBe(0); // every occurrence is a Sunday
+  }
+  // September 2026's last Sunday is the 27th, not the 30th (a Wednesday).
+  const sepDate = dates.find(d => d.getMonth() === 8);
+  expect(sepDate?.getDate()).toBe(27);
 });
 
 test('monthInterval (隔月) writes only every other month, not every month', async () => {

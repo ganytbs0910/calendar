@@ -40,11 +40,16 @@ export interface Intention {
   deadline?: string; // deadline kind: YYYY-MM-DD
   totalEstimateMin?: number; // deadline kind: total work to distribute
   eventDate?: string; // event kind: the single date it lands on, YYYY-MM-DD
+  // event kind: set only for a declared multi-day span (e.g. "9/10から9/12
+  // まで旅行") — an allDay event then covers [eventDate, eventEndDate]
+  // inclusive instead of just the one day.
+  eventEndDate?: string;
   allDay?: boolean; // event kind: no time given — a full-day marker, not a slot
   monthDay?: number; // monthly kind: day-of-month (1-31), e.g. 毎月1日
   monthWeek?: number; // monthly kind: which occurrence (1-5) of `days[0]` in the month, e.g. 第2土曜日 → 2
   lastDayOfMonth?: boolean; // monthly kind: the last calendar day, e.g. 毎月末
   lastBusinessDayOfMonth?: boolean; // monthly kind: the last weekday, e.g. 最終営業日
+  lastWeekdayOfMonth?: DayOfWeek; // monthly kind: last occurrence of this weekday, e.g. 最終日曜 → 0
   monthInterval?: number; // monthly kind: every N months (default 1); 隔月 → 2
   // fixed/focus/event: the declared range rolls past midnight (e.g. "22時から
   // 翌1時") — window/durationMin already hold the correct start + full real
@@ -76,6 +81,7 @@ export interface PlacedBlock {
   protect?: boolean;
   locked?: boolean; // user pinned this — solver must not move it
   allDay?: boolean; // event kind: write as a full-day calendar entry
+  eventEndDate?: string; // event kind: carried over — see Intention's doc comment.
   // fixed/focus: carried over from Intention — see its doc comment.
   explicitRecurrence?: boolean;
   // monthly kind: carried over so applyPlanToCalendar can compute future
@@ -84,6 +90,7 @@ export interface PlacedBlock {
   monthWeek?: number;
   lastDayOfMonth?: boolean;
   lastBusinessDayOfMonth?: boolean;
+  lastWeekdayOfMonth?: DayOfWeek;
   monthInterval?: number;
   status: 'planned' | 'done' | 'skipped';
   reason: string; // why the solver chose this slot (explainability)

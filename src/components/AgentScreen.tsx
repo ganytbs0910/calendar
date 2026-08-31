@@ -68,7 +68,9 @@ const intentionMeta = (i: Intention, t: TFunc, dow: string[]): string => {
         .join(' · ');
     case 'event':
       return [
-        t('agentEventDate', {date: i.eventDate ?? '—'}),
+        i.eventEndDate
+          ? t('agentEventDateRange', {start: i.eventDate ?? '—', end: i.eventEndDate})
+          : t('agentEventDate', {date: i.eventDate ?? '—'}),
         i.allDay ? t('allDay') : win,
         i.allDay ? '' : dur,
       ]
@@ -79,6 +81,8 @@ const intentionMeta = (i: Intention, t: TFunc, dow: string[]): string => {
         ? t('agentMonthlyLastBizDay')
         : i.lastDayOfMonth
         ? t('agentMonthlyLastDay')
+        : i.lastWeekdayOfMonth !== undefined
+        ? t('agentMonthlyLastWeekday', {dow: dow[i.lastWeekdayOfMonth]})
         : i.monthDay !== undefined
         ? t('agentMonthlyDay', {day: i.monthDay})
         : t('agentMonthlyWeek', {week: i.monthWeek, dow: i.days?.[0] !== undefined ? dow[i.days[0]] : ''});

@@ -503,3 +503,188 @@ test('an explicit 死守 focus block still needs its own recurrence marker for t
   const [withMarker] = parseIntentions('平日午前は深い作業をずっと死守', now);
   expect(withMarker.explicitRecurrence).toBe(true);
 });
+
+// "12-14" — a bare, unit-less hour range with no 時/コロン — is a common
+// casual way to type a time range on a phone keyboard. It used to be
+// invisible to every time parser at once, silently discarding the hours and
+// leaving "明日バイト12-14" as an all-day marker with no time at all.
+test('a bare "N-M" hour range (no 時, no colon) is recognized', () => {
+  const [intn] = parseIntentions('明日バイト12-14', now);
+  expect(intn.kind).toBe('event');
+  expect(intn.eventDate).toBe('2026-08-27');
+  expect(intn.allDay).toBeUndefined();
+  expect(intn.window).toEqual({startHour: 12, endHour: 14});
+  expect(intn.durationMin).toBe(120);
+  expect(intn.title).toBe('バイト');
+});
+
+test('a bare hour range also fixes a weekday+time declaration that used to default to the evening window', () => {
+  const [intn] = parseIntentions('火曜12-14にバイト', now);
+  expect(intn.kind).toBe('fixed');
+  expect(intn.days).toEqual([2]);
+  expect(intn.window).toEqual({startHour: 12, endHour: 14});
+});
+
+// The exclusion guard: a bare range immediately followed by a counter/unit
+// word is a quantity or duration, not a time of day, and must not be misread.
+test.each([
+  ['3-5部用意して', '部'],
+  ['5-10分待つ', '分'],
+  ['2-3人で行く', '人'],
+  ['12-14円くらい', '円'],
+])('"%s" is not misread as an hour range (excluded by trailing %s)', text => {
+  const [intn] = parseIntentions(text, now);
+  expect(intn.window).toBeUndefined();
+});
+
+// A longer number like a date must never be split into a false hour range.
+test('a bare range does not split a longer number like a date', () => {
+  const [intn] = parseIntentions('2026-08-31に予定', now);
+  expect(intn.window).toBeUndefined();
+});
+
+// "1時間だけ勉強" — a bare *duration* mention ("N時間") with no から/まで range
+// used to be misread by singleTimeOf as if "N時" were a clock hour, silently
+// producing a nonsense window like {1, 3}. It must never set a window at all.
+test('a bare "N時間" duration is never misread as a clock-time window', () => {
+  const [intn] = parseIntentions('1時間だけ勉強', now);
+  expect(intn.window).toBeUndefined();
+  expect(intn.durationMin).toBe(60);
+});
+
+// "午後1時から3時" names one afternoon span — the marker on only one side
+// used to leave the other side un-adjusted, producing endHour(3) < startHour
+// (13), and a garbage negative-then-clamped duration.
+test('an AM/PM marker on only one side of a range is inherited by both', () => {
+  const [intn] = parseIntentions('土曜日午後1時から3時にジム', now);
+  expect(intn.window).toEqual({startHour: 13, endHour: 15});
+  expect(intn.durationMin).toBe(120);
+});
+
+// "9/10" — the slash M/D format is at least as common as "9月10日".
+test('slash-format dates (M/D) are recognized like 月/日', () => {
+  const [asEvent] = parseIntentions('9/10に美容院', now);
+  expect(asEvent.kind).toBe('event');
+  expect(asEvent.eventDate).toBe('2026-09-10');
+  expect(asEvent.title).not.toMatch(/\d/);
+
+  const [asDeadline] = parseIntentions('9/10までにレポート提出', now);
+  expect(asDeadline.kind).toBe('deadline');
+  expect(asDeadline.deadline).toBe('2026-09-10');
+});
+
+// An unrelated fraction-shaped "1/3" must not be misread as a date.
+test('a slash fraction is not misread as a date', () => {
+  const [intn] = parseIntentions('1/3の確率で当たる', now);
+  expect(intn.eventDate).toBeUndefined();
+  expect(intn.deadline).toBeUndefined();
+});
+
+// "再来週" (the week after next) is one substring-of "来週" away from being
+// silently misread as just "来週" — a whole week early.
+test('"再来週の" + a weekday means the week after next, not next week', () => {
+  const [intn] = parseIntentions('再来週の月曜日に歯医者', now);
+  expect(intn.kind).toBe('event');
+  expect(intn.eventDate).toBe('2026-09-14'); // two Mondays after 2026-08-26
+  expect(intn.title).toBe('歯医者');
+});
+
+// "9月末"/"9末" name a SPECIFIC month's end — the bare 月末 fallback used to
+// silently resolve to "whichever month we're in right now" instead.
+test.each([
+  '9月末までにレポート提出',
+  '9末までにレポート提出',
+])('"%s" resolves to that specific month\'s end, not the current month', text => {
+  const [intn] = parseIntentions(text, now);
+  expect(intn.kind).toBe('deadline');
+  expect(intn.deadline).toBe('2026-09-30');
+});
+
+// Compound time-of-day words must be stripped as whole units, or the bare
+// half left behind strands a stray character in the title.
+test.each([
+  ['夜中の2時までゲーム', 'ゲーム'],
+  ['深夜作業', '作業'],
+])('"%s" strips the compound time word cleanly from the title', (text, expected) => {
+  const [intn] = parseIntentions(text, now);
+  expect(intn.title).toBe(expected);
+});
+
+test('"昼寝" is stripped as a whole word, not just its "昼" half', () => {
+  const [intn] = parseIntentions('昼寝する', now);
+  expect(intn.title).not.toContain('寝');
+});
+
+// "毎月最終日曜" (the last occurrence of a specific weekday in the month) is a
+// third distinct "last ~" pattern alongside 毎月末 and 最終営業日 — it used to
+// fall through to a bare weekly-Sunday 'fixed' commitment, discarding "最終".
+test('"毎月最終日曜" classifies as monthly with lastWeekdayOfMonth, not a weekly Sunday commitment', () => {
+  const [intn] = parseIntentions('毎月最終日曜にサークル', now);
+  expect(intn.kind).toBe('monthly');
+  expect(intn.lastWeekdayOfMonth).toBe(0);
+  expect(intn.title).toBe('サークル');
+});
+
+// "9/10から9/12まで旅行" is a 3-day span, not a single date — the single-date
+// match used to grab just the 10th and leave "から9/12まで" leaking into the
+// title, silently discarding when the trip actually ended.
+test.each([
+  '9/10から9/12まで旅行',
+  '9月10日から9月12日まで旅行',
+])('"%s" is recognized as a multi-day span with eventEndDate set', text => {
+  const [intn] = parseIntentions(text, now);
+  expect(intn.kind).toBe('event');
+  expect(intn.eventDate).toBe('2026-09-10');
+  expect(intn.eventEndDate).toBe('2026-09-12');
+  expect(intn.title).toBe('旅行');
+});
+
+test('a single (non-range) date never sets eventEndDate', () => {
+  const [intn] = parseIntentions('9/10に美容院', now);
+  expect(intn.eventEndDate).toBeUndefined();
+});
+
+// "来週中に" (within next week) is one week further out than the already-
+// supported 今週中 — it used to be unrecognized entirely and fall through to
+// a meaningless generic 'recurring' default.
+test('"来週中に" resolves to next week\'s Saturday, one week past 今週中', () => {
+  const [intn] = parseIntentions('来週中にレポート', now);
+  expect(intn.kind).toBe('deadline');
+  expect(intn.deadline).toBe('2026-09-05'); // this Sat (08-29) + 7 days
+});
+
+// "明日15時までに" — the deadline word まで is not immediately next to 明日
+// (there's "15時" in the way), so it used to miss the 明日 branch entirely
+// and fall through to the generic までに fallback, which silently resolved
+// to "the end of the current month" instead of tomorrow.
+test('"明日15時までに" resolves to tomorrow, not the vague end-of-month fallback', () => {
+  const [intn] = parseIntentions('明日15時までにメール返信', now);
+  expect(intn.kind).toBe('deadline');
+  expect(intn.deadline).toBe('2026-08-27');
+});
+
+// The same gap for 今日 — "16時まで" alone (bare まで, no に) must still NOT
+// be read as a deadline (it's a same-day event's end time), so this only
+// fires for the unambiguous "までに" form.
+test('a same-day "まで" time range end is still not misread as a deadline', () => {
+  const [intn] = parseIntentions('今日16時まで作業', now);
+  expect(intn.kind).not.toBe('deadline');
+});
+
+// "在宅勤務" (remote work) matched the bare "勤務" keyword and got silently
+// relabeled "バイト" — 勤務 is generic "duty/work", not specifically a
+// part-time job the way バイト/アルバイト/シフト are.
+test('"在宅勤務" is not mislabeled as "バイト" by an over-broad lexicon match', () => {
+  const [intn] = parseIntentions('在宅勤務 水曜', now);
+  expect(intn.title).not.toBe('バイト');
+});
+
+// Priority-marker words (matching priorityOf's own vocabulary) must be
+// stripped from the title too, not just recognized for scoring.
+test.each([
+  ['マストで参加 火曜13時会議', 'マスト'],
+  ['死んでも行く 金曜19時ライブ', '死んでも'],
+])('"%s" strips the priority marker from the title', (text, marker) => {
+  const [intn] = parseIntentions(text, now);
+  expect(intn.title).not.toContain(marker);
+});

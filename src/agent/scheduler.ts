@@ -210,6 +210,7 @@ export const solve = (input: SolveInput): SchedulePlan => {
           endMin: 0,
           color: intn.color,
           allDay: true,
+          eventEndDate: intn.eventEndDate,
           status: 'planned',
           reason: '指定日',
         });
@@ -266,6 +267,10 @@ export const solve = (input: SolveInput): SchedulePlan => {
           matches = dd === intn.monthDay;
         } else if (intn.monthWeek !== undefined && intn.days?.length) {
           matches = day.dow === intn.days[0] && Math.ceil(dd / 7) === intn.monthWeek;
+        } else if (intn.lastWeekdayOfMonth !== undefined) {
+          // The last occurrence of this weekday in the month: true exactly
+          // when adding one more week would push past the month's last day.
+          matches = day.dow === intn.lastWeekdayOfMonth && dd + 7 > new Date(dy, dm, 0).getDate();
         }
         if (!matches) continue;
         demands.push({
@@ -415,6 +420,7 @@ export const solve = (input: SolveInput): SchedulePlan => {
       monthWeek: dem.intention.monthWeek,
       lastDayOfMonth: dem.intention.lastDayOfMonth,
       lastBusinessDayOfMonth: dem.intention.lastBusinessDayOfMonth,
+      lastWeekdayOfMonth: dem.intention.lastWeekdayOfMonth,
       monthInterval: dem.intention.monthInterval,
       status: 'planned',
       reason: reasonParts.join('・'),

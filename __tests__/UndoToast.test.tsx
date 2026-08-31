@@ -8,7 +8,7 @@
 
 import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
-import {Animated, TouchableOpacity} from 'react-native';
+import {Animated, PanResponder, TouchableOpacity} from 'react-native';
 import {UndoToast, UndoAction} from '../src/components/UndoToast';
 
 jest.mock('react-i18next', () => ({
@@ -17,10 +17,21 @@ jest.mock('react-i18next', () => ({
 
 // Run animations through instantly so the test drives the timer, not the easing.
 const runInstantly = () => ({start: (cb?: () => void) => cb && cb()}) as any;
+// PanResponder.create's returned .panHandlers are remapped to the low-level
+// Responder System event names (onResponderMove, etc.) and only invoke the
+// original onPanResponderMove/Release/... after computing a real gestureState
+// from actual native touch sequences — not something a plain {dy, dx, vy}
+// object can drive. Capturing the config object passed into create() gives
+// direct access to those original handlers instead.
+let capturedPanConfig: any = null;
 beforeAll(() => {
   jest.spyOn(Animated, 'parallel').mockImplementation(runInstantly);
   jest.spyOn(Animated, 'timing').mockImplementation(runInstantly);
   jest.spyOn(Animated, 'spring').mockImplementation(runInstantly);
+  jest.spyOn(PanResponder, 'create').mockImplementation((config: any) => {
+    capturedPanConfig = config;
+    return {panHandlers: {}} as any;
+  });
 });
 
 const makeAction = (over: Partial<UndoAction> = {}): UndoAction => ({
@@ -125,5 +136,84 @@ describe('UndoToast', () => {
     }
 
     expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  // Swipe-to-dismiss: dragging the toast down should close it early without
+  // undoing, the same outcome as letting the window run out.
+  describe('swipe down to dismiss', () => {
+    const findGestureHandlers = (_tree: ReactTestRenderer.ReactTestRenderer) => capturedPanConfig;
+
+    it('dismisses without undoing once dragged past the distance threshold', () => {
+      const action = makeAction();
+      const {tree, onDismiss} = render(action);
+      const gh = findGestureHandlers(tree);
+
+      ReactTestRenderer.act(() => {
+        gh.onPanResponderMove({}, {dy: 60, dx: 0, vy: 0});
+        gh.onPanResponderRelease({}, {dy: 60, dx: 0, vy: 0});
+      });
+
+      expect(onDismiss).toHaveBeenCalledTimes(1);
+      ReactTestRenderer.act(() => { tree.update(<UndoToast action={null} onDismiss={onDismiss} />); });
+      expect(action.onExpire).toHaveBeenCalledTimes(1);
+      expect(action.onUndo).not.toHaveBeenCalled();
+    });
+
+    it('dismisses on a fast flick even if the drag distance is short', () => {
+      const action = makeAction();
+      const {tree, onDismiss} = render(action);
+      const gh = findGestureHandlers(tree);
+
+      ReactTestRenderer.act(() => {
+        gh.onPanResponderMove({}, {dy: 10, dx: 0, vy: 0.8});
+        gh.onPanResponderRelease({}, {dy: 10, dx: 0, vy: 0.8});
+      });
+
+      expect(onDismiss).toHaveBeenCalledTimes(1);
+    });
+
+    it('snaps back and keeps counting down when the drag falls short', () => {
+      const action = makeAction();
+      const {tree, onDismiss} = render(action);
+      const gh = findGestureHandlers(tree);
+
+      ReactTestRenderer.act(() => {
+        gh.onPanResponderMove({}, {dy: 15, dx: 0, vy: 0.1});
+        gh.onPanResponderRelease({}, {dy: 15, dx: 0, vy: 0.1});
+      });
+      expect(onDismiss).not.toHaveBeenCalled();
+
+      // A short, failed drag restarts the countdown from the full window
+      // rather than leaving it stuck — the default 5s must still elapse.
+      ReactTestRenderer.act(() => { jest.advanceTimersByTime(4999); });
+      expect(onDismiss).not.toHaveBeenCalled();
+      ReactTestRenderer.act(() => { jest.advanceTimersByTime(1); });
+      expect(onDismiss).toHaveBeenCalledTimes(1);
+    });
+
+    it('pauses the auto-dismiss timer while actively dragging', () => {
+      const action = makeAction();
+      const {tree, onDismiss} = render(action);
+      const gh = findGestureHandlers(tree);
+
+      // Drag starts just before the window would have expired on its own.
+      ReactTestRenderer.act(() => { jest.advanceTimersByTime(4900); });
+      ReactTestRenderer.act(() => { gh.onPanResponderMove({}, {dy: 5, dx: 0, vy: 0}); });
+      ReactTestRenderer.act(() => { jest.advanceTimersByTime(1000); }); // would have expired by now
+      expect(onDismiss).not.toHaveBeenCalled();
+
+      ReactTestRenderer.act(() => { gh.onPanResponderRelease({}, {dy: 5, dx: 0, vy: 0}); });
+      expect(onDismiss).not.toHaveBeenCalled(); // released short of the threshold
+    });
+
+    it('only claims the gesture for a clearly-downward drag, not a tap or sideways swipe', () => {
+      const action = makeAction();
+      const {tree} = render(action);
+      const gh = findGestureHandlers(tree);
+
+      expect(gh.onMoveShouldSetPanResponder({}, {dy: 2, dx: 0})).toBe(false); // barely moved
+      expect(gh.onMoveShouldSetPanResponder({}, {dy: 10, dx: 20})).toBe(false); // mostly horizontal
+      expect(gh.onMoveShouldSetPanResponder({}, {dy: 20, dx: 2})).toBe(true); // clearly downward
+    });
   });
 });

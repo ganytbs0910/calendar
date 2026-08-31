@@ -1,6 +1,13 @@
 import React, {useEffect, useRef, useCallback} from 'react';
-import {View, Text, TouchableOpacity, StyleSheet, Animated} from 'react-native';
+import {View, Text, TouchableOpacity, StyleSheet, Animated, PanResponder} from 'react-native';
 import {useTranslation} from 'react-i18next';
+
+// Swipe-down-to-dismiss threshold/velocity — mirrors SwipeableRow's
+// clearly-directional gesture claim so a mostly-vertical scroll behind the
+// toast (there isn't one today, but taps on 元に戻す must stay untouched
+// either way) never gets mistaken for a dismiss swipe.
+const DISMISS_DISTANCE = 40;
+const DISMISS_VELOCITY = 0.5;
 
 export interface UndoAction {
   message: string;
@@ -33,6 +40,12 @@ export const UndoToast: React.FC<UndoToastProps> = ({action, onDismiss}) => {
   const onDismissRef = useRef(onDismiss);
   useEffect(() => { onDismissRef.current = onDismiss; }, [onDismiss]);
   const undoneRef = useRef(false);
+  // The swipe-to-dismiss PanResponder below is created once (useRef) and its
+  // handlers close over whatever `action` was in scope at that render — a
+  // ref keeps them reading the *current* action's durationMs instead of a
+  // stale one from mount time.
+  const actionRef = useRef(action);
+  useEffect(() => { actionRef.current = action; }, [action]);
 
   const dismiss = useCallback(() => {
     Animated.parallel([
@@ -76,6 +89,36 @@ export const UndoToast: React.FC<UndoToastProps> = ({action, onDismiss}) => {
     dismiss();
   }, [action, dismiss]);
 
+  // Swiping the toast down dismisses it early — same outcome as letting the
+  // window run out (onExpire still fires, nothing is undone), just faster
+  // for someone who already knows they don't want to undo.
+  const swipeDown = useRef(
+    PanResponder.create({
+      // Only claim clearly-downward drags (SwipeableRow's same trick) so a
+      // tap on 元に戻す is never swallowed by the gesture.
+      onMoveShouldSetPanResponder: (_e, g) => g.dy > 8 && g.dy > Math.abs(g.dx) * 1.5,
+      onPanResponderMove: (_e, g) => {
+        if (timerRef.current) {
+          clearTimeout(timerRef.current);
+          timerRef.current = null;
+        }
+        translateY.setValue(Math.max(0, g.dy));
+      },
+      onPanResponderRelease: (_e, g) => {
+        if (g.dy > DISMISS_DISTANCE || g.vy > DISMISS_VELOCITY) {
+          dismiss();
+          return;
+        }
+        Animated.spring(translateY, {toValue: 0, useNativeDriver: true, tension: 100, friction: 10}).start();
+        timerRef.current = setTimeout(dismiss, actionRef.current?.durationMs ?? TOAST_DURATION);
+      },
+      onPanResponderTerminate: () => {
+        Animated.spring(translateY, {toValue: 0, useNativeDriver: true, tension: 100, friction: 10}).start();
+        timerRef.current = setTimeout(dismiss, actionRef.current?.durationMs ?? TOAST_DURATION);
+      },
+    }),
+  ).current;
+
   if (!action) return null;
 
   return (
@@ -83,7 +126,8 @@ export const UndoToast: React.FC<UndoToastProps> = ({action, onDismiss}) => {
       style={[
         styles.container,
         {opacity, transform: [{translateY}]},
-      ]}>
+      ]}
+      {...swipeDown.panHandlers}>
       <View style={styles.toast}>
         <Text style={styles.message} numberOfLines={1}>{action.message}</Text>
         <TouchableOpacity onPress={handleUndo} style={styles.undoButton}>

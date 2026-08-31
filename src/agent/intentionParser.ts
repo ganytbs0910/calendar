@@ -122,7 +122,12 @@ const durationMin = (frag: string, fallback: number): number => {
 // connector, and 午後 sits in the way) and falls back to whichever vague
 // keyword (午前/午後/朝/...) happens to appear first in the whole fragment —
 // silently discarding both explicit hours.
-const ONE_TIME = String.raw`(?:(午前|午後|AM|PM|am|pm)\s*)?(\d{1,2})時(半|(?:(\d{1,2})分))?`;
+// The `(?!間)` guard is load-bearing: without it, "1時間だけ勉強" or "3時間半の
+// ジム" — a bare *duration* ("N時間" = N hours), not a clock time — gets read
+// as "1時"/"3時" (1 o'clock / 3 o'clock) by every consumer of this pattern
+// (singleTimeOf, timeRange), producing a nonsense window like {1,3} instead
+// of correctly falling through to durationMin()'s own separate "N時間" match.
+const ONE_TIME = String.raw`(?:(午前|午後|AM|PM|am|pm)\s*)?(\d{1,2})時(?!間)(半|(?:(\d{1,2})分))?`;
 const applyAmPm = (marker: string | undefined, hour: number): number => {
   if (!marker) return hour;
   if (/午後|pm/i.test(marker)) return hour < 12 ? hour + 12 : hour;
@@ -143,10 +148,16 @@ const timeRange = (frag: string): TimeRange | undefined => {
   );
   let m = frag.match(re);
   if (m) {
+    // "午後1時から3時" names one afternoon span, not "1pm to 3am" — when only
+    // one side carries an AM/PM marker, a Japanese speaker means it to cover
+    // the whole range, not just the half it's grammatically attached to.
+    // Applying it to just one side used to produce endHour < startHour (here,
+    // a literal 13→3 "window") with no signal anything had gone wrong.
+    const sharedMarker = m[1] || m[6];
     return {
-      startHour: applyAmPm(m[1], +m[2]),
+      startHour: applyAmPm(m[1] || sharedMarker, +m[2]),
       startMin: m[3] === '半' ? 30 : m[4] ? +m[4] : 0,
-      endHour: applyAmPm(m[6], +m[7]),
+      endHour: applyAmPm(m[6] || sharedMarker, +m[7]),
       endMin: m[8] === '半' ? 30 : m[9] ? +m[9] : 0,
       nextDay: !!m[5],
     };
@@ -155,7 +166,32 @@ const timeRange = (frag: string): TimeRange | undefined => {
   if (m) {
     return {startHour: +m[1], startMin: +m[2], endHour: +m[3], endMin: +m[4]};
   }
-  return englishTimeRange(frag);
+  return bareNumberTimeRange(frag) ?? englishTimeRange(frag);
+};
+
+// "12-14" — a bare, unit-less number range (no 時/分/コロン) is a common
+// casual way to type an hour range on a phone keyboard ("明日バイト12-14").
+// Deliberately narrow, mirroring the English hyphen guard below: it only
+// fires when the second number isn't immediately followed by a common
+// counter/unit word, so a quantity or duration reads correctly instead of
+// being misread as a time — "3-5部用意して" (3 to 5 copies) and "5-10分待つ"
+// (a 5-10 minute wait) must never become a 3時-5時 / 5時-10時 window. \b on
+// both ends stops this from splitting a longer number ("2026-08-31" never
+// matches "26-08"), and both sides are capped at a real hour value.
+const BARE_RANGE_EXCLUDE_SUFFIX =
+  '(個|人|枚|回|件|つ|台|本|冊|匹|杯|皿|軒|色|種類?|ページ|問|割|パーセント|％|%|円|ドル|kg|㎏|km|㎞|cm|mm|g|坪|畳|文字|語|ヶ月|か月|カ月|週間?|日間?|年間?|歳|才|時|分|部|章|話|巻|曲|品|箱|束|組|番|度|尾|羽)';
+const bareNumberTimeRange = (frag: string): TimeRange | undefined => {
+  const re = /\b(\d{1,2})\s*[-〜~ー–−]\s*(\d{1,2})\b/g;
+  const excludeRe = new RegExp(`^\\s*${BARE_RANGE_EXCLUDE_SUFFIX}`);
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(frag))) {
+    const startHour = parseInt(m[1], 10);
+    const endHour = parseInt(m[2], 10);
+    if (startHour <= 24 && endHour <= 24 && !excludeRe.test(frag.slice(m.index + m[0].length))) {
+      return {startHour, startMin: 0, endHour, endMin: 0};
+    }
+  }
+  return undefined;
 };
 
 // English — "from 10 to 12", "10am to 4pm", "10-12". Only attempted when the
@@ -223,7 +259,11 @@ const priorityOf = (frag: string, base: number): number => {
 // (English input like "part-time job" no longer produces a Japanese title).
 const TITLE_LEXICON: {re: RegExp; titleKey: string; tag: string}[] = [
   {re: /大学|授業|講義|ゼミ|クラス|university|college|lecture|class/i, titleKey: 'lexSchool', tag: 'study'},
-  {re: /バイト|アルバイト|勤務|シフト|part.?time|part.?time job/i, titleKey: 'lexPartTime', tag: 'work'},
+  // Bare "勤務" was dropped — it's generic "duty/work" (在宅勤務/夜勤/出勤 all
+  // contain it) and doesn't specifically mean a part-time job the way バイト/
+  // アルバイト/シフト do; it was silently relabeling ordinary work commitments
+  // as "バイト".
+  {re: /バイト|アルバイト|シフト|part.?time|part.?time job/i, titleKey: 'lexPartTime', tag: 'work'},
   {re: /レポート|課題|宿題|提出|assignment|homework|report/i, titleKey: 'lexReport', tag: 'work'},
   {re: /深い作業|ディープワーク|集中|deep work/i, titleKey: 'lexDeepWork', tag: 'focus'},
   {re: /筋トレ|ジム|トレーニング|運動|ワークアウト|workout|gym|exercise/i, titleKey: 'lexWorkout', tag: 'exercise'},
@@ -269,18 +309,27 @@ const cleanTitle = (frag: string): string => {
     .replace(/(\d+)\s*(?:ヶ|か|カ)月に\s*1\s*回/g, '')
     .replace(/最終営業日/g, '')
     .replace(/第\s*[1-5一二三四五]\s*[月火水木金土日]曜日?/g, '')
+    .replace(/最終\s*[月火水木金土日]曜日?/g, '')
     // 毎月末/月末 (last-day-of-month) is handled as its own whole phrase later
     // (alongside 今月末/来月末) — the negative lookahead here keeps "毎月" from
     // eating the "月" that phrase needs, leaving a stranded "末".
     .replace(/平日|週末|毎日|毎週|毎朝|毎晩|毎月(?!末)|隔週|隔日|隔月|一日おき|以外/g, '')
     .replace(/週\s*[0-9０-９一二三四五六七]+/g, '')
     .replace(/[0-9０-９一二三四五六七]+\s*回/g, '')
+    // Compound time-of-day words go before their bare-character components
+    // below, or stripping just 夜/昼 leaves a stray 中/寝 behind ("夜中の2時
+    // までゲーム" → "中のゲーム", "30分くらい昼寝" → "くらい寝").
+    .replace(/夜中|深夜|昼寝|午前中/g, '')
     .replace(/午前|午後|早朝|朝|昼|夕方|夕方|夜|晩|正午/g, '')
     .replace(/[月火水木金土日]曜日?\s*(から|〜|~|-)\s*[月火水木金土日]曜日?\s*まで/g, '')
     .replace(/(日|月|火|水|木|金|土)曜日?/g, '')
     .replace(BARE_DOW_RUN_RE, '')
     .replace(/(AM|PM)?\s*\d{1,2}時(半|\d{1,2}分)?\s*(から|〜|~|-|ー|–|−|→|まで)?\s*翌?\s*(AM|PM)?\s*\d{1,2}時(半|\d{1,2}分)?/gi, '')
     .replace(/\d{1,2}:\d{2}\s*(から|〜|~|-|ー|–|−|→|まで)?\s*\d{1,2}:\d{2}/g, '')
+    // The bare "12-14" hour-range form (see bareNumberTimeRange) — same
+    // counter-word exclusion so a legitimate "3-5部" quantity in a title is
+    // left untouched.
+    .replace(new RegExp(`\\b\\d{1,2}\\s*[-〜~ー–−]\\s*\\d{1,2}\\b(?!\\s*${BARE_RANGE_EXCLUDE_SUFFIX})`, 'g'), '')
     // A single time mention with no matching range end ("18時から給料日会")
     // leaves "から" dangling with nowhere to attach — the full range pattern
     // above only fires when a second 時 is actually present.
@@ -292,11 +341,20 @@ const cleanTitle = (frag: string): string => {
     // own whole unit before the bare "日" isn't left stranded by nothing else
     // removing it.
     .replace(/(\d+|[０-９]+)\s*日後/g, '')
-    .replace(/今日中に|明日中に|今年中に|今年末|年内に|今月中|月内|今月末|今週末|今週|来週|今度|今月|来月|明々後日|明明後日|明後日|今日|明日|までに|まで/g, '')
+    .replace(/今日中に|明日中に|今年中に|今年末|年内に|今月中|月内|今月末|今週末|今週|再来週|来週|今度|今月|来月|明々後日|明明後日|明後日|今日|明日|までに|まで/g, '')
+    // "9月末"/"9末" (explicit month-end, see resolveMonthEndKey) must go
+    // before the bare 毎月末|月末 strip right below, or that strip eats just
+    // the "月末"/"末" half and leaves the digit stranded.
+    .replace(/\d{1,2}\s*月末|\d{1,2}\s*末(?!日)/g, '')
     // Bare/毎-prefixed "月末" only reaches here once 今月末/来月末 (handled
     // above) are already gone, so this can't accidentally eat their 今/来.
     .replace(/毎月末|月末/g, '')
-    .replace(/(\d+)月(\d+)日/g, '')
+    // A multi-day date range (see matchDateRange) must be stripped as one
+    // whole unit before the single-date strip below — otherwise that strip
+    // only eats the first date, leaving "から9/12まで" dangling in the title.
+    .replace(/(\d{1,2})月(\d{1,2})日\s*(から|〜|~|-|ー|–|−|→)\s*(\d{1,2})月(\d{1,2})日/g, '')
+    .replace(/\b\d{1,2}\/\d{1,2}\b\s*(から|〜|~|-|ー|–|−|→)\s*\b\d{1,2}\/\d{1,2}\b/g, '')
+    .replace(/(\d{1,2})月(\d{1,2})日|\b\d{1,2}\/\d{1,2}\b/g, '')
     // English connectors/units — \b-anchored so a legitimate title word that
     // merely contains one of these (e.g. "Weekly" contains "week") is untouched;
     // only the exact function-word forms extracted above are removed.
@@ -322,7 +380,7 @@ const cleanTitle = (frag: string): string => {
   // "かみ"), since regex has no notion of "this は is a grammatical particle."
   // Particle residue from earlier steps is always at a boundary, so anchoring
   // to ^/$ gets the same cleanup without that risk.
-  const EDGE_FILLER = '死守|絶対|必ず|極力|なるべく|できれば|したい|する|やる|だけ|って|を|は|が|に|で|と|の|、|。';
+  const EDGE_FILLER = '死守|絶対|必ず|マスト|死んでも|重要|大事|優先|余裕があれば|極力|なるべく|できれば|したい|する|やる|だけ|って|を|は|が|に|で|と|の|、|。';
   const LEADING_RE = new RegExp(`^(${EDGE_FILLER})`);
   const TRAILING_RE = new RegExp(`(${EDGE_FILLER})$`);
   let prevLen: number;
@@ -353,6 +411,62 @@ const resolveMonthDayKey = (mo1: number, dom: number, now: Date): string => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
+// "9/5" — the slash-separated M/D format is at least as common as "9月5日"
+// for fast/casual typing (a phone keyboard needs one fewer script switch).
+// \b-anchored so a longer number never gets split (mirrors the bare
+// hour-range guard), and bounded to real month/day values so an unrelated
+// fraction like "1/3の確率で" isn't misread as a date.
+const matchMonthDay = (frag: string): {mo: number; day: number} | undefined => {
+  const kanji = frag.match(/(\d{1,2})月(\d{1,2})日/);
+  if (kanji) return {mo: parseInt(kanji[1], 10), day: parseInt(kanji[2], 10)};
+  const slash = frag.match(/\b(\d{1,2})\/(\d{1,2})\b/);
+  if (slash) {
+    const mo = parseInt(slash[1], 10);
+    const day = parseInt(slash[2], 10);
+    const rest = frag.slice((slash.index ?? 0) + slash[0].length);
+    // "1/3の確率で" is a fraction, not a date — the one fraction phrasing
+    // common enough in casual Japanese to be worth explicitly excluding.
+    if (mo >= 1 && mo <= 12 && day >= 1 && day <= 31 && !/^の(確率|可能性|割合)/.test(rest)) {
+      return {mo, day};
+    }
+  }
+  return undefined;
+};
+
+// "9/10から9/12まで旅行" / "9月10日から9月12日まで旅行" — a multi-day span, not
+// a single date. Checked by the caller BEFORE the single-date match, or the
+// single date would grab just the first date and "から9/12まで" would leak
+// into the title unstripped.
+const matchDateRange = (
+  frag: string,
+): {start: {mo: number; day: number}; end: {mo: number; day: number}} | undefined => {
+  const conn = String.raw`\s*(?:から|〜|~|-|ー|–|−|→)\s*`;
+  const kanji = frag.match(new RegExp(`(\\d{1,2})月(\\d{1,2})日${conn}(\\d{1,2})月(\\d{1,2})日`));
+  if (kanji) {
+    return {start: {mo: +kanji[1], day: +kanji[2]}, end: {mo: +kanji[3], day: +kanji[4]}};
+  }
+  const slash = frag.match(new RegExp(`\\b(\\d{1,2})/(\\d{1,2})\\b${conn}\\b(\\d{1,2})/(\\d{1,2})\\b`));
+  if (slash) {
+    const start = {mo: parseInt(slash[1], 10), day: parseInt(slash[2], 10)};
+    const end = {mo: parseInt(slash[3], 10), day: parseInt(slash[4], 10)};
+    const valid = (d: {mo: number; day: number}) => d.mo >= 1 && d.mo <= 12 && d.day >= 1 && d.day <= 31;
+    if (valid(start) && valid(end)) return {start, end};
+  }
+  return undefined;
+};
+
+// "9月末"/"9末" — an explicit month number attached to 末 names THAT month's
+// end specifically. Without this, deadlineOf's bare 月末 fallback (below)
+// silently returned "the end of whichever month we're in right now" even
+// when the text plainly named a different one.
+const resolveMonthEndKey = (mo1: number, now: Date): string => {
+  let y = now.getFullYear();
+  const mo = mo1 - 1;
+  const lastDay = new Date(y, mo + 1, 0).getDate();
+  if (mo < now.getMonth() || (mo === now.getMonth() && lastDay < now.getDate())) y += 1;
+  return monthEndDateKey(new Date(y, mo, 1));
+};
+
 const deadlineOf = (frag: string, now: Date): string | undefined => {
   if (/今月末|今月中|月内/.test(frag)) return monthEndDateKey(now);
   if (/来月末/.test(frag)) return monthEndDateKey(new Date(now.getFullYear(), now.getMonth() + 1, 1));
@@ -360,11 +474,23 @@ const deadlineOf = (frag: string, now: Date): string | undefined => {
   // task language says so ("月末までに提出") — otherwise it's monthlyPatternOf's
   // "every month-end" recurring interpretation (see there), mirroring how a
   // bare weekday elsewhere defaults to a standing weekly commitment.
+  // Checked before the bare 月末 fallback right below — "9月末"/"9末" must
+  // resolve to September's end, not "the current month" like the bare form.
+  const explicitMonthEnd = frag.match(/(\d{1,2})\s*月\s*末|(\d{1,2})\s*末(?!日)/);
+  if (explicitMonthEnd && /までに|〆切|締切|提出/.test(frag)) {
+    const mo = parseInt(explicitMonthEnd[1] ?? explicitMonthEnd[2], 10);
+    if (mo >= 1 && mo <= 12) return resolveMonthEndKey(mo, now);
+  }
   if (/月末/.test(frag) && /までに|〆切|締切|提出/.test(frag)) return monthEndDateKey(now);
   if (/今年中に|今年末|年内に/.test(frag)) return `${now.getFullYear()}-12-31`;
   if (/今週末|週末まで|今週中/.test(frag)) {
     const toSat = (6 - now.getDay() + 7) % 7;
     return addDaysKey(now, toSat);
+  }
+  // "来週中に" (within next week) — one week further out than 今週中 above.
+  if (/来週中/.test(frag)) {
+    const toSat = (6 - now.getDay() + 7) % 7;
+    return addDaysKey(now, toSat + 7);
   }
   if (/明日まで|明日中に/.test(frag)) return addDaysKey(now, 1);
   if (/今日中に/.test(frag)) return addDaysKey(now, 0);
@@ -373,6 +499,16 @@ const deadlineOf = (frag: string, now: Date): string | undefined => {
   // task due two days out instead of a lunch plan on that day. Require the
   // same task language the other two branches do.
   if (/明後日(?:まで|中に)/.test(frag)) return addDaysKey(now, 2);
+  // The three checks above only fire when 明日/今日/明後日 sits IMMEDIATELY
+  // next to まで/中に — "明日15時までにメール返信" has "15時" in the way, so it
+  // fell all the way through to the generic までに fallback below, which
+  // resolves to "the end of the current month" — completely ignoring the
+  // explicit 明日. Unlike the bare-まで checks above, this one requires the
+  // unambiguous "までに" (with に) so "明日18時まで" — a same-day event's end
+  // time, not a deadline — still isn't misread as one.
+  if (/明後日/.test(frag) && /までに/.test(frag)) return addDaysKey(now, 2);
+  if (/明日/.test(frag) && /までに/.test(frag)) return addDaysKey(now, 1);
+  if (/今日/.test(frag) && /までに/.test(frag)) return addDaysKey(now, 0);
   // "3日以内に" / "1週間以内に" — a relative offset from today, distinct from
   // "3日後" (see the note on deadlineOf vs. a plain due-date reminder) in that
   // 以内に explicitly means task language ("finish within N days").
@@ -384,9 +520,9 @@ const deadlineOf = (frag: string, now: Date): string | undefined => {
   // "9月10日は誕生日" is a one-off event, not a project due that day. Bare
   // "まで" is excluded too (e.g. "16時まで" is a time range end, not a due
   // date); only "までに" or an explicit 締切ワード count.
-  const md = frag.match(/(\d+)月(\d+)日/);
+  const md = matchMonthDay(frag);
   if (md && /までに|〆切|締切|提出/.test(frag)) {
-    return resolveMonthDayKey(parseInt(md[1], 10), parseInt(md[2], 10), now);
+    return resolveMonthDayKey(md.mo, md.day, now);
   }
   // "までに" is a deadline marker; bare "まで" is NOT (e.g. "16時まで" is a time
   // range end, not a due date) — only treat 〆切/締切/提出 + までに as vague deadlines.
@@ -408,9 +544,9 @@ const deadlineOf = (frag: string, now: Date): string | undefined => {
 // A bare explicit date with no deadline language ("9月10日は誕生日") is a
 // one-off calendar marker, not a project to distribute work toward.
 const singleDateOf = (frag: string, now: Date): string | undefined => {
-  const md = frag.match(/(\d+)月(\d+)日/);
+  const md = matchMonthDay(frag);
   if (!md) return undefined;
-  return resolveMonthDayKey(parseInt(md[1], 10), parseInt(md[2], 10), now);
+  return resolveMonthDayKey(md.mo, md.day, now);
 };
 
 // "来週の月曜日に歯医者" / "今度の金曜日に飲み会" — a weekday qualified by 来週/
@@ -420,12 +556,18 @@ const singleDateOf = (frag: string, now: Date): string | undefined => {
 // single dentist visit.
 const qualifiedWeekdayEventDate = (frag: string, now: Date): string | undefined => {
   if (/毎週/.test(frag)) return undefined; // an explicit recurrence wins
-  const q = frag.match(/来週|今度|今週/);
+  // "再来週" must be tried before the bare "来週" alternative — regex
+  // alternation matches the first alternative that succeeds at a given
+  // position, and "来週" is a literal substring of "再来週" starting one
+  // character in, so without this ordering "再来週の月曜日" (the Monday
+  // *after* next) silently read as "来週" (next week) — a whole week early.
+  const q = frag.match(/再来週|来週|今度|今週/);
   if (!q) return undefined;
   const dow = DOW_TOKENS.find(({re}) => re.test(frag))?.day;
   if (dow === undefined) return undefined;
   let delta = (dow - now.getDay() + 7) % 7; // days until the nearest occurrence
-  if (q[0] === '来週') delta += 7; // explicitly skip this week's occurrence
+  if (q[0] === '再来週') delta += 14; // skip this week's AND next week's occurrence
+  else if (q[0] === '来週') delta += 7; // explicitly skip this week's occurrence
   return addDaysKey(now, delta);
 };
 
@@ -472,6 +614,7 @@ interface MonthlyPattern {
   dow?: DayOfWeek;
   lastDayOfMonth?: boolean;
   lastBusinessDayOfMonth?: boolean;
+  lastWeekdayOfMonth?: DayOfWeek;
   monthInterval?: number;
 }
 const monthlyPatternOf = (frag: string): MonthlyPattern | undefined => {
@@ -480,6 +623,17 @@ const monthlyPatternOf = (frag: string): MonthlyPattern | undefined => {
   // day) since "毎月末の最終営業日" would otherwise match the calendar-day
   // branch first and lose the "business day" refinement.
   if (/最終営業日/.test(frag)) return {lastBusinessDayOfMonth: true, monthInterval: interval};
+  // "毎月最終日曜"/"最終月曜" — the last occurrence of a SPECIFIC weekday in
+  // the month, a third distinct "last ~" pattern alongside the two above.
+  // Checked before bare 月末 below so "最終" isn't discarded — without this,
+  // "毎月最終日曜サークル" fell through to a bare weekly-Sunday 'fixed'
+  // commitment, silently losing "最終" (and every 5th Sunday it doesn't
+  // apply to would get one anyway).
+  const lastDow = frag.match(/最終\s*([月火水木金土日])曜日?/);
+  if (lastDow) {
+    const dow = BARE_DOW_DAY[lastDow[1]];
+    if (dow !== undefined) return {lastWeekdayOfMonth: dow, monthInterval: interval};
+  }
   // A bare "月末"/"毎月末" reaches here only when deadlineOf() didn't already
   // claim it as a one-off (see the note there) — i.e. no task language, so
   // this is the recurring "every month-end" reading.
@@ -579,7 +733,14 @@ const parseFragment = (raw: string, idx: number, now: Date): Intention | null =>
   const deadline = deadlineOf(frag, now);
   const qualifiedEventDate = qualifiedWeekdayEventDate(frag, now);
   const relativeEventDate = relativeEventDateOf(frag, now);
-  const eventDate = singleDateOf(frag, now) ?? qualifiedEventDate ?? relativeEventDate;
+  // A declared multi-day span ("9/10から9/12まで旅行") must win over the plain
+  // single-date match below — singleDateOf would otherwise only grab the
+  // first date and leave "から9/12まで" dangling in the title.
+  const dateRange = matchDateRange(frag);
+  const eventDate = dateRange
+    ? resolveMonthDayKey(dateRange.start.mo, dateRange.start.day, now)
+    : singleDateOf(frag, now) ?? qualifiedEventDate ?? relativeEventDate;
+  const eventEndDate = dateRange ? resolveMonthDayKey(dateRange.end.mo, dateRange.end.day, now) : undefined;
   const monthlyPattern = monthlyPatternOf(frag);
   // An explicit "10時から16時" range wins over vague time-of-day words, and also
   // gives us an exact duration. The window's endHour must round UP when the
@@ -701,6 +862,7 @@ const parseFragment = (raw: string, idx: number, now: Date): Intention | null =>
     // Reached via the `win && !days` branch above with no explicit date —
     // "today" is the only day a dayless time mention can mean.
     base.eventDate = eventDate ?? addDaysKey(now, 0);
+    if (eventEndDate) base.eventEndDate = eventEndDate;
     if (range) {
       base.window = win!;
       base.durationMin = explicitDur ?? 60;
@@ -718,6 +880,8 @@ const parseFragment = (raw: string, idx: number, now: Date): Intention | null =>
       base.lastBusinessDayOfMonth = true;
     } else if (monthlyPattern!.lastDayOfMonth) {
       base.lastDayOfMonth = true;
+    } else if (monthlyPattern!.lastWeekdayOfMonth !== undefined) {
+      base.lastWeekdayOfMonth = monthlyPattern!.lastWeekdayOfMonth;
     } else if (monthlyPattern!.monthDay !== undefined) {
       base.monthDay = monthlyPattern!.monthDay;
     } else {

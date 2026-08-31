@@ -189,6 +189,11 @@ const daysUntilNextMonthly = (start: Date, intn: Intention): number => {
     } else if (intn.monthDay !== undefined) {
       const c = new Date(y, mo0, intn.monthDay);
       candidate = c.getMonth() === mo0 ? c : null; // guard e.g. day 31 in a 30-day month
+    } else if (intn.lastWeekdayOfMonth !== undefined) {
+      const daysInMonth = new Date(y, mo0 + 1, 0).getDate();
+      const lastDate = new Date(y, mo0, daysInMonth);
+      const diff = (lastDate.getDay() - intn.lastWeekdayOfMonth + 7) % 7;
+      candidate = new Date(y, mo0, daysInMonth - diff);
     } else if (intn.monthWeek !== undefined && intn.days?.length) {
       const dow = intn.days[0];
       const daysInMonth = new Date(y, mo0 + 1, 0).getDate();
@@ -329,6 +334,12 @@ const nextMonthlyOccurrence = (anchorDate: Date, blk: PlacedBlock, occurrenceInd
   if (blk.monthDay !== undefined) {
     const candidate = new Date(y, mo, blk.monthDay);
     return candidate.getMonth() === mo ? candidate : null;
+  }
+  if (blk.lastWeekdayOfMonth !== undefined) {
+    const daysInMonth = new Date(y, mo + 1, 0).getDate();
+    const lastDate = new Date(y, mo, daysInMonth);
+    const diff = (lastDate.getDay() - blk.lastWeekdayOfMonth + 7) % 7;
+    return new Date(y, mo, daysInMonth - diff);
   }
   if (blk.monthWeek !== undefined) {
     const dow = anchorDate.getDay();
@@ -524,8 +535,11 @@ export const applyPlanToCalendar = async (plan: SchedulePlan): Promise<number> =
 
   for (const blk of oneOffBlocks) {
     const start = dateFromDateKeyAndMin(blk.dateKey, blk.startMin);
+    // A declared multi-day span (blk.eventEndDate, e.g. "9/10から9/12まで旅
+    // 行") writes as one all-day event spanning [dateKey, eventEndDate], not
+    // just its first day.
     const end = blk.allDay
-      ? dateFromDateKeyAndMin(blk.dateKey, 23 * 60 + 59)
+      ? dateFromDateKeyAndMin(blk.eventEndDate ?? blk.dateKey, 23 * 60 + 59)
       : dateFromDateKeyAndMin(blk.dateKey, blk.endMin);
     if (await saveOneOff(blk.title, blk.color, start, end, blk.allDay)) count += 1;
   }
