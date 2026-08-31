@@ -95,12 +95,28 @@ const durationMin = (frag: string, fallback: number): number => {
     const n = toNum(hh[1]);
     if (!isNaN(n)) return n * 60 + 30;
   }
+  // "1時間30分" — an explicit hour+minute duration, checked before the bare
+  // "N時間" match below so the trailing "30分" isn't silently dropped.
+  const hm = frag.match(/(\d+|[０-９]+)\s*時間\s*(\d+|[０-９]+)\s*分/);
+  if (hm) {
+    const hrs = toNum(hm[1]);
+    const mins = toNum(hm[2]);
+    if (!isNaN(hrs) && !isNaN(mins)) return hrs * 60 + mins;
+  }
   const h = frag.match(/(\d+(?:\.\d+)?|[０-９]+)\s*時間/);
   if (h) {
     const n = parseFloat(h[1].replace(/[０-９]/g, d => String('０１２３４５６７８９'.indexOf(d))));
     if (!isNaN(n)) return Math.round(n * 60);
   }
-  const m = frag.match(/(\d+|[０-９]+)\s*分/);
+  // "10時30分に会議" — the minutes of a CLOCK TIME (H時M分), not a duration.
+  // Without the (?<!時) guard, any single time mention with non-zero minutes
+  // had its clock-minutes misread as an explicit duration override, silently
+  // replacing a sensible ~90min default with just "30". \b additionally stops
+  // the lookbehind from being satisfied one digit late — without it,
+  // "10時30分" still matched starting at the bare "0" of "30" (nothing "時"
+  // immediately before THAT digit), silently returning 0 instead of falling
+  // through to the fallback.
+  const m = frag.match(/(?<!時)\b(\d+|[０-９]+)\s*分/);
   if (m) {
     const n = toNum(m[1]);
     if (!isNaN(n)) return n;
@@ -574,6 +590,29 @@ const qualifiedWeekdayEventDate = (frag: string, now: Date): string | undefined 
   return addDaysKey(now, delta);
 };
 
+// "来週の月曜から水曜まで出張" — a weekday RANGE (see weekdayRangeOf) qualified
+// by 来週/今度/今週/再来週 names a specific multi-day span, not a standing
+// Mon/Tue/Wed weekly commitment. Mirrors qualifiedWeekdayEventDate above but
+// for two weekdays instead of one; without this the range collapsed to a
+// single-day event on just the start day, silently losing "through Wednesday".
+const qualifiedWeekdayRangeEventDate = (
+  frag: string,
+  now: Date,
+): {start: string; end: string} | undefined => {
+  if (/毎週/.test(frag)) return undefined;
+  const q = frag.match(/再来週|来週|今度|今週/);
+  if (!q) return undefined;
+  const m = frag.match(/([月火水木金土日])曜日?\s*(?:から|〜|~|-)\s*([月火水木金土日])曜日?\s*まで/);
+  if (!m) return undefined;
+  const startDow = BARE_DOW_DAY[m[1]];
+  const endDow = BARE_DOW_DAY[m[2]];
+  let delta = (startDow - now.getDay() + 7) % 7;
+  if (q[0] === '再来週') delta += 14;
+  else if (q[0] === '来週') delta += 7;
+  const endOffset = (endDow - startDow + 7) % 7;
+  return {start: addDaysKey(now, delta), end: addDaysKey(now, delta + endOffset)};
+};
+
 // "今日"/"明日"/"明後日" name one specific day with no weekday reference at all
 // ("明日10時に歯医者") — without this, such a fragment had no eventDate and no
 // `days`, so it fell through to the generic `win || days` branch and became a
@@ -759,6 +798,7 @@ const parseFragment = (raw: string, idx: number, now: Date): Intention | null =>
   const freq = frequencyOf(frag);
   const deadline = deadlineOf(frag, now);
   const qualifiedEventDate = qualifiedWeekdayEventDate(frag, now);
+  const qualifiedRangeEventDate = qualifiedWeekdayRangeEventDate(frag, now);
   const relativeEventDate = relativeEventDateOf(frag, now);
   // A declared multi-day span ("9/10から9/12まで旅行") must win over the plain
   // single-date match below — singleDateOf would otherwise only grab the
@@ -766,8 +806,17 @@ const parseFragment = (raw: string, idx: number, now: Date): Intention | null =>
   const dateRange = matchDateRange(frag);
   const eventDate = dateRange
     ? resolveMonthDayKey(dateRange.start.mo, dateRange.start.day, now)
+    : qualifiedRangeEventDate
+    ? qualifiedRangeEventDate.start
     : singleDateOf(frag, now) ?? qualifiedEventDate ?? relativeEventDate;
-  const eventEndDate = dateRange ? resolveMonthDayKey(dateRange.end.mo, dateRange.end.day, now) : undefined;
+  const rawEventEndDate = dateRange
+    ? resolveMonthDayKey(dateRange.end.mo, dateRange.end.day, now)
+    : qualifiedRangeEventDate?.end;
+  // A reversed range ("9/12から9/10まで", almost certainly a typo) must not
+  // produce an end date before the start — that would write a calendar event
+  // with a negative span. Fall back to treating it as a single-day event on
+  // the start date instead of guessing which side the user meant.
+  const eventEndDate = rawEventEndDate && eventDate && rawEventEndDate >= eventDate ? rawEventEndDate : undefined;
   const monthlyPattern = monthlyPatternOf(frag);
   // An explicit "10時から16時" range wins over vague time-of-day words, and also
   // gives us an exact duration. The window's endHour must round UP when the
@@ -821,8 +870,9 @@ const parseFragment = (raw: string, idx: number, now: Date): Intention | null =>
   else if (monthlyPattern) kind = 'monthly';
   // "来週の月曜日" etc. names one specific occurrence — this must outrank the
   // 'fixed' branch below, which would otherwise treat the same weekday token
-  // (`days`) as a standing weekly commitment.
-  else if (qualifiedEventDate) kind = 'event';
+  // (`days`) as a standing weekly commitment. Same for a qualified weekday
+  // RANGE ("来週の月曜から水曜まで").
+  else if (qualifiedEventDate || qualifiedRangeEventDate) kind = 'event';
   else if (isFocusWork || (isProtect && win)) kind = 'focus';
   else if (batchPref && !freq) kind = 'preference';
   else if (explicitDay && win && !freq) kind = 'fixed';

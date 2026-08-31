@@ -714,3 +714,42 @@ test('a bare weekday-list + 以外 also excludes correctly', () => {
   const [intn] = parseIntentions('月水以外は毎日ジム', now);
   expect(intn.days).toEqual([0, 2, 4, 5, 6]);
 });
+
+// "10時30分" — the minutes of a CLOCK TIME, not a duration override. Without
+// the (?<!時)\b guard in durationMin(), this silently replaced a sensible
+// ~90min default with just "30" (or, with the lookbehind but no \b anchor,
+// an even worse "0" — matching starting one digit late at the bare "0").
+test('a clock time with minutes ("10時30分") never overrides duration with its minute value', () => {
+  const [intn] = parseIntentions('毎週月曜日10時30分に英会話', now);
+  expect(intn.durationMin).toBe(90);
+});
+
+test('a genuine duration mention ("30分だけ") is unaffected by the clock-time guard', () => {
+  const [intn] = parseIntentions('30分だけ昼寝', now);
+  expect(intn.durationMin).toBe(30);
+});
+
+test('"1時間30分" (combined hour+minute duration) is read as 90 minutes', () => {
+  const [intn] = parseIntentions('1時間30分の会議', now);
+  expect(intn.durationMin).toBe(90);
+});
+
+// A reversed date range ("9/12から9/10まで", almost certainly a typo) must
+// not produce a negative-span calendar event — fall back to a single-day
+// event on the start date instead of guessing which side was meant.
+test('a reversed date range does not set an eventEndDate before the start', () => {
+  const [intn] = parseIntentions('9/12から9/10まで旅行', now);
+  expect(intn.eventDate).toBe('2026-09-12');
+  expect(intn.eventEndDate).toBeUndefined();
+});
+
+// "来週の月曜から水曜まで出張" — a weekday RANGE qualified by 来週 used to
+// collapse to a single-day event on just the first day, silently discarding
+// "through Wednesday".
+test('a qualified weekday range ("来週の月曜から水曜まで") sets both eventDate and eventEndDate', () => {
+  const [intn] = parseIntentions('来週の月曜から水曜まで出張', now);
+  expect(intn.kind).toBe('event');
+  expect(intn.eventDate).toBe('2026-09-07'); // next week's Monday
+  expect(intn.eventEndDate).toBe('2026-09-09'); // through that week's Wednesday
+  expect(intn.title).toBe('出張');
+});
