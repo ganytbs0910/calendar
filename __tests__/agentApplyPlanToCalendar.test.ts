@@ -70,7 +70,7 @@ beforeEach(() => {
 });
 
 test('writes a real calendar event for a one-off block, colored per intention', async () => {
-  const count = await applyPlanToCalendar(plan([block()]));
+  const {count} = await applyPlanToCalendar(plan([block()]));
 
   expect(count).toBe(1);
   expect(RNCalendarEvents.saveEvent).toHaveBeenCalledTimes(1);
@@ -84,8 +84,34 @@ test('writes a real calendar event for a one-off block, colored per intention', 
   expect(mockSetEventColor).toHaveBeenCalledWith('event-1', '#007AFF');
 });
 
+// `created` is what AgentScreen's undo-preview/undo-delete path relies on —
+// it must carry the real written eventId (not the intention/block id) plus
+// enough to render a mini preview.
+test('returns the written event id, title and color in `created`', async () => {
+  const {created} = await applyPlanToCalendar(plan([block()]));
+
+  expect(created).toHaveLength(1);
+  expect(created[0]).toMatchObject({
+    id: 'event-1',
+    title: 'アプリをリリース',
+    color: '#007AFF',
+    allDay: false,
+  });
+  expect(new Date(created[0].startDate).getHours()).toBe(9);
+  expect(new Date(created[0].endDate).getHours()).toBe(11);
+});
+
+test('a block that fails to save is not included in `created`', async () => {
+  (RNCalendarEvents.saveEvent as jest.Mock).mockRejectedValueOnce(new Error('boom'));
+
+  const {count, created} = await applyPlanToCalendar(plan([block()]));
+
+  expect(count).toBe(0);
+  expect(created).toHaveLength(0);
+});
+
 test('skips blocks marked skipped', async () => {
-  const count = await applyPlanToCalendar(plan([block({status: 'skipped'})]));
+  const {count} = await applyPlanToCalendar(plan([block({status: 'skipped'})]));
 
   expect(count).toBe(0);
   expect(RNCalendarEvents.saveEvent).not.toHaveBeenCalled();
@@ -96,7 +122,7 @@ test('returns 0 without writing when no calendar is writable', async () => {
     {id: 'cal-1', title: 'Read-only', isPrimary: true, allowsModifications: false},
   ]);
 
-  const count = await applyPlanToCalendar(plan([block()]));
+  const {count} = await applyPlanToCalendar(plan([block()]));
 
   expect(count).toBe(0);
   expect(RNCalendarEvents.saveEvent).not.toHaveBeenCalled();
@@ -107,7 +133,7 @@ test('a failure on one block does not stop the rest from being applied', async (
     .mockRejectedValueOnce(new Error('boom'))
     .mockResolvedValueOnce('event-2');
 
-  const count = await applyPlanToCalendar(
+  const {count} = await applyPlanToCalendar(
     plan([block({id: 'blk-1'}), block({id: 'blk-2', dateKey: '2026-08-28'})]),
   );
 
@@ -121,7 +147,7 @@ test('a failure on one block does not stop the rest from being applied', async (
 // explicit 毎週 marker is what unlocks this; see the "no explicit marker"
 // tests below for the (now different) default.
 test('a clear weekly commitment fills every week for ~3 months when explicitly recurring', async () => {
-  const count = await applyPlanToCalendar(
+  const {count} = await applyPlanToCalendar(
     plan([block({
       kind: 'fixed', title: '英語基礎', dateKey: '2026-08-31', startMin: 10 * 60, endMin: 12 * 60,
       explicitRecurrence: true,
@@ -199,7 +225,7 @@ test('the weekly look-ahead never reaches before the anchor date', async () => {
 // day) — dateFromDateKeyAndMin must let that roll over into a real next-day
 // timestamp rather than clamping or wrapping incorrectly.
 test('a crosses-midnight block writes an end time that rolls into the next calendar day', async () => {
-  const count = await applyPlanToCalendar(
+  const {count} = await applyPlanToCalendar(
     plan([
       block({
         kind: 'recurring', // any non-fixed/focus kind stays a one-off write
@@ -222,7 +248,7 @@ test('a crosses-midnight block writes an end time that rolls into the next calen
 // An 'event' block with allDay writes as a full-day EventKit entry (no time
 // slot to defend), unlike every other kind which always writes allDay: false.
 test('an all-day event block writes as a full-day calendar entry', async () => {
-  const count = await applyPlanToCalendar(
+  const {count} = await applyPlanToCalendar(
     plan([
       block({
         kind: 'event',
@@ -253,7 +279,7 @@ test('an all-day event block writes as a full-day calendar entry', async () => {
 // A declared multi-day span ("9/10から9/12まで旅行") must write as ONE all-day
 // event covering the whole span, not just its first day.
 test('a multi-day event block (eventEndDate set) spans through its last day', async () => {
-  const count = await applyPlanToCalendar(
+  const {count} = await applyPlanToCalendar(
     plan([
       block({
         kind: 'event',
@@ -280,7 +306,7 @@ test('a multi-day event block (eventEndDate set) spans through its last day', as
 // monthDay/monthWeek pattern must be re-applied to each future month, not
 // just "same date + N weeks" like fixed/focus.
 test('a monthly day-of-month commitment writes one occurrence per month for 6 months', async () => {
-  const count = await applyPlanToCalendar(
+  const {count} = await applyPlanToCalendar(
     plan([
       block({
         kind: 'monthly',
@@ -305,7 +331,7 @@ test('a monthly day-of-month commitment writes one occurrence per month for 6 mo
 });
 
 test('a monthly Nth-weekday commitment recomputes the correct date each month', async () => {
-  const count = await applyPlanToCalendar(
+  const {count} = await applyPlanToCalendar(
     plan([
       block({
         kind: 'monthly',
@@ -328,7 +354,7 @@ test('a monthly Nth-weekday commitment recomputes the correct date each month', 
 });
 
 test('a lastBusinessDayOfMonth commitment recomputes the last weekday each month', async () => {
-  const count = await applyPlanToCalendar(
+  const {count} = await applyPlanToCalendar(
     plan([
       block({
         kind: 'monthly',
@@ -353,7 +379,7 @@ test('a lastBusinessDayOfMonth commitment recomputes the last weekday each month
 });
 
 test('a lastWeekdayOfMonth commitment recomputes the last occurrence of that weekday each month', async () => {
-  const count = await applyPlanToCalendar(
+  const {count} = await applyPlanToCalendar(
     plan([
       block({
         kind: 'monthly',
@@ -377,7 +403,7 @@ test('a lastWeekdayOfMonth commitment recomputes the last occurrence of that wee
 });
 
 test('monthInterval (隔月) writes only every other month, not every month', async () => {
-  const count = await applyPlanToCalendar(
+  const {count} = await applyPlanToCalendar(
     plan([
       block({
         kind: 'monthly',
@@ -402,7 +428,7 @@ test('monthInterval (隔月) writes only every other month, not every month', as
 // series — only the occurrences the solver actually placed within its own
 // horizon (here: exactly the two blocks handed in) get written.
 test('a fixed commitment with no explicit recurrence marker writes only what the solver placed', async () => {
-  const count = await applyPlanToCalendar(
+  const {count} = await applyPlanToCalendar(
     plan([
       block({kind: 'fixed', title: 'バイト', dateKey: '2026-09-01', startMin: 10 * 60, endMin: 12 * 60}), // Tue
       block({kind: 'fixed', title: 'バイト', dateKey: '2026-09-03', startMin: 10 * 60, endMin: 12 * 60}), // Thu
@@ -416,7 +442,7 @@ test('a fixed commitment with no explicit recurrence marker writes only what the
 });
 
 test('a focus block with no explicit recurrence marker also skips the multi-month look-ahead', async () => {
-  const count = await applyPlanToCalendar(
+  const {count} = await applyPlanToCalendar(
     plan([block({kind: 'focus', title: '深い作業', dateKey: '2026-08-31', startMin: 9 * 60, endMin: 10 * 60})]),
   );
 
@@ -429,7 +455,7 @@ test('recurring (frequency-based) blocks stay one-off, even sharing a weekday', 
     block({kind: 'recurring', title: '筋トレ', dateKey}),
   );
 
-  const count = await applyPlanToCalendar(plan(sessions));
+  const {count} = await applyPlanToCalendar(plan(sessions));
 
   expect(count).toBe(2);
   expect(RNCalendarEvents.saveEvent).toHaveBeenCalledTimes(2);

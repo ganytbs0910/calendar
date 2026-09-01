@@ -412,10 +412,23 @@ const overlapsRealEvent = (
  * distribute) intentions have no single weekday to recur on and keep the
  * one-event-per-block behavior.
  */
-export const applyPlanToCalendar = async (plan: SchedulePlan): Promise<number> => {
+/** One real calendar event written by applyPlanToCalendar — enough to render
+ * a mini preview and to undo (remove) it again by id. */
+export interface AppliedEvent {
+  id: string;
+  title: string;
+  color: string;
+  startDate: string; // ISO
+  endDate: string; // ISO
+  allDay: boolean;
+}
+
+export const applyPlanToCalendar = async (
+  plan: SchedulePlan,
+): Promise<{count: number; created: AppliedEvent[]}> => {
   const calendars = await RNCalendarEvents.findCalendars();
   const writable = calendars.filter(cal => cal.allowsModifications);
-  if (writable.length === 0) return 0;
+  if (writable.length === 0) return {count: 0, created: []};
   const defaultCalendar = writable.find(cal => cal.isPrimary) || writable[0];
 
   const weeklyGroups = new Map<string, PlacedBlock[]>();
@@ -443,7 +456,7 @@ export const applyPlanToCalendar = async (plan: SchedulePlan): Promise<number> =
     start: Date,
     end: Date,
     allDay: boolean = false,
-  ): Promise<boolean> => {
+  ): Promise<string | null> => {
     try {
       const eventId = await RNCalendarEvents.saveEvent(title, {
         calendarId: defaultCalendar.id,
@@ -452,15 +465,19 @@ export const applyPlanToCalendar = async (plan: SchedulePlan): Promise<number> =
         allDay,
         notes: 'エージェントが配置',
       });
-      if (!eventId) return false;
+      if (!eventId) return null;
       await setEventColor(eventId, color);
-      return true;
+      return eventId;
     } catch {
-      return false;
+      return null;
     }
   };
 
-  let count = 0;
+  const created: AppliedEvent[] = [];
+  const record = (id: string | null, title: string, color: string, start: Date, end: Date, allDay: boolean) => {
+    if (!id) return;
+    created.push({id, title, color, startDate: start.toISOString(), endDate: end.toISOString(), allDay});
+  };
 
   for (const group of weeklyGroups.values()) {
     group.sort((a, b) => a.dateKey.localeCompare(b.dateKey));
@@ -473,7 +490,7 @@ export const applyPlanToCalendar = async (plan: SchedulePlan): Promise<number> =
       for (const blk of group) {
         const start = dateFromDateKeyAndMin(blk.dateKey, blk.startMin);
         const end = dateFromDateKeyAndMin(blk.dateKey, blk.endMin);
-        if (await saveOneOff(blk.title, blk.color, start, end)) count += 1;
+        record(await saveOneOff(blk.title, blk.color, start, end), blk.title, blk.color, start, end, false);
       }
       continue;
     }
@@ -497,7 +514,7 @@ export const applyPlanToCalendar = async (plan: SchedulePlan): Promise<number> =
       const occStart = new Date(anchorStart.getTime() + i * MS_PER_WEEK);
       const occEnd = new Date(occStart.getTime() + durationMs);
       if (overlapsRealEvent(futureEvents, occStart, occEnd)) continue; // busy week — skip, don't fail the series
-      if (await saveOneOff(anchor.title, anchor.color, occStart, occEnd)) count += 1;
+      record(await saveOneOff(anchor.title, anchor.color, occStart, occEnd), anchor.title, anchor.color, occStart, occEnd, false);
     }
   }
 
@@ -529,7 +546,7 @@ export const applyPlanToCalendar = async (plan: SchedulePlan): Promise<number> =
       );
       const occEnd = new Date(occStart.getTime() + durationMs);
       if (overlapsRealEvent(futureEvents, occStart, occEnd)) continue; // busy month — skip, don't fail the series
-      if (await saveOneOff(anchor.title, anchor.color, occStart, occEnd)) count += 1;
+      record(await saveOneOff(anchor.title, anchor.color, occStart, occEnd), anchor.title, anchor.color, occStart, occEnd, false);
     }
   }
 
@@ -541,10 +558,10 @@ export const applyPlanToCalendar = async (plan: SchedulePlan): Promise<number> =
     const end = blk.allDay
       ? dateFromDateKeyAndMin(blk.eventEndDate ?? blk.dateKey, 23 * 60 + 59)
       : dateFromDateKeyAndMin(blk.dateKey, blk.endMin);
-    if (await saveOneOff(blk.title, blk.color, start, end, blk.allDay)) count += 1;
+    record(await saveOneOff(blk.title, blk.color, start, end, blk.allDay), blk.title, blk.color, start, end, !!blk.allDay);
   }
 
-  return count;
+  return {count: created.length, created};
 };
 
 // ── Fulfilment stats ────────────────────────────────────────────────────────

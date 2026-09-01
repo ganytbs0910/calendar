@@ -25,6 +25,7 @@ import {parseIntentions, hasLowConfidence} from '../agent/intentionParser';
 import {checkWithGemini, mergeLowConfidenceFallback} from '../services/geminiFallbackService';
 import {
   addIntentions,
+  AppliedEvent,
   applyPlanToCalendar,
   clearIntentions,
   clearPlan,
@@ -35,10 +36,22 @@ import {
 } from '../agent/intentionService';
 import {Intention, KIND_META, SchedulePlan} from '../agent/types';
 import {useTranslation} from 'react-i18next';
+import DayTimeStrip from './DayTimeStrip';
 import OneTimeHint from './OneTimeHint';
 import SwipeableRow from './SwipeableRow';
+import UndoToast, {UndoAction} from './UndoToast';
+
+// Comfortably longer than the bulk-delete toast's 12s — the preview here
+// (a small time-of-day graphic) takes a moment longer to read than a plain
+// "N件削除しました" line.
+const APPLY_UNDO_DURATION_MS = 14000;
 
 type TFunc = (key: string, opts?: any) => string;
+
+const minutesOfDay = (iso: string): number => {
+  const d = new Date(iso);
+  return d.getHours() * 60 + d.getMinutes();
+};
 
 // Build the one-line meta under an intention title, fully localized. `t` and the
 // weekday names come from i18n so the units (時/min, 曜, 分, 週N回…) follow locale.
@@ -116,6 +129,7 @@ const AgentScreen: React.FC<AgentScreenProps> = ({onApplied}) => {
   // silently doubling every calendar event it produces.
   const [declaring, setDeclaring] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [undoAction, setUndoAction] = useState<UndoAction | null>(null);
 
   const reload = useCallback(async () => {
     const [ins, pl] = await Promise.all([getIntentions(), getPlan()]);
@@ -210,7 +224,7 @@ const AgentScreen: React.FC<AgentScreenProps> = ({onApplied}) => {
         }
       }
 
-      const n = await applyPlanToCalendar(plan);
+      const {count: n, created} = await applyPlanToCalendar(plan);
       if (n === 0) {
         Alert.alert(t('error'), t('noWritableCalendar'));
         return;
@@ -224,7 +238,31 @@ const AgentScreen: React.FC<AgentScreenProps> = ({onApplied}) => {
       setPlan(null);
       setText('');
       onApplied?.();
-      Alert.alert(t('agentAppliedTitle'), t('agentAppliedMsg', {count: n}));
+
+      const earliest = [...created].sort((a, b) => a.startDate.localeCompare(b.startDate))[0];
+      const preview = earliest ? (
+        <DayTimeStrip
+          startMin={minutesOfDay(earliest.startDate)}
+          endMin={minutesOfDay(earliest.endDate)}
+          color={earliest.color}
+          allDay={earliest.allDay}
+        />
+      ) : undefined;
+
+      // Undo only removes the calendar events just written — the cleared
+      // intentions/plan inputs above are not restored. Re-declaring is the
+      // path back if the result needs adjusting, not this button.
+      setUndoAction({
+        message: t('agentAppliedMsg', {count: n}),
+        preview,
+        durationMs: APPLY_UNDO_DURATION_MS,
+        onUndo: async () => {
+          await Promise.allSettled(
+            created.map((ev: AppliedEvent) => RNCalendarEvents.removeEvent(ev.id)),
+          );
+          onApplied?.();
+        },
+      });
     } finally {
       setApplying(false);
     }
@@ -244,6 +282,7 @@ const AgentScreen: React.FC<AgentScreenProps> = ({onApplied}) => {
   const placed = plan?.blocks.length ?? 0;
 
   return (
+    <>
     <ScrollView style={{flex: 1, backgroundColor: colors.background}} contentContainerStyle={s.content}>
       {/* Hero */}
       <View style={s.hero}>
@@ -375,6 +414,8 @@ const AgentScreen: React.FC<AgentScreenProps> = ({onApplied}) => {
 
       <View style={{height: 40}} />
     </ScrollView>
+    <UndoToast action={undoAction} onDismiss={() => setUndoAction(null)} />
+    </>
   );
 };
 

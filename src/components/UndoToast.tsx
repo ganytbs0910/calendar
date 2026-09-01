@@ -20,6 +20,8 @@ export interface UndoAction {
   onExpire?: () => void;
   /** Override the default window. Longer suits bulk actions. */
   durationMs?: number;
+  /** Optional visual (e.g. a DayTimeStrip) rendered above the message row. */
+  preview?: React.ReactNode;
 }
 
 interface UndoToastProps {
@@ -128,11 +130,14 @@ export const UndoToast: React.FC<UndoToastProps> = ({action, onDismiss}) => {
         {opacity, transform: [{translateY}]},
       ]}
       {...swipeDown.panHandlers}>
-      <View style={styles.toast}>
-        <Text style={styles.message} numberOfLines={1}>{action.message}</Text>
-        <TouchableOpacity onPress={handleUndo} style={styles.undoButton}>
-          <Text style={styles.undoText}>{t('undo')}</Text>
-        </TouchableOpacity>
+      <View style={[styles.toast, action.preview ? styles.toastWithPreview : null]}>
+        {action.preview && <View style={styles.previewSlot}>{action.preview}</View>}
+        <View style={styles.messageRow}>
+          <Text style={styles.message} numberOfLines={1}>{action.message}</Text>
+          <TouchableOpacity onPress={handleUndo} style={styles.undoButton}>
+            <Text style={styles.undoText}>{t('undo')}</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </Animated.View>
   );
@@ -159,6 +164,18 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 8,
+  },
+  toastWithPreview: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+  },
+  previewSlot: {
+    marginBottom: 10,
+  },
+  messageRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   message: {
     fontSize: 15,
