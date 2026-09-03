@@ -15,7 +15,7 @@ import {
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
 import {getAllEventColors} from './AddEventModal';
 import {getAllEventPhotoCounts} from '../services/eventPhotoService';
-import {cancelEventNotification} from '../services/notificationService';
+import {cancelEventNotification, getEventIdsWithTriggerNotifications} from '../services/notificationService';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {fetchWeather, WeatherDay} from '../services/weatherService';
 import {useTheme} from '../theme/ThemeContext';
@@ -160,6 +160,10 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
   const [eventColors, setEventColors] = useState<Record<string, string>>({});
   // eventId → photo count, for the 📷 badge on the month grid (⑦ 写真ライフログ)
   const [eventPhotos, setEventPhotos] = useState<Record<string, number>>({});
+  // Event ids with an in-app reminder scheduled, for the 🔔 badge on the
+  // month grid. An OS-alarm reminder doesn't need this — it's read straight
+  // off event.alarms at render time (see hasReminder below).
+  const [eventNotifIds, setEventNotifIds] = useState<Set<string>>(new Set());
   const [weatherData, setWeatherData] = useState<Map<string, WeatherDay>>(new Map());
 
   // Drag selection state
@@ -505,6 +509,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
         setEventColors(eventColorsCache.current);
       }
       getAllEventPhotoCounts().then(setEventPhotos).catch(() => {});
+      getEventIdsWithTriggerNotifications().then(setEventNotifIds).catch(() => {});
       lastFetchedMonth.current = currentCacheKey;
       // Prefetch in background
       prefetchMonths(currentYear, currentMonth, 2);
@@ -526,6 +531,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
         setEventColors(fetchedColors);
       }
       getAllEventPhotoCounts().then(setEventPhotos).catch(() => {});
+      getEventIdsWithTriggerNotifications().then(setEventNotifIds).catch(() => {});
 
       // Fetch current month events (this also stores in cache)
       await fetchMonthEvents(currentYear, currentMonth, forceRefresh);
@@ -1197,6 +1203,14 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                                               <Ionicons name="camera" size={10} color="#fff" />
                                             </View>
                                           )}
+                                          {/* Independent of the selected/photo badge above (which
+                                              share the top-right corner) so a reminder is always
+                                              visible regardless of selection or photo state. */}
+                                          {!!(event.alarms?.length || (event.id && eventNotifIds.has(event.id))) && (
+                                            <View style={styles.reminderBadge}>
+                                              <Ionicons name="notifications" size={9} color="#fff" />
+                                            </View>
+                                          )}
                                         </TouchableOpacity>
                                       );
                                     })}
@@ -1614,6 +1628,22 @@ const styles = StyleSheet.create({
     width: 14,
     height: 14,
     borderRadius: 7,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.9)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // Top-left, deliberately not sharing photoBadge/selectedBadge's top-right
+  // corner — a reminder should stay visible even on a photo-attached or
+  // currently-selected event, not get silently hidden by the other badge.
+  reminderBadge: {
+    position: 'absolute',
+    top: 1,
+    left: 1,
+    width: 13,
+    height: 13,
+    borderRadius: 6.5,
     backgroundColor: 'rgba(0,0,0,0.55)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.9)',

@@ -266,6 +266,23 @@ export const cancelAllEventNotifications = async (): Promise<void> => {
 };
 
 /**
+ * Event ids with a scheduled in-app (notifee) trigger notification — the
+ * notifee notification id mirrors the calendar event id (see the module
+ * doc comment above), so this is a single batched call rather than one
+ * lookup per visible event. Used for the month-grid "has a reminder" badge.
+ * Doesn't cover an event whose reminder is an OS calendar alarm instead
+ * (in-app notifications off) — callers should also check `event.alarms`.
+ */
+export const getEventIdsWithTriggerNotifications = async (): Promise<Set<string>> => {
+  try {
+    const entries = await notifee.getTriggerNotifications();
+    return new Set(entries.map(entry => entry.notification.id).filter((id): id is string => !!id));
+  } catch {
+    return new Set();
+  }
+};
+
+/**
  * Remove any scheduled (non-recurring) trigger notifications whose fire time
  * has already passed. Useful on app launch to clean up entries left behind
  * by system clock changes or notifications the OS failed to deliver.
