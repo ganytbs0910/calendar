@@ -5,6 +5,9 @@
     <uses-permission android:name="android.permission.USE_FINGERPRINT" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
       android:name=".MainApplication"
@@ -43,6 +46,17 @@
           <data android:scheme="idealcal" />
         </intent-filter>
       </activity>
+
+      <activity
+        android:name=".WakeAlarmActivity"
+        android:exported="false"
+        android:launchMode="singleInstance"
+        android:excludeFromRecents="true"
+        android:showOnLockScreen="true" />
+
+      <receiver
+        android:name=".WakeAlarmReceiver"
+        android:exported="false" />
 
       <activity-alias
         android:name=".Month01"
