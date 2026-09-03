@@ -25,6 +25,7 @@ import {
   updateLocalCalendar,
   deleteLocalCalendar,
 } from '../../services/localCalendarService';
+import {getUnseenChangeCounts} from '../../services/sharedCalendarService';
 import LocalCalendarDetail from './LocalCalendarDetail';
 
 interface Props {
@@ -49,6 +50,11 @@ const LocalCalendarsScreen: React.FC<Props> = ({visible, onClose}) => {
 
   const [calendars, setCalendars] = useState<LocalCalendar[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
+  // calendarId -> unseen change count, so a shared calendar with new
+  // activity shows a badge here without having to be opened first. Only
+  // ever non-zero for calendars that are actually shared (syncSharedCalendar
+  // is the only writer, and it no-ops for a plain local calendar).
+  const [unseenCounts, setUnseenCounts] = useState<Record<string, number>>({});
   const [openCal, setOpenCal] = useState<LocalCalendar | null>(null);
 
   // editor state
@@ -59,9 +65,10 @@ const LocalCalendarsScreen: React.FC<Props> = ({visible, onClose}) => {
   const [emoji, setEmoji] = useState(EMOJIS[0]);
 
   const reload = useCallback(async () => {
-    const [cals, cnt] = await Promise.all([getLocalCalendars(), getLocalEventCounts()]);
+    const [cals, cnt, unseen] = await Promise.all([getLocalCalendars(), getLocalEventCounts(), getUnseenChangeCounts()]);
     setCalendars(cals);
     setCounts(cnt);
+    setUnseenCounts(unseen);
   }, []);
 
   // Load on (background pre-)mount too, so the first visit shows data instantly.
@@ -175,6 +182,11 @@ const LocalCalendarsScreen: React.FC<Props> = ({visible, onClose}) => {
                 <Text style={styles.cardName} numberOfLines={1}>{cal.name}</Text>
                 <Text style={styles.cardCount}>{t('localCalEventCount', {count: counts[cal.id] ?? 0})}</Text>
               </View>
+              {!!unseenCounts[cal.id] && (
+                <View style={[styles.unseenBadge, {backgroundColor: colors.error}]}>
+                  <Text style={styles.unseenBadgeText}>{unseenCounts[cal.id]}</Text>
+                </View>
+              )}
               <TouchableOpacity onPress={() => openEditor(cal)} style={styles.cardEditBtn} hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
                 <Ionicons name="ellipsis-horizontal" size={20} color={colors.textTertiary} />
               </TouchableOpacity>
@@ -291,6 +303,16 @@ const makeStyles = (colors: ThemeColors) =>
     cardEmoji: {fontSize: 24, marginLeft: 4},
     cardName: {fontSize: 16, fontWeight: '600', color: colors.text},
     cardCount: {fontSize: 12, color: colors.textSecondary, marginTop: 2},
+    unseenBadge: {
+      minWidth: 20,
+      height: 20,
+      borderRadius: 10,
+      paddingHorizontal: 5,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: 4,
+    },
+    unseenBadgeText: {fontSize: 11, fontWeight: '700', color: '#fff'},
     cardEditBtn: {paddingHorizontal: 4},
     createBtn: {
       flexDirection: 'row',

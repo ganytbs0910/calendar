@@ -24,6 +24,7 @@ import {
   ShareMember,
   markSharedEventDirty,
   subscribeSharedCalendar,
+  clearUnseenChanges,
 } from '../../services/sharedCalendarService';
 import {scheduleWakeAlarm, cancelWakeAlarm, shiftWakeAlarm} from '../../services/wakeAlarmService';
 
@@ -98,6 +99,10 @@ const LocalCalendarDetail: React.FC<Props> = ({calendar, onBack, calendars = [],
       if (!alive) return;
       setShared(!!code);
       if (!code) return;
+      // Opening the calendar is what "seeing" it means for the list
+      // screen's persistent badge — clear it regardless of whether this
+      // particular sync below finds anything further.
+      clearUnseenChanges(calendar.id).catch(() => {});
       try {
         const result = await syncCalendar(calendar.id);
         if (!alive) return;

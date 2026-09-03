@@ -15,6 +15,7 @@ import {
   isSharedCalendarMuted, setSharedCalendarMuted,
   isInviteClosed, setInviteClosed,
   kickMember, leaveSharedCalendar,
+  getUnseenChangeCounts, clearUnseenChanges,
 } from '../src/services/sharedCalendarService';
 import {addLocalCalendar, getLocalCalendars} from '../src/services/localCalendarService';
 import type {LocalCalendar, LocalEvent} from '../src/services/localCalendarService';
@@ -141,6 +142,62 @@ describe('他のメンバーの変更を通知する', () => {
     await syncSharedCalendar('lc-1', io);
 
     expect(notifee.displayNotification).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('新着バッジ(一覧画面用の永続化された未読数)', () => {
+  it('他人の変更はミュートしていても未読数に積み上がる', async () => {
+    await setSharedCalendarMuted('lc-1', true);
+    await withCursor('lc-1', '2030-01-01T00:00:00.000Z');
+    reply({
+      calendar: null,
+      events: [remoteRow('b', '打ち上げ', '2030-01-20T00:00:00.000Z', 'someone-else')],
+      now: '2030-02-01T00:00:00.000Z',
+    });
+    await syncSharedCalendar('lc-1', deps(CAL, []).io);
+
+    // ミュートは通知だけを止める — 一覧画面の未読バッジは別の関心事なので
+    // 押し出し通知が出なくても未読数は積み上がる。
+    expect(notifee.displayNotification).not.toHaveBeenCalled();
+    expect(await getUnseenChangeCounts()).toEqual({'lc-1': 1});
+  });
+
+  it('詳細画面を開いた(clearUnseenChanges)後は消える', async () => {
+    await withCursor('lc-1', '2030-01-01T00:00:00.000Z');
+    reply({
+      calendar: null,
+      events: [remoteRow('b', '打ち上げ', '2030-01-20T00:00:00.000Z', 'someone-else')],
+      now: '2030-02-01T00:00:00.000Z',
+    });
+    await syncSharedCalendar('lc-1', deps(CAL, []).io);
+    expect(await getUnseenChangeCounts()).toEqual({'lc-1': 1});
+
+    await clearUnseenChanges('lc-1');
+
+    expect(await getUnseenChangeCounts()).toEqual({});
+  });
+
+  it('複数回の同期で未読数が積み上がる', async () => {
+    await withCursor('lc-1', '2030-01-01T00:00:00.000Z');
+    reply({
+      calendar: null,
+      events: [remoteRow('b', '打ち上げ', '2030-01-20T00:00:00.000Z', 'someone-else')],
+      now: '2030-02-01T00:00:00.000Z',
+    });
+    await syncSharedCalendar('lc-1', deps(CAL, []).io);
+
+    await withCursor('lc-1', '2030-02-01T00:00:00.000Z');
+    reply({
+      calendar: null,
+      events: [
+        remoteRow('b', '打ち上げ', '2030-01-20T00:00:00.000Z', 'someone-else'),
+        remoteRow('c', '二次会', '2030-01-21T00:00:00.000Z', 'someone-else'),
+      ],
+      now: '2030-02-02T00:00:00.000Z',
+    });
+    await syncSharedCalendar('lc-1', deps(CAL, [ev('b', '打ち上げ', '2030-01-20T00:00:00.000Z')]).io);
+
+    expect(await getUnseenChangeCounts()).toEqual({'lc-1': 2});
   });
 });
 

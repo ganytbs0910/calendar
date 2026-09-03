@@ -43,6 +43,14 @@ const DIRTY_EVENTS_KEY = '@shared_calendar_dirty_events';
 const MUTE_KEY = '@shared_calendar_muted';
 /** calendarId -> whether the owner has closed the invite to new joiners (mirrors the server's calendar_shared.invite_closed). */
 const INVITE_CLOSED_KEY = '@shared_calendar_invite_closed';
+/**
+ * calendarId -> count of changes by others not yet seen. Persists across app
+ * restarts (unlike LocalCalendarDetail's own session-only header badge) so
+ * the calendar LIST screen can show "something's new here" without the user
+ * having to open every shared calendar to check. Cleared when that
+ * calendar's detail screen is opened.
+ */
+const UNSEEN_CHANGES_KEY = '@shared_calendar_unseen_changes';
 
 export type ShareLink = {code: string};
 
@@ -247,6 +255,24 @@ const setInviteClosedCache = async (calendarId: string, closed: boolean): Promis
   if (closed) map[calendarId] = true;
   else delete map[calendarId];
   await AsyncStorage.setItem(INVITE_CLOSED_KEY, JSON.stringify(map));
+};
+
+/** calendarId -> unseen change count, for the calendar list screen's badge. */
+export const getUnseenChangeCounts = async (): Promise<Record<string, number>> =>
+  readMap<number>(UNSEEN_CHANGES_KEY);
+
+/** Marks a calendar's changes as seen — call when its detail screen opens. */
+export const clearUnseenChanges = async (calendarId: string): Promise<void> => {
+  const map = await readMap<number>(UNSEEN_CHANGES_KEY);
+  delete map[calendarId];
+  await AsyncStorage.setItem(UNSEEN_CHANGES_KEY, JSON.stringify(map));
+};
+
+const addUnseenChanges = async (calendarId: string, count: number): Promise<void> => {
+  if (count <= 0) return;
+  const map = await readMap<number>(UNSEEN_CHANGES_KEY);
+  map[calendarId] = (map[calendarId] ?? 0) + count;
+  await AsyncStorage.setItem(UNSEEN_CHANGES_KEY, JSON.stringify(map));
 };
 
 /** Owner-only: stop (or resume) new people from joining via the invite link. Existing members are unaffected. */
@@ -582,6 +608,10 @@ export const syncSharedCalendar = async (
     }
     changedByOthers = {added, updated, deleted};
     if (added || updated || deleted) {
+      // The list-screen badge is a passive "you haven't looked at this yet"
+      // signal, independent of the push-notification mute — muting pings
+      // shouldn't also hide that something happened.
+      await addUnseenChanges(calendarId, added + updated + deleted);
       const muted = await isSharedCalendarMuted(calendarId);
       if (!muted) {
         displaySharedCalendarChangeNotification(cal.name, {added, updated, deleted}).catch(() => {});
