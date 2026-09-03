@@ -24,14 +24,30 @@ import OneTimeHint from './OneTimeHint';
 import {shiftEventNotification} from '../services/notificationService';
 
 const TIME_LABEL_WIDTH = 48;
+// A horizontal FlatList with no explicit height collapses to zero — it used
+// to "work" only because the header row's content (free-time text, all-day
+// band) happened to carry fixed heights of its own; once those were removed
+// (weekly free-time figure, then the all-day band), nothing was left to give
+// the list a measurable height and the whole day-header row went invisible.
+// Sized to headerDay's actual content: weekday row (~18) + its 3pt margin +
+// the 28pt date circle + headerDay's 2+2pt vertical padding, plus a little
+// slack for font rendering differences across platforms.
+const HEADER_ROW_HEIGHT = 56;
 const DEFAULT_HOUR_HEIGHT = 44;
 const MIN_HOUR_HEIGHT = 30;
 const MAX_HOUR_HEIGHT = 200;
 
-// Virtual day range (±3500 days ≈ ±9.6 years). Enough that the user will
-// basically never hit the edge during a session.
-const TOTAL_DAYS = 7001;
-const ANCHOR_INDEX = 3500;
+// Virtual day range (±365 days = ±1 year). Was ±3500 days (~9.6 years), but
+// FlatList.scrollToIndex() to that large an index left the header FlatList
+// (scrollEnabled=false, so nothing else ever nudges its virtualizer back)
+// rendering zero items every time — confirmed on-device by bisecting the
+// index value directly: 50 and 500 both positioned and rendered correctly,
+// 3500 never did, regardless of delay before the call or of `getItemLayout`
+// being present. ±1 year is still far more than a week view's own swipe
+// navigation will traverse in one sitting, and comfortably under the
+// smallest value that reproduced the bug.
+const TOTAL_DAYS = 731;
+const ANCHOR_INDEX = 365;
 
 // Event pre-fetch window around the centered day.
 const FETCH_HALF_RANGE = 60;
@@ -431,7 +447,17 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
     index,
   }), [dayWidth]);
 
-  // Resync scroll position after window width changes (rotation / iPad split)
+  // Position both lists at today's week — on mount, and again after any
+  // window-width change (rotation / iPad split).
+  //
+  // This used to be handled by the FlatLists' own `initialScrollIndex={ANCHOR_INDEX}`
+  // prop, with this effect only meant to resync after a later resize. That's
+  // gone now — see the ANCHOR_INDEX comment above for why jumping this far
+  // broke rendering regardless of delay or of using the declarative prop vs.
+  // this same imperative scrollToIndex call. With ANCHOR_INDEX shrunk to a
+  // value confirmed to work, the plain imperative call (still needed so the
+  // header, `scrollEnabled={false}`, ever moves at all) is reliable again,
+  // so it now also does the first positioning on mount.
   useEffect(() => {
     const idx = leftVisibleIndexRef.current;
     requestAnimationFrame(() => {
@@ -460,7 +486,7 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
     const eventCount = timedList.length + allDayList.length;
 
     return (
-      <View style={{width: dayWidth}}>
+      <View style={{width: dayWidth, height: HEADER_ROW_HEIGHT}}>
         <TouchableOpacity
           style={styles.headerDay}
           onPress={() => {
@@ -562,14 +588,13 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
         </TouchableOpacity>
         <FlatList
           ref={headerListRef}
-          style={{width: screenWidth - TIME_LABEL_WIDTH}}
+          style={{width: screenWidth - TIME_LABEL_WIDTH, height: HEADER_ROW_HEIGHT}}
           data={Array.from({length: TOTAL_DAYS})}
           keyExtractor={keyExtractorHeader}
           renderItem={renderHeaderItem}
           extraData={allDayEventsByKey}
           horizontal
           showsHorizontalScrollIndicator={false}
-          initialScrollIndex={ANCHOR_INDEX}
           getItemLayout={getItemLayout}
           initialNumToRender={8}
           windowSize={3}
@@ -677,7 +702,6 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
             renderItem={renderBodyItem}
             horizontal
             showsHorizontalScrollIndicator={false}
-            initialScrollIndex={ANCHOR_INDEX}
             getItemLayout={getItemLayout}
             onScroll={onBodyHScroll}
             onMomentumScrollEnd={onHorizontalMomentumEnd}
