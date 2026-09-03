@@ -5,7 +5,10 @@ const URL='https://llxmsbnqtdlqypnwapzz.supabase.co';
 const KEY=process.env.SUPABASE_ANON_KEY||'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxseG1zYm5xdGRscXlwbndhcHp6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Mzc4MjA5MjEsImV4cCI6MjA1MzM5NjkyMX0.EkqepILQU0KgOTW1ZaXpe54ERpZbSRodf24r5022VKs';
 const clients=Number(process.env.LOAD_CLIENTS||25),perClient=Number(process.env.LOAD_EVENTS||8);
 const crypto=require('crypto'),latencies=[];
-const rpc=async(fn,body)=>{const t=Date.now(),r=await fetch(`${URL}/rest/v1/rpc/${fn}`,{method:'POST',headers:{apikey:KEY,Authorization:`Bearer ${KEY}`,'content-type':'application/json'},body:JSON.stringify(body)});latencies.push(Date.now()-t);if(!r.ok)throw Error(`${fn} ${r.status} ${await r.text()}`);return r.json()};
+// A void-returning function (calendar_share_purge_load_test) comes back with
+// an empty body, and r.json() throws "Unexpected end of JSON input" on that —
+// read as text first and only parse when there's actually something there.
+const rpc=async(fn,body)=>{const t=Date.now(),r=await fetch(`${URL}/rest/v1/rpc/${fn}`,{method:'POST',headers:{apikey:KEY,Authorization:`Bearer ${KEY}`,'content-type':'application/json'},body:JSON.stringify(body)});latencies.push(Date.now()-t);if(!r.ok)throw Error(`${fn} ${r.status} ${await r.text()}`);const text=await r.text();return text?JSON.parse(text):null};
 const identity=i=>({id:crypto.randomBytes(16).toString('hex'),secret:crypto.randomBytes(32).toString('hex'),name:`Load ${i}`,emoji:'🧪',color:'#007AFF',updatedAt:new Date().toISOString()});
 const percentile=p=>latencies.sort((a,b)=>a-b)[Math.min(latencies.length-1,Math.floor(latencies.length*p))];
 (async()=>{const code=await rpc('calendar_share_create',{p_name:`Load ${Date.now()}`,p_color:'#007AFF',p_emoji:'🧪'});console.log(`LOAD_TEST_CODE=${code}`);
