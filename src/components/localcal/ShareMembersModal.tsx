@@ -172,7 +172,11 @@ const ShareMembersModal: React.FC<Props> = ({visible, calendar, onClose}) => {
               <TouchableOpacity
                 style={styles.row}
                 onPress={() => {
-                  setDraftName(myName);
+                  // myName is the literal auto-generated placeholder string
+                  // (see ensureMe()/autoName() in sharedCalendarService.ts)
+                  // when nameIsAuto — pre-filling it just forces the user to
+                  // delete it before typing their real name.
+                  setDraftName(nameIsAuto ? '' : myName);
                   setEditingName(true);
                 }}>
                 <Text style={[styles.rowText, nameIsAuto && {color: colors.textTertiary}]}>
