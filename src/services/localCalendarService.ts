@@ -32,9 +32,15 @@ export interface LocalEvent {
   startTime?: string; // HH:mm (when !allDay)
   endTime?: string; // HH:mm (when !allDay)
   memo?: string;
+  /** 共有メンバーID。作成者は後から別の人が編集しても変えない。 */
+  creatorId?: string;
   createdAt: string;
   updatedAt: string;
   deleted?: boolean;
+  /** 絶対起床アラーム(着信画面風通知)を有効にするか。allDayイベントには適用不可。 */
+  mustWake?: boolean;
+  /** 発火オフセット(分、開始時刻からの相対値。0またはnullは開始時刻ちょうど)。 */
+  mustWakeOffsetMinutes?: number | null;
 }
 
 type EventMap = Record<string, LocalEvent[]>; // calendarId -> events

@@ -16,6 +16,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import i18n from '../i18n/i18n';
+import {displaySharedCalendarChangeNotification} from './notificationService';
 
 import {LocalCalendar, LocalEvent} from './localCalendarService';
 
@@ -36,6 +37,12 @@ const CURSOR_KEY = '@shared_calendar_cursors';
 const ME_KEY = '@shared_calendar_me';
 /** calendarId -> 参加者一覧。圏外でも「誰と共有しているか」は出したい。 */
 const MEMBERS_KEY = '@shared_calendar_members';
+/** calendarId -> event ids that must be pushed even when the device clock is behind. */
+const DIRTY_EVENTS_KEY = '@shared_calendar_dirty_events';
+/** calendarId -> true if this device doesn't want a notification when someone else changes this calendar. */
+const MUTE_KEY = '@shared_calendar_muted';
+/** calendarId -> whether the owner has closed the invite to new joiners (mirrors the server's calendar_shared.invite_closed). */
+const INVITE_CLOSED_KEY = '@shared_calendar_invite_closed';
 
 export type ShareLink = {code: string};
 
@@ -50,12 +57,21 @@ export type ShareMember = {
   id: string;
   name: string;
   emoji: string;
+  color?: string;
   /** 最後にこの共有を同期した時刻。「まだ見ていない」を出すのに使う。 */
   lastSeenAt: string;
   updatedAt: string;
   /** 自分自身かどうか。サーバから来る値ではなく、読み出すときに付ける。 */
   isMe?: boolean;
+  role?: 'owner' | 'admin' | 'member' | 'viewer';
 };
+
+export type SharedComment = {id: string; eventId: string; memberId: string; body: string; createdAt: string};
+export type SharedAttendance = {memberId: string; status: 'going' | 'maybe' | 'declined'; updatedAt: string};
+export type SharedPhoto = {id: string; eventId: string; memberId: string; mimeType: string; base64: string; createdAt: string};
+export type SharedActivity = {seq: number; eventId?: string; memberId: string; action: string; detail: Record<string, unknown>; createdAt: string};
+export type SharedRevision = {revisionId: number; editorId: string; snapshot: Record<string, unknown>; createdAt: string};
+export type SharedEventContext = {comments: SharedComment[]; attendance: SharedAttendance[]; photos: SharedPhoto[]; activity: SharedActivity[]; revisions: SharedRevision[]};
 
 const readMap = async <T,>(key: string): Promise<Record<string, T>> => {
   const raw = await AsyncStorage.getItem(key);
@@ -92,9 +108,24 @@ type Me = {
   id: string;
   name: string;
   emoji: string;
+  color: string;
   updatedAt: string;
   /** 本人が決めた名前ではなく、こちらが仮に付けたもの。 */
   auto?: boolean;
+  secret?: string;
+};
+
+const newMemberSecret = (): string => `${newMemberId()}${newMemberId()}`;
+
+export const MEMBER_COLORS = [
+  '#007AFF', '#FF2D55', '#34C759', '#AF52DE', '#FF9500',
+  '#30B0C7', '#5856D6', '#E85D75', '#8A6D3B',
+];
+
+const colorForId = (id: string): string => {
+  let hash = 0;
+  for (const ch of id) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  return MEMBER_COLORS[hash % MEMBER_COLORS.length];
 };
 
 export const getMe = async (): Promise<Me | null> => {
@@ -102,7 +133,7 @@ export const getMe = async (): Promise<Me | null> => {
   if (!raw) return null;
   try {
     const me = JSON.parse(raw) as Me;
-    return me.id && me.name ? me : null;
+    return me.id && me.name ? {...me, color: me.color || colorForId(me.id)} : null;
   } catch {
     return null;
   }
@@ -111,16 +142,28 @@ export const getMe = async (): Promise<Me | null> => {
 /** 名乗りを決める / 変える。id は一度作ったら引き継ぐ。 */
 export const setMyName = async (name: string, emoji = '', auto = false): Promise<Me> => {
   const prev = await getMe();
+  const id = prev?.id ?? newMemberId();
   const me: Me = {
-    id: prev?.id ?? newMemberId(),
+    id,
     name: name.trim().slice(0, 24),
     emoji,
+    color: prev?.color ?? colorForId(id),
     updatedAt: new Date().toISOString(),
     auto,
+    secret: prev?.secret ?? newMemberSecret(),
   };
   await AsyncStorage.setItem(ME_KEY, JSON.stringify(me));
   return me;
 };
+
+export const setMyColor = async (color: string): Promise<Me> => {
+  const prev = await ensureMe();
+  const me: Me = {...prev, color, updatedAt: new Date().toISOString(), auto: prev.auto};
+  await AsyncStorage.setItem(ME_KEY, JSON.stringify(me));
+  return me;
+};
+
+export const getOrCreateMe = (): Promise<Me> => ensureMe();
 
 /**
  * 仮の名前。**必ず defaultValue を付ける。**
@@ -129,7 +172,7 @@ export const setMyName = async (name: string, emoji = '', auto = false): Promise
  * 「shareNameUnset」という名前で相手の一覧に並ぶ。実際に一度そうなった。
  * これは自分の画面では確認しづらい（相手の端末にだけ出る）。
  */
-const autoName = (): string => i18n.t('shareNameUnset', {defaultValue: 'No name set'});
+const autoName = (): string => i18n.t('shareNameUnset', {defaultValue: '名前未設定'});
 
 /**
  * 同期で送る名乗り。まだ決めていなければ仮の名前を付けてでも1つ作る。
@@ -144,7 +187,7 @@ const autoName = (): string => i18n.t('shareNameUnset', {defaultValue: 'No name 
  */
 const ensureMe = async (): Promise<Me> => {
   const me = await getMe();
-  if (me && (!me.auto || me.name === autoName())) return me;
+  if (me?.secret && (!me.auto || me.name === autoName())) return me;
   return setMyName(autoName(), '', true);
 };
 
@@ -154,7 +197,11 @@ export const getMembers = async (calendarId: string): Promise<ShareMember[]> => 
     readMap<ShareMember[]>(MEMBERS_KEY),
     getMe(),
   ]);
-  return (map[calendarId] ?? []).map(m => ({...m, isMe: !!me && m.id === me.id}));
+  return (map[calendarId] ?? []).map(m => ({
+    ...m,
+    color: m.color || colorForId(m.id),
+    isMe: !!me && m.id === me.id,
+  }));
 };
 
 const setMembers = async (calendarId: string, list: ShareMember[]): Promise<void> => {
@@ -167,8 +214,10 @@ export const fromRemoteMember = (r: any): ShareMember => ({
   id: r.member_id,
   name: r.name,
   emoji: r.emoji ?? '',
+  ...(r.color ? {color: r.color} : {}),
   lastSeenAt: r.last_seen_at,
   updatedAt: r.updated_at,
+  ...(r.role ? {role: r.role} : {}),
 });
 
 /** 自分を先頭に、あとは最後に同期した順。誰が動いているかが上に来る。 */
@@ -178,6 +227,64 @@ export const sortMembers = (list: ShareMember[]): ShareMember[] =>
     return Date.parse(b.lastSeenAt) - Date.parse(a.lastSeenAt);
   });
 
+/** Whether this device wants a notification when another member changes this calendar. Default: notify. */
+export const isSharedCalendarMuted = async (calendarId: string): Promise<boolean> =>
+  !!(await readMap<boolean>(MUTE_KEY))[calendarId];
+
+export const setSharedCalendarMuted = async (calendarId: string, muted: boolean): Promise<void> => {
+  const map = await readMap<boolean>(MUTE_KEY);
+  if (muted) map[calendarId] = true;
+  else delete map[calendarId];
+  await AsyncStorage.setItem(MUTE_KEY, JSON.stringify(map));
+};
+
+/** Last-known "is the invite closed" state, refreshed on every sync. Cached locally so the UI can render it without a round trip. */
+export const isInviteClosed = async (calendarId: string): Promise<boolean> =>
+  !!(await readMap<boolean>(INVITE_CLOSED_KEY))[calendarId];
+
+const setInviteClosedCache = async (calendarId: string, closed: boolean): Promise<void> => {
+  const map = await readMap<boolean>(INVITE_CLOSED_KEY);
+  if (closed) map[calendarId] = true;
+  else delete map[calendarId];
+  await AsyncStorage.setItem(INVITE_CLOSED_KEY, JSON.stringify(map));
+};
+
+/** Owner-only: stop (or resume) new people from joining via the invite link. Existing members are unaffected. */
+export const setInviteClosed = async (calendarId: string, closed: boolean): Promise<void> => {
+  const [code, me] = await Promise.all([getShareCode(calendarId), ensureMe()]);
+  if (!code) throw new Error('calendar is not shared');
+  await rpc('calendar_share_set_invite_closed', {p_code: code, p_actor_id: me.id, p_secret: me.secret, p_closed: closed});
+  await setInviteClosedCache(calendarId, closed);
+};
+
+/** Owner/admin-only: remove another member. They can no longer sync under their old identity. */
+export const kickMember = async (calendarId: string, targetMemberId: string): Promise<ShareMember[]> => {
+  const [code, me] = await Promise.all([getShareCode(calendarId), ensureMe()]);
+  if (!code) throw new Error('calendar is not shared');
+  const rows = await rpc('calendar_share_kick_member', {
+    p_code: code, p_actor_id: me.id, p_secret: me.secret, p_target_member_id: targetMemberId,
+  });
+  const list = (rows ?? []).map(fromRemoteMember);
+  await setMembers(calendarId, list);
+  return getMembers(calendarId);
+};
+
+/**
+ * Self-removal for a non-owner. Also drops the local copy (matching what a
+ * non-owner deleting the calendar already did locally before this existed —
+ * this just pairs it with actually telling the server, so the departure
+ * shows up in everyone else's member list instead of leaving a ghost row).
+ */
+export const leaveSharedCalendar = async (calendarId: string): Promise<void> => {
+  const [code, me] = await Promise.all([getShareCode(calendarId), ensureMe()]);
+  if (!code) return;
+  await rpc('calendar_share_leave', {p_code: code, p_member_id: me.id, p_secret: me.secret});
+  await deleteLocalCalendar(calendarId);
+  const map = await readMap<string>(LINK_KEY);
+  delete map[calendarId];
+  await AsyncStorage.setItem(LINK_KEY, JSON.stringify(map));
+};
+
 export const getCursor = async (calendarId: string): Promise<string | null> =>
   (await readMap<string>(CURSOR_KEY))[calendarId] ?? null;
 
@@ -185,6 +292,23 @@ export const setCursor = async (calendarId: string, iso: string): Promise<void> 
   const map = await readMap<string>(CURSOR_KEY);
   map[calendarId] = iso;
   await AsyncStorage.setItem(CURSOR_KEY, JSON.stringify(map));
+};
+
+export const markSharedEventDirty = async (calendarId: string, eventId: string): Promise<void> => {
+  const map = await readMap<string[]>(DIRTY_EVENTS_KEY);
+  map[calendarId] = [...new Set([...(map[calendarId] ?? []), eventId])];
+  await AsyncStorage.setItem(DIRTY_EVENTS_KEY, JSON.stringify(map));
+};
+
+const getDirtyEventIds = async (calendarId: string): Promise<Set<string>> =>
+  new Set((await readMap<string[]>(DIRTY_EVENTS_KEY))[calendarId] ?? []);
+
+const clearDirtyEventIds = async (calendarId: string, ids: string[]): Promise<void> => {
+  if (!ids.length) return;
+  const map = await readMap<string[]>(DIRTY_EVENTS_KEY);
+  const sent = new Set(ids);
+  map[calendarId] = (map[calendarId] ?? []).filter(id => !sent.has(id));
+  await AsyncStorage.setItem(DIRTY_EVENTS_KEY, JSON.stringify(map));
 };
 
 // ── マージ ──────────────────────────────────────────────────────────────────
@@ -200,11 +324,14 @@ export const fromRemoteEvent = (r: any, calendarId: string): LocalEvent => ({
   startTime: r.start_time ?? undefined,
   endTime: r.end_time ?? undefined,
   memo: r.memo ?? undefined,
+  creatorId: r.creator_id ?? r.creatorId ?? undefined,
   // サーバには createdAt を持たせていない（同期に要らない）。初めて受け取った
   // 予定は更新時刻を作成時刻とみなす。
   createdAt: r.created_at ?? r.updated_at,
   updatedAt: r.updated_at,
   deleted: !!r.deleted,
+  mustWake: !!r.must_wake,
+  mustWakeOffsetMinutes: r.must_wake_offset_minutes ?? null,
 });
 
 export const toRemoteEvent = (e: LocalEvent) => ({
@@ -216,8 +343,11 @@ export const toRemoteEvent = (e: LocalEvent) => ({
   startTime: e.startTime ?? null,
   endTime: e.endTime ?? null,
   memo: e.memo ?? null,
+  creatorId: e.creatorId ?? null,
   updatedAt: e.updatedAt,
   deleted: !!e.deleted,
+  mustWake: !!e.mustWake,
+  mustWakeOffsetMinutes: e.mustWakeOffsetMinutes ?? null,
 });
 
 /**
@@ -269,6 +399,43 @@ const rpc = async (fn: string, body: Record<string, unknown>): Promise<any> => {
   }
 };
 
+const mapEventContext = (raw: any): SharedEventContext => ({
+  comments: (raw?.comments ?? []).map((x: any) => ({id:x.id,eventId:x.event_id,memberId:x.member_id,body:x.body,createdAt:x.created_at})),
+  attendance: (raw?.attendance ?? []).map((x: any) => ({memberId:x.member_id,status:x.status,updatedAt:x.updated_at})),
+  photos: (raw?.photos ?? []).map((x: any) => ({id:x.id,eventId:x.event_id,memberId:x.member_id,mimeType:x.mime_type,base64:x.data_base64,createdAt:x.created_at})),
+  activity: (raw?.activity ?? []).map((x: any) => ({seq:x.seq,eventId:x.event_id,memberId:x.member_id,action:x.action,detail:x.detail ?? {},createdAt:x.created_at})),
+  revisions: (raw?.revisions ?? []).map((x: any) => ({revisionId:x.revision_id,editorId:x.editor_id,snapshot:x.snapshot ?? {},createdAt:x.created_at})),
+});
+
+export const getSharedEventContext = async (calendarId: string, eventId: string): Promise<SharedEventContext> => {
+  const code = await getShareCode(calendarId);
+  if (!code) return {comments:[],attendance:[],photos:[],activity:[],revisions:[]};
+  return mapEventContext(await rpc('calendar_share_event_context', {p_code:code,p_event_id:eventId}));
+};
+
+export const sharedEventAction = async (
+  calendarId: string, eventId: string, action: string, payload: Record<string, unknown> = {},
+): Promise<SharedEventContext> => {
+  const [code, me] = await Promise.all([getShareCode(calendarId), ensureMe()]);
+  if (!code) throw new Error('calendar is not shared');
+  return mapEventContext(await rpc('calendar_share_event_action', {
+    p_code:code,p_event_id:eventId,p_member_id:me.id,p_secret:me.secret,p_action:action,p_payload:payload,
+  }));
+};
+
+export const setSharedMemberRole = async (
+  calendarId: string, memberId: string, role: 'admin' | 'member' | 'viewer',
+): Promise<ShareMember[]> => {
+  const [code, me] = await Promise.all([getShareCode(calendarId), ensureMe()]);
+  if (!code) throw new Error('calendar is not shared');
+  const rows = await rpc('calendar_share_member_role_set', {
+    p_code:code,p_actor_id:me.id,p_secret:me.secret,p_member_id:memberId,p_role:role,
+  });
+  const list = (rows ?? []).map(fromRemoteMember);
+  await setMembers(calendarId, list);
+  return getMembers(calendarId);
+};
+
 /** 共有を作り、コードを返す。呼び出し側が setShareCode で紐づける。 */
 export const createShare = async (cal: LocalCalendar): Promise<string> =>
   rpc('calendar_share_create', {p_name: cal.name, p_color: cal.color, p_emoji: cal.emoji});
@@ -280,7 +447,7 @@ export const fetchShareMeta = async (
   (await rpc('calendar_share_meta', {p_code: code})) ?? null;
 
 const toRemoteMember = (me: Me | null) =>
-  me ? {id: me.id, name: me.name, emoji: me.emoji, updatedAt: me.updatedAt} : null;
+  me ? {id: me.id, name: me.name, emoji: me.emoji, color: me.color, secret: me.secret, updatedAt: me.updatedAt} : null;
 
 export const pullShare = async (code: string, since: string | null, me: Me | null = null) =>
   rpc('calendar_share_pull', {
@@ -357,10 +524,10 @@ export const syncSharedCalendar = async (
   if (!code) return null;
 
   const since = await getCursor(calendarId);
-  const [cal, events] = await Promise.all([deps.readCalendar(), deps.readEvents()]);
+  const [cal, events, dirtyIds] = await Promise.all([deps.readCalendar(), deps.readEvents(), getDirtyEventIds(calendarId)]);
   if (!cal) return null;
 
-  const outgoing = changedSince(events, since);
+  const outgoing = events.filter(event => dirtyIds.has(event.id) || !since || Date.parse(event.updatedAt) > Date.parse(since));
   const calChanged = !since || Date.parse(cal.updatedAt) > Date.parse(since);
 
   // 送るものが多いときは分けて全部送り切る。初回共有では手元の予定が丸ごと
@@ -384,6 +551,7 @@ export const syncSharedCalendar = async (
     res = await pullShare(code, since, me);
   }
   if (!res) return null;
+  await clearDirtyEventIds(calendarId, outgoing.map(event => event.id));
 
   // 参加者は差分ではなく毎回全部返ってくるので、そのまま置き換える。
   if (Array.isArray(res.members)) {
@@ -392,6 +560,31 @@ export const syncSharedCalendar = async (
 
   const remoteEvents: LocalEvent[] = (res.events ?? []).map((r: any) =>
     fromRemoteEvent(r, calendarId));
+
+  // Notify on what someone ELSE changed since our own last successful sync —
+  // never on our own edits (creatorId === me.id), and never on the very
+  // first sync of a freshly-joined calendar (since === null), which would
+  // otherwise report every existing event as "new" in one flood.
+  if (since) {
+    const priorById = new Map(events.map(e => [e.id, e]));
+    let added = 0, updated = 0, deleted = 0;
+    for (const r of remoteEvents) {
+      if (r.creatorId && r.creatorId === me.id) continue;
+      const prior = priorById.get(r.id);
+      if (!prior || Date.parse(r.updatedAt) > Date.parse(prior.updatedAt)) {
+        if (r.deleted) { if (prior && !prior.deleted) deleted += 1; }
+        else if (!prior) added += 1;
+        else updated += 1;
+      }
+    }
+    if (added || updated || deleted) {
+      const muted = await isSharedCalendarMuted(calendarId);
+      if (!muted) {
+        displaySharedCalendarChangeNotification(cal.name, {added, updated, deleted}).catch(() => {});
+      }
+    }
+  }
+
   const merged = mergeEvents(events, remoteEvents);
   await deps.writeEvents(merged);
 
@@ -405,6 +598,7 @@ export const syncSharedCalendar = async (
       deleted: !!res.calendar.deleted,
     };
     await deps.writeCalendar(pickNewer(cal, remoteCal));
+    await setInviteClosedCache(calendarId, !!res.calendar.invite_closed);
   }
 
   // push は全件を返すので、そのときのカーソルは「今」。pull は差分だけ。
@@ -419,6 +613,7 @@ export const syncSharedCalendar = async (
 
 import {
   addLocalCalendar,
+  deleteLocalCalendar,
   getLocalCalendars,
   getLocalEventsRaw,
   replaceLocalCalendar,
@@ -472,4 +667,37 @@ export const syncAllShared = async (): Promise<void> => {
       // 1つ失敗しても残りは続ける
     }
   }
+};
+
+/** Subscribe to a public Realtime topic whose unguessable share code is the capability. */
+export const subscribeSharedCalendar = async (
+  calendarId: string, onChange: () => void,
+): Promise<() => void> => {
+  const code = await getShareCode(calendarId);
+  if (!code || typeof WebSocket === 'undefined') return () => {};
+  let closed = false;
+  let socket: WebSocket | null = null;
+  let heartbeat: ReturnType<typeof setInterval> | null = null;
+  let retry: ReturnType<typeof setTimeout> | null = null;
+  let attempt = 0;
+  const topic = `realtime:calendar:${code}`;
+  const connect = () => {
+    if (closed) return;
+    socket = new WebSocket(`${SUPABASE_URL.replace('https://','wss://')}/realtime/v1/websocket?apikey=${SUPABASE_ANON_KEY}&vsn=1.0.0`);
+    socket.onopen = () => {
+      attempt = 0;
+      socket?.send(JSON.stringify({topic,event:'phx_join',payload:{config:{broadcast:{ack:false,self:false},presence:{enabled:false},private:false}},ref:'1',join_ref:'1'}));
+      heartbeat = setInterval(() => socket?.readyState === WebSocket.OPEN && socket.send(JSON.stringify({topic:'phoenix',event:'heartbeat',payload:{},ref:String(Date.now())})),25_000);
+    };
+    socket.onmessage = event => {
+      try { const msg=JSON.parse(String(event.data)); if (msg.topic===topic && msg.event==='broadcast' && msg.payload?.event==='changed') onChange(); } catch {}
+    };
+    socket.onclose = () => {
+      if (heartbeat) clearInterval(heartbeat);
+      if (!closed) retry=setTimeout(connect,Math.min(30_000,1000*2**attempt++));
+    };
+    socket.onerror = () => socket?.close();
+  };
+  connect();
+  return () => { closed=true; if(heartbeat)clearInterval(heartbeat);if(retry)clearTimeout(retry);socket?.close(); };
 };

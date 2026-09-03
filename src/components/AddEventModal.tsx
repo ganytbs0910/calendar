@@ -13,9 +13,11 @@ import {
   NativeSyntheticEvent,
   NativeScrollEvent,
   KeyboardAvoidingView,
+  Switch,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
+import {CalendarEventStore} from '../types/calendarEventStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {useTheme} from '../theme/ThemeContext';
 import {usePremium} from '../context/PremiumContext';
@@ -25,13 +27,15 @@ import {recordEventCreation, getEventHistory, deleteEventHistoryEntry, EventHist
 import {getEventWage, setEventWage, removeEventWage, getRecentWages, addRecentWage, removeRecentWage, getEventJob, setEventJob, removeEventJob, getEventBreak, setEventBreak, removeEventBreak} from '../services/eventWageService';
 import {getJobs, Job} from '../services/jobService';
 import {computeShiftPay, getIncomeThresholds, legalBreakMinutes} from '../services/statisticsService';
-import {getYearWorkTotal, wallCrossedBy, wallLabel} from '../services/incomeWallService';
+import {evaluateWallImpact, getYearWorkTotal, wallCrossedBy, wallLabel, WallImpact} from '../services/incomeWallService';
 import JobsManagerModal from './JobsManagerModal';
 import OneTimeHint from './OneTimeHint';
 import EventPhotoSection from './EventPhotoSection';
+import {addEventPhoto} from '../services/eventPhotoService';
 import SuccessOverlay from './SuccessOverlay';
 import {
   cancelEventNotification,
+  displayWallImpactNotification,
   hasNotificationPermission,
   isNotificationsEnabled,
   requestNotificationPermission,
@@ -385,6 +389,7 @@ interface AddEventModalProps {
   initialColor?: string;
   initialTitle?: string;
   onDeleted?: () => void;
+  eventStore?: CalendarEventStore;
 }
 
 export const AddEventModal: React.FC<AddEventModalProps> = ({
@@ -397,6 +402,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   initialColor,
   initialTitle,
   onDeleted,
+  eventStore,
 }) => {
   const {t} = useTranslation();
   const WEEKDAYS = t('weekdaysSingle', {returnObjects: true}) as string[];
@@ -432,6 +438,9 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   // Break + wage sit behind a collapsed row: picking a job is usually all a
   // shift needs, and the auto-filled break is right most of the time.
   const [showPayDetail, setShowPayDetail] = useState(false);
+  const [showMemoPhotos, setShowMemoPhotos] = useState(false);
+  const [notes, setNotes] = useState('');
+  const [pendingPhotoUris, setPendingPhotoUris] = useState<string[]>([]);
   const selectedJob = useMemo(() => jobs.find(j => j.id === selectedJobId) || null, [jobs, selectedJobId]);
   const breakOverride = useMemo(() => {
     const n = parseInt(breakMinutes, 10);
@@ -468,6 +477,9 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   const [editingLabelText, setEditingLabelText] = useState('');
   const [showAddColor, setShowAddColor] = useState(false);
   const [reminder, setReminder] = useState<number | null>(null);
+  // ローカル/共有カレンダーの予定専用(eventStoreがある時だけ表示)。着信画面風の
+  // アラームは開始時刻ちょうどに鳴らす前提で、オフセット選択UIはv1では設けない。
+  const [mustWake, setMustWake] = useState(false);
   const [recurrence, setRecurrence] = useState<'none' | 'daily' | 'weekly' | 'monthly' | 'yearly'>(
     'none',
   );
@@ -530,11 +542,14 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
       getRecentWages().then(setRecentWages);
       getJobs().then(setJobs);
       setShowPayDetail(false); // always start collapsed
+      setShowMemoPhotos(false); // memo/photos are optional and start collapsed
+      setPendingPhotoUris([]);
       const isCopying = editingEvent && !editingEvent.id;
 
       if (editingEvent && !isCopying) {
         // Editing mode - load existing event data
         setTitle(editingEvent.title || '');
+        setNotes(editingEvent.notes || '');
         if (editingEvent.startDate) {
           setStartDate(new Date(editingEvent.startDate));
         }
@@ -552,6 +567,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         } else {
           setReminder(null);
         }
+        setMustWake(!!(editingEvent as any)?.mustWake);
         // Load saved color for this event
         if (editingEvent.id) {
           getEventColor(editingEvent.id).then(color => {
@@ -573,6 +589,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
       } else if (isCopying && initialDate && initialEndDate) {
         // Copy mode - use title from event but dates from initialDate/initialEndDate
         setTitle(editingEvent.title || '');
+        setNotes(editingEvent.notes || '');
         setStartDate(new Date(initialDate));
         setEndDate(new Date(initialEndDate));
         // Copy reminder
@@ -586,6 +603,8 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         } else {
           setReminder(null);
         }
+        // Copying is often onto a less critical day — don't silently re-arm.
+        setMustWake(false);
         // Copy color from original event if available
         if (editingEvent.id) {
           getEventColor(editingEvent.id).then(color => {
@@ -630,7 +649,9 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           });
         }
         setTitle(initialTitle || '');
+        setNotes('');
         setReminder(null);
+        setMustWake(false);
         setSelectedColor(initialColor || DEFAULT_EVENT_COLORS[0].color);
         setHourlyWage('');
         setSelectedJobId(null);
@@ -656,7 +677,9 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           setEndDate(end);
         });
         setTitle(initialTitle || '');
+        setNotes('');
         setReminder(null);
+        setMustWake(false);
         setSelectedColor(initialColor || DEFAULT_EVENT_COLORS[0].color);
         setHourlyWage('');
         setSelectedJobId(null);
@@ -712,7 +735,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
     // Check and request permission before saving. iOS 17+ returns "fullAccess"
     // alongside the older "authorized", but the library's TS types haven't
     // caught up — widen to string for the comparison.
-    const permissionStatus: string = await RNCalendarEvents.checkPermissions();
+    const permissionStatus: string = eventStore ? 'authorized' : await RNCalendarEvents.checkPermissions();
 
     if (permissionStatus !== 'authorized' && permissionStatus !== 'fullAccess') {
       const requestedStatus: string = await RNCalendarEvents.requestPermissions();
@@ -740,6 +763,29 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
     const minDuration = 30 * 60 * 1000;
     if (finalEndDate.getTime() - startDate.getTime() < minDuration) {
       finalEndDate = new Date(startDate.getTime() + minDuration);
+    }
+
+    if (eventStore) {
+      try {
+        const eventTitle = title.trim() || t('noTitle');
+        const savedId = await eventStore.save({
+          id: editingEvent?.id,
+          title: eventTitle,
+          startDate: startDate.toISOString(),
+          endDate: finalEndDate.toISOString(),
+          allDay: false,
+          color: selectedColor,
+          recurrence,
+          notes: notes.trim() || undefined,
+          mustWake,
+          mustWakeOffsetMinutes: mustWake ? 0 : null,
+        });
+        for (const uri of pendingPhotoUris) await addEventPhoto(savedId, uri);
+        setSaveSuccess(true);
+      } catch {
+        Alert.alert(t('error'), isEditing ? t('updateFailed') : t('saveFailed'));
+      }
+      return;
     }
 
     // Per-event wage / job link only apply to work-colored events. A job link
@@ -772,7 +818,9 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
 
     // 年収の壁ナビ: before a NEW work shift is saved, warn if it pushes this
     // year's income over the next 103/106/130/150万 wall. Best-effort — a failed
-    // check must never block saving.
+    // check must never block saving. `wallImpact` also feeds the post-save
+    // notification below, so the standing is computed once and reused.
+    let wallImpact: WallImpact | null = null;
     if (!isEditing && isWorkColor(selectedColor)) {
       let addPay = 0;
       if (jobToSave) {
@@ -789,7 +837,8 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
             getYearWorkTotal(startDate.getFullYear()),
             getIncomeThresholds(),
           ]);
-          const crossed = wallCrossedBy(currentTotal, addPay, thresholds);
+          wallImpact = evaluateWallImpact(currentTotal, addPay, thresholds);
+          const crossed = wallImpact.crossedWall;
           if (crossed) {
             const ok = await new Promise<boolean>(resolve => {
               Alert.alert(
@@ -859,6 +908,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           endDate: finalEndDate.toISOString(),
           allDay: false,
           alarms: osAlarms,
+          notes: notes.trim() || undefined,
         });
         // Save custom color
         await setEventColor(editingEvent.id, selectedColor);
@@ -892,6 +942,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           endDate: finalEndDate.toISOString(),
           allDay: false,
           alarms: osAlarms,
+          notes: notes.trim() || undefined,
         };
         if (recurrence !== 'none') {
           eventConfig.recurrenceRule = {
@@ -903,6 +954,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         }
         const eventId = await RNCalendarEvents.saveEvent(eventTitle, eventConfig);
         if (eventId) {
+          for (const uri of pendingPhotoUris) await addEventPhoto(eventId, uri);
           await setEventColor(eventId, selectedColor);
           await persistPayroll(eventId);
           if (inAppOn && reminder !== null) {
@@ -914,6 +966,9 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
               startDate,
               recurrence,
             });
+          }
+          if (wallImpact) {
+            displayWallImpactNotification(wallImpact).catch(() => {});
           }
         }
         const durationMinutes = Math.max(
@@ -946,7 +1001,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
     // out meant a break entered after the last dep change was silently dropped
     // — the shift saved with the auto legal break instead of the real one, so
     // the pay was wrong and nothing said so.
-  }, [title, startDate, endDate, isEditing, editingEvent, selectedColor, hourlyWage, selectedJobId, reminder, recurrence, breakTouched, breakOverride, jobs, t]);
+  }, [title, notes, pendingPhotoUris, startDate, endDate, isEditing, editingEvent, selectedColor, hourlyWage, selectedJobId, reminder, mustWake, recurrence, breakTouched, breakOverride, jobs, t, eventStore]);
 
   const formatTime = (date: Date) => {
     return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
@@ -1672,12 +1727,62 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                 ))}
               </View>
             </View>
+
+            {/* 絶対起床アラーム: ローカル/共有カレンダーの予定のみ。iOSはCallKit側の
+                実装がまだ無いので、鳴らせるAndroidだけ出す。 */}
+            {eventStore && Platform.OS === 'android' && (
+              <View style={[styles.optionRow, {marginTop: 12}]}>
+                <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
+                  <View style={[styles.titleIconBox, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="call-outline" size={12} color={colors.textSecondary} /></View>
+                  <Text style={[styles.optionRowLabel, {color: colors.textSecondary}]}>{t('mustWake')}</Text>
+                </View>
+                <Switch
+                  testID="must-wake-switch"
+                  value={mustWake}
+                  onValueChange={setMustWake}
+                  trackColor={{false: colors.inputBackground, true: colors.primary}}
+                />
+              </View>
+            )}
           </View>
 
-          {/* Photo lifelog — only for an already-saved event (needs an id). */}
-          {isEditing && editingEvent?.id && (
-            <EventPhotoSection eventId={editingEvent.id} />
-          )}
+          <View style={[styles.colorSection, {backgroundColor: colors.surface, borderBottomColor: colors.border}]}>
+            <TouchableOpacity
+              style={styles.payDetailToggle}
+              onPress={() => setShowMemoPhotos(v => !v)}
+              activeOpacity={0.7}>
+              <View style={[styles.titleIconBox, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}>
+                <Ionicons name="document-text-outline" size={12} color={colors.textSecondary} />
+              </View>
+              <Text style={{fontSize: 12, color: colors.textSecondary, fontWeight: '500'}}>
+                {t('memoPhotos', {defaultValue: 'メモ・写真'})}
+              </Text>
+              <View style={{flex: 1}} />
+              {!showMemoPhotos && !!notes.trim() && (
+                <Text style={{fontSize: 12, color: colors.textTertiary, maxWidth: '55%'}} numberOfLines={1}>{notes}</Text>
+              )}
+              <Ionicons name={showMemoPhotos ? 'chevron-down' : 'chevron-forward'} size={14} color={colors.textTertiary} />
+            </TouchableOpacity>
+            {showMemoPhotos && (
+              <>
+                <TextInput
+                  style={[styles.memoInput, {color: colors.text, borderColor: colors.border, backgroundColor: colors.inputBackground}]}
+                  value={notes}
+                  onChangeText={setNotes}
+                  placeholder={t('memoPlaceholder')}
+                  placeholderTextColor={colors.textTertiary}
+                  multiline
+                  textAlignVertical="top"
+                />
+                <EventPhotoSection
+                  eventId={editingEvent?.id}
+                  pendingUris={pendingPhotoUris}
+                  onPendingUrisChange={setPendingPhotoUris}
+                  embedded
+                />
+              </>
+            )}
+          </View>
 
           {isWorkColor(selectedColor) && (
             <View style={[styles.colorSection, {backgroundColor: colors.surface, borderBottomColor: colors.border}]}>
@@ -1890,7 +1995,8 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                       style: 'destructive',
                       onPress: async () => {
                         try {
-                          await RNCalendarEvents.removeEvent(editingEvent.id!);
+                          if (eventStore) await eventStore.remove(editingEvent.id!);
+                          else await RNCalendarEvents.removeEvent(editingEvent.id!);
                           handleClose();
                           onDeleted?.();
                         } catch {
@@ -2404,6 +2510,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  memoInput: {
+    minHeight: 92,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 10,
+    fontSize: 14,
+    lineHeight: 20,
   },
   wageInputRow: {
     flexDirection: 'row',

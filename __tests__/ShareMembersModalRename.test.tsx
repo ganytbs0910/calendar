@@ -26,6 +26,12 @@ jest.mock('../src/services/sharedCalendarService', () => ({
   sortMembers: (list: unknown[]) => list,
   syncCalendar: jest.fn().mockResolvedValue(undefined),
   setSharedMemberRole: jest.fn(),
+  kickMember: jest.fn(),
+  leaveSharedCalendar: jest.fn(),
+  isInviteClosed: jest.fn().mockResolvedValue(false),
+  setInviteClosed: jest.fn(),
+  isSharedCalendarMuted: jest.fn().mockResolvedValue(false),
+  setSharedCalendarMuted: jest.fn(),
 }));
 
 import {getMe} from '../src/services/sharedCalendarService';

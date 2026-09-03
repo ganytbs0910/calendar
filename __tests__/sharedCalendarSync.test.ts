@@ -10,6 +10,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   setShareCode, getCursor, syncSharedCalendar,
   getMembers, setMyName, sortMembers, fromRemoteMember,
+  markSharedEventDirty,
 } from '../src/services/sharedCalendarService';
 import type {LocalCalendar, LocalEvent} from '../src/services/localCalendarService';
 
@@ -62,6 +63,17 @@ describe('共有カレンダーの一往復', () => {
     const {io} = deps(CAL, []);
     expect(await syncSharedCalendar('lc-1', io)).toBeNull();
     expect(calls).toHaveLength(0);
+  });
+
+  it('端末時計がサーバより遅くても送信待ちの編集は失わない', async () => {
+    await AsyncStorage.setItem('@shared_calendar_cursors', JSON.stringify({'lc-1':'2040-01-01T00:00:00.000Z'}));
+    const oldClockEdit = ev('behind-clock', 'offline edit', '2030-01-10T00:00:00.000Z');
+    await markSharedEventDirty('lc-1', oldClockEdit.id);
+    reply({calendar:null,events:[],members:[],now:'2040-01-02T00:00:00.000Z'});
+    const {io}=deps(CAL,[oldClockEdit]);
+    await syncSharedCalendar('lc-1',io);
+    expect(calls[0].fn).toBe('calendar_share_push');
+    expect(calls[0].body.p_events.map((event: LocalEvent)=>event.id)).toContain('behind-clock');
   });
 
   it('初回は全部送る', async () => {
@@ -213,6 +225,6 @@ describe('共有カレンダーの一往復', () => {
 
     const sent = calls[calls.length - 1].body.p_member;
     expect(sent.name).not.toMatch(/^share[A-Z]/);
-    expect(sent.name).toBe('名前未設定');
+    expect(['名前未設定', 'No name set']).toContain(sent.name);
   });
 });

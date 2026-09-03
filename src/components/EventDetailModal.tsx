@@ -17,6 +17,8 @@ import {computeShiftPay, legalBreakMinutes} from '../services/statisticsService'
 import {useTheme} from '../theme/ThemeContext';
 import {useTranslation} from 'react-i18next';
 import EventPhotoSection from './EventPhotoSection';
+import {CalendarEventStore} from '../types/calendarEventStore';
+import SharedEventCollaboration from './localcal/SharedEventCollaboration';
 
 interface EventDetailModalProps {
   visible: boolean;
@@ -26,6 +28,7 @@ interface EventDetailModalProps {
   onDeleted: () => void;
   onCopied: () => void;
   onUndoableDelete?: (eventData: CalendarEventReadable, deleteType: 'single' | 'future' | 'all') => void;
+  eventStore?: CalendarEventStore;
 }
 
 export const EventDetailModal: React.FC<EventDetailModalProps> = ({
@@ -36,6 +39,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
   onDeleted,
   onCopied,
   onUndoableDelete,
+  eventStore,
 }) => {
   const [showCopyCalendar, setShowCopyCalendar] = useState(false);
   const [copyCalendarDate, setCopyCalendarDate] = useState(new Date());
@@ -125,7 +129,9 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
         return;
       }
       // Fallback: direct delete without undo
-      if (deleteType === 'all') {
+      if (eventStore) {
+        await eventStore.remove(event.id!);
+      } else if (deleteType === 'all') {
         await RNCalendarEvents.removeEvent(event.id!);
       } else if (deleteType === 'future') {
         await RNCalendarEvents.removeEvent(event.id!, {futureEvents: true});
@@ -137,7 +143,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
     } catch {
       Alert.alert(t('error'), t('deleteFailed'));
     }
-  }, [event, onClose, onDeleted, onUndoableDelete, t]);
+  }, [event, onClose, onDeleted, onUndoableDelete, t, eventStore]);
 
   const handleDelete = useCallback(async () => {
     if (!event?.id) return;
@@ -209,6 +215,25 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
     const durationMs = originalEnd.getTime() - originalStart.getTime();
 
     try {
+      if (eventStore) {
+        for (const targetDate of selectedDates) {
+          const newStart = new Date(targetDate);
+          newStart.setHours(originalStart.getHours(), originalStart.getMinutes(), 0, 0);
+          const newEnd = new Date(newStart.getTime() + durationMs);
+          await eventStore.save({
+            title: event.title || t('noTitle'),
+            startDate: newStart.toISOString(),
+            endDate: newEnd.toISOString(),
+            allDay: !!event.allDay,
+            color: event.id ? eventStore.colors[event.id] : undefined,
+          });
+        }
+        setShowCopyCalendar(false);
+        setSelectedDates([]);
+        onClose();
+        onCopied();
+        return;
+      }
       const calendars = await RNCalendarEvents.findCalendars();
       const writableCalendars = calendars.filter(cal => cal.allowsModifications);
       if (writableCalendars.length === 0) {
@@ -244,7 +269,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
     } catch {
       Alert.alert(t('error'), t('copyFailed'));
     }
-  }, [event, selectedDates, onClose, onCopied, t]);
+  }, [event, selectedDates, onClose, onCopied, t, eventStore]);
 
   // Calendar navigation for copy
   const goToPrevMonth = useCallback(() => {
@@ -308,12 +333,12 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
             <Text style={[styles.closeButton, {color: colors.primary}]}>{t('close')}</Text>
           </TouchableOpacity>
           <View style={styles.headerSpacer} />
-          <TouchableOpacity
+          {!eventStore?.readOnly && <TouchableOpacity
             onPress={handleEdit}
             accessibilityLabel={t('edit')}
             accessibilityRole="button">
             <Text style={[styles.editButton, {color: colors.primary}]}>{t('edit')}</Text>
-          </TouchableOpacity>
+          </TouchableOpacity>}
         </View>
 
         <ScrollView style={styles.content}>
@@ -327,7 +352,11 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
             <Text style={[styles.title, {color: colors.text}]}>{event.title}</Text>
           </View>
 
-          <EventPhotoSection eventId={event.id} />
+          {eventStore?.sharedCalendarId && event.id ? (
+            <SharedEventCollaboration calendarId={eventStore.sharedCalendarId} eventId={event.id} readOnly={eventStore?.readOnly} />
+          ) : (
+            <EventPhotoSection eventId={event.id} />
+          )}
 
           <View style={[styles.infoSection, {backgroundColor: colors.surface}]}>
             <View style={[styles.infoRow, {borderBottomColor: colors.borderLight}]}>
@@ -502,14 +531,14 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
             </View>
           </Modal>
 
-          <TouchableOpacity
+          {!eventStore?.readOnly && <TouchableOpacity
             style={[styles.deleteButton, {backgroundColor: colors.surface}]}
             onPress={handleDelete}
             accessibilityLabel={t('deleteEvent')}
             accessibilityRole="button"
             accessibilityHint={t('deleteThisEventHint')}>
             <Text style={[styles.deleteButtonText, {color: colors.delete}]}>{t('deleteEvent')}</Text>
-          </TouchableOpacity>
+          </TouchableOpacity>}
         </ScrollView>
       </View>
     </Modal>

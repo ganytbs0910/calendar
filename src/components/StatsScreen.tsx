@@ -63,6 +63,8 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate,
   const [monthOffset, setMonthOffset] = useState(0); // 0 = current month, -1 previous
   const [showThresholdEditor, setShowThresholdEditor] = useState(false);
   const [thresholdDrafts, setThresholdDrafts] = useState<string[]>([]);
+  const [section, setSection] = useState<'stats' | 'incomeWall'>('stats');
+  const showingIncomeWall = onlyIncomeWall || (embedded && section === 'incomeWall');
 
   // Each time the modal opens, sync to the caller-provided month so the user
   // sees stats for the month they were viewing on the calendar.
@@ -79,13 +81,12 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate,
     const base = monthStart(new Date(), offset);
     const {start, end} = getMonthRange(base);
     try {
-      // The embedded Stats tab hides 年収の壁, so skip the heavy full-year scan.
-      const data = await fetchStats(start, end, {includeIncomeWall: !hideIncomeWall});
+      const data = await fetchStats(start, end, {includeIncomeWall: showingIncomeWall || !hideIncomeWall});
       setBundle(data);
     } finally {
       setLoading(false);
     }
-  }, [hideIncomeWall]);
+  }, [hideIncomeWall, showingIncomeWall]);
 
   // The embedded Stats tab is background-pre-mounted, so load on mount (not only
   // when visible) — the first switch to it then shows data instantly. Modal
@@ -157,7 +158,7 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate,
         <View style={styles.header}>
           <View style={{width: 80}} />
           <Text style={styles.headerTitle}>
-            {onlyIncomeWall
+            {showingIncomeWall
               ? t('statsIncomeWall', {year: bundle?.incomeWall.year ?? new Date().getFullYear()})
               : t('statsTitle')}
           </Text>
@@ -170,8 +171,27 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate,
           )}
         </View>
 
+        {embedded && (
+          <View style={[styles.sectionTabs, {backgroundColor: colors.inputBackground}]}>
+            <TouchableOpacity
+              style={[styles.sectionTab, section === 'stats' && {backgroundColor: colors.surface}]}
+              onPress={() => setSection('stats')}>
+              <Text style={[styles.sectionTabText, {color: section === 'stats' ? colors.primary : colors.textSecondary}]}>
+                {t('statsTitle')}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.sectionTab, section === 'incomeWall' && {backgroundColor: colors.surface}]}
+              onPress={() => setSection('incomeWall')}>
+              <Text style={[styles.sectionTabText, {color: section === 'incomeWall' ? colors.primary : colors.textSecondary}]}>
+                {t('setIncomeWallLabel')}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* Month selector */}
-        <View style={styles.monthSelector}>
+        {!showingIncomeWall && <View style={styles.monthSelector}>
           <TouchableOpacity
             style={styles.monthArrowBtn}
             onPress={() => setMonthOffset(o => o - 1)}>
@@ -188,7 +208,7 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate,
               color={monthOffset >= 0 ? colors.disabled : colors.primary}
             />
           </TouchableOpacity>
-        </View>
+        </View>}
 
         {!bundle ? (
           <View style={styles.loadingBox}>
@@ -198,7 +218,7 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate,
         ) : (
           <ScrollView style={styles.scroll} contentContainerStyle={{paddingBottom: 40}}>
             {/* Summary card */}
-            {!onlyIncomeWall && (
+            {!showingIncomeWall && (
             <View style={styles.card}>
               <View style={styles.sectionTitleRow}>
                 <Ionicons name="stats-chart-outline" size={16} color={colors.primary} />
@@ -237,7 +257,7 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate,
             )}
 
             {/* Monthly revenue / payroll (per job, with premiums & targets) */}
-            {!onlyIncomeWall && bundle.payroll.byJob.length > 0 && (
+            {!showingIncomeWall && bundle.payroll.byJob.length > 0 && (
               <View style={styles.card}>
                 <View style={styles.sectionTitleRow}>
                   <Ionicons name="cash-outline" size={16} color={colors.primary} />
@@ -308,7 +328,7 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate,
             )}
 
             {/* 年収の壁 (income thresholds) */}
-            {(onlyIncomeWall || !hideIncomeWall) && bundle.incomeWall.yearTotal > 0 && (
+            {(showingIncomeWall || !hideIncomeWall) && bundle.incomeWall.yearTotal > 0 && (
               <View style={styles.card}>
                 <View style={styles.sectionTitleRow}>
                   <Ionicons name="trending-up-outline" size={16} color={colors.primary} />
@@ -349,14 +369,14 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate,
             )}
 
             {/* 年収の壁 empty-state (only when this screen is income-wall only) */}
-            {onlyIncomeWall && bundle.incomeWall.yearTotal === 0 && (
+            {showingIncomeWall && bundle.incomeWall.yearTotal === 0 && (
               <View style={styles.emptyBox}>
                 <Text style={styles.emptyText}>{t('statsEmpty')}</Text>
               </View>
             )}
 
             {/* Category pie/bar */}
-            {!onlyIncomeWall && bundle.monthly.byCategory.length > 0 && (
+            {!showingIncomeWall && bundle.monthly.byCategory.length > 0 && (
               <View style={styles.card}>
                 <View style={styles.sectionTitleRow}>
                   <Ionicons name="pie-chart-outline" size={16} color={colors.primary} />
@@ -399,7 +419,7 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate,
             )}
 
             {/* Task stats */}
-            {!onlyIncomeWall && (
+            {!showingIncomeWall && (
             <View style={styles.card}>
               <View style={styles.sectionTitleRow}>
                 <Ionicons name="checkmark-done-outline" size={16} color={colors.primary} />
@@ -460,7 +480,7 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate,
             )}
 
             {/* Top titles */}
-            {!onlyIncomeWall && bundle.monthly.topTitles.length > 0 && (
+            {!showingIncomeWall && bundle.monthly.topTitles.length > 0 && (
               <View style={styles.card}>
                 <View style={styles.sectionTitleRow}>
                   <Ionicons name="trophy-outline" size={16} color={colors.primary} />
@@ -482,7 +502,7 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate,
             )}
 
             {/* Busiest weekdays */}
-            {!onlyIncomeWall && bundle.monthly.busiestWeekdays.length > 0 && (
+            {!showingIncomeWall && bundle.monthly.busiestWeekdays.length > 0 && (
               <View style={styles.card}>
                 <View style={styles.sectionTitleRow}>
                   <Ionicons name="flame-outline" size={16} color={colors.primary} />
@@ -511,7 +531,7 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate,
             )}
 
             {/* Heatmap */}
-            {!onlyIncomeWall && bundle.monthly.totalMinutes > 0 && (
+            {!showingIncomeWall && bundle.monthly.totalMinutes > 0 && (
               <View style={styles.card}>
                 <View style={styles.sectionTitleRow}>
                   <Ionicons name="grid-outline" size={16} color={colors.primary} />
@@ -528,7 +548,7 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate,
               </View>
             )}
 
-            {!onlyIncomeWall && bundle.monthly.totalEvents === 0 && bundle.tasks.total === 0 && (
+            {!showingIncomeWall && bundle.monthly.totalEvents === 0 && bundle.tasks.total === 0 && (
               <View style={styles.emptyBox}>
                 <Text style={styles.emptyText}>{t('statsEmpty')}</Text>
               </View>
@@ -697,6 +717,24 @@ const makeStyles = (colors: ThemeColors) =>
       fontWeight: '600',
       width: 80,
       textAlign: 'right',
+    },
+    sectionTabs: {
+      flexDirection: 'row',
+      marginHorizontal: 16,
+      marginVertical: 10,
+      padding: 3,
+      borderRadius: 10,
+      gap: 3,
+    },
+    sectionTab: {
+      flex: 1,
+      alignItems: 'center',
+      paddingVertical: 8,
+      borderRadius: 8,
+    },
+    sectionTabText: {
+      fontSize: 13,
+      fontWeight: '700',
     },
     monthSelector: {
       flexDirection: 'row',

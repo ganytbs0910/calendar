@@ -78,9 +78,20 @@ const FreeTimeBar: React.FC<Props> = ({sleepSettings, onSetup, refreshKey}) => {
     );
   }
 
-  // Hold the previous line until the first count lands, so the bar doesn't
-  // flash empty on every mount.
-  if (freeMin === null) return null;
+  // Reserve the finished bar's exact footprint while the first recount runs.
+  // Returning null here used to remove this whole row for a frame, then insert
+  // it above the calendar and visibly shove the grid down.
+  if (freeMin === null) {
+    return (
+      <View style={[styles.bar, {backgroundColor: colors.surface, borderColor: colors.border}]}>
+        <Ionicons name="cafe-outline" size={15} color={colors.primary} />
+        <Text style={[styles.label, {color: colors.textSecondary}]} numberOfLines={1}>
+          {t('freeTimeLabel')}
+        </Text>
+        <Text style={[styles.value, {color: colors.textTertiary}]}>…</Text>
+      </View>
+    );
+  }
 
   const h = Math.floor(freeMin / 60);
   const m = freeMin % 60;

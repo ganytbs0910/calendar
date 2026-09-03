@@ -79,3 +79,29 @@ export const wallLabel = (amount: number): string => {
   if (amount % 10000 === 0) return `${amount / 10000}万`;
   return amount.toLocaleString();
 };
+
+export interface WallImpact {
+  addPay: number;
+  newTotal: number;
+  /** The wall this shift newly crosses, if any. */
+  crossedWall: number | null;
+  /** Standing right after this shift — the next not-yet-reached wall. */
+  nextWall: WallThreshold | null;
+}
+
+/**
+ * What adding this shift does to the year's wall standing — used to notify
+ * right after a shift is saved, not just when it happens to cross a wall.
+ */
+export const evaluateWallImpact = (
+  currentTotal: number,
+  addPay: number,
+  thresholds: number[],
+): WallImpact => {
+  const newTotal = currentTotal + addPay;
+  const crossedWall = wallCrossedBy(currentTotal, addPay, thresholds);
+  const nextAmount = [...thresholds].sort((a, b) => a - b).find(a => newTotal < a) ?? null;
+  const nextWall: WallThreshold | null =
+    nextAmount === null ? null : {amount: nextAmount, reached: false, remaining: nextAmount - newTotal};
+  return {addPay, newTotal, crossedWall, nextWall};
+};

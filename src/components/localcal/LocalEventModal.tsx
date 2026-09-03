@@ -26,6 +26,7 @@ interface Props {
   visible: boolean;
   calendarId: string;
   color: string;
+  creatorId?: string;
   editing: LocalEvent | null;
   initialDate: Date;
   onClose: () => void;
@@ -56,6 +57,7 @@ const LocalEventModal: React.FC<Props> = ({
   visible,
   calendarId,
   color,
+  creatorId,
   editing,
   initialDate,
   onClose,
@@ -118,6 +120,7 @@ const LocalEventModal: React.FC<Props> = ({
       startTime: allDay ? undefined : fmtTime(startTime),
       endTime: allDay ? undefined : fmtTime(endTime),
       memo: memo.trim() || undefined,
+      creatorId: editing?.creatorId ?? creatorId,
     });
     onSaved();
   };

@@ -16,6 +16,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import i18n from '../i18n/i18n';
+import {WallImpact, wallLabel} from './incomeWallService';
 import notifee, {
   AndroidImportance,
   AuthorizationStatus,
@@ -292,6 +293,87 @@ export const cleanupExpiredEventNotifications = async (): Promise<number> => {
   } catch {
     return 0;
   }
+};
+
+/**
+ * Fired right after a work-colored shift is saved, so the wall standing shows
+ * up where the user already is (notification center / lock screen) instead of
+ * only on the next visit to the Stats tab. Every new shift gets one — not just
+ * the ones that happen to cross a wall — so progress toward the next wall is
+ * always visible.
+ */
+export const displayWallImpactNotification = async (impact: WallImpact): Promise<void> => {
+  if (impact.addPay <= 0) return;
+  const enabled = await isNotificationsEnabled();
+  if (!enabled) return;
+
+  await ensureChannel();
+  const sound = await isSoundEnabled();
+  const title = impact.crossedWall
+    ? `⚠️ ${wallLabel(impact.crossedWall)}円の壁を超えました`
+    : '年収の壁チェック';
+  const totalStr = `¥${Math.round(impact.newTotal).toLocaleString()}`;
+  const body = impact.nextWall
+    ? `今年の収入は${totalStr}。次の${wallLabel(impact.nextWall.amount)}円の壁まであと¥${Math.round(
+        impact.nextWall.remaining,
+      ).toLocaleString()}です。`
+    : `今年の収入は${totalStr}。設定した壁はすべて超えています。`;
+
+  await notifee.displayNotification({
+    title,
+    body,
+    android: {
+      channelId: CHANNEL_ID,
+      pressAction: {id: 'default'},
+      smallIcon: 'ic_launcher',
+      sound: sound ? 'default' : undefined,
+    },
+    ios: {
+      sound: sound ? 'default' : undefined,
+    },
+  });
+};
+
+/**
+ * Fired when a sync pulls in changes another member of a shared calendar
+ * made — the single most-requested behavior across every shared-calendar
+ * competitor (TimeTree/Google/Apple all notify on remote changes; none of
+ * this app's shared calendars did until now). Callers must have already
+ * filtered out this device's own changes and checked the per-calendar mute
+ * flag (isSharedCalendarMuted) — this function only checks the global
+ * notification toggle, same as every other notification here.
+ */
+export const displaySharedCalendarChangeNotification = async (
+  calendarName: string,
+  counts: {added: number; updated: number; deleted: number},
+): Promise<void> => {
+  const total = counts.added + counts.updated + counts.deleted;
+  if (total <= 0) return;
+  const enabled = await isNotificationsEnabled();
+  if (!enabled) return;
+
+  await ensureChannel();
+  const sound = await isSoundEnabled();
+  const title = i18n.t('sharedChangeNotifTitle', {name: calendarName, defaultValue: `${calendarName}が更新されました`});
+  const parts: string[] = [];
+  if (counts.added) parts.push(i18n.t('sharedChangeAdded', {count: counts.added, defaultValue: `追加 ${counts.added}件`}));
+  if (counts.updated) parts.push(i18n.t('sharedChangeUpdated', {count: counts.updated, defaultValue: `変更 ${counts.updated}件`}));
+  if (counts.deleted) parts.push(i18n.t('sharedChangeDeleted', {count: counts.deleted, defaultValue: `削除 ${counts.deleted}件`}));
+  const body = parts.join(' / ');
+
+  await notifee.displayNotification({
+    title,
+    body,
+    android: {
+      channelId: CHANNEL_ID,
+      pressAction: {id: 'default'},
+      smallIcon: 'ic_launcher',
+      sound: sound ? 'default' : undefined,
+    },
+    ios: {
+      sound: sound ? 'default' : undefined,
+    },
+  });
 };
 
 export const sendTestNotification = async (

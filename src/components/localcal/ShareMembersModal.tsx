@@ -18,6 +18,7 @@ import {
   ScrollView,
   ActivityIndicator,
   Share,
+  Switch,
   Alert,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -30,15 +31,26 @@ import {
   getMe,
   getMembers,
   setMyName,
+  setMyColor,
+  MEMBER_COLORS,
   shareLocalCalendar,
   sortMembers,
   syncCalendar,
+  setSharedMemberRole,
+  kickMember,
+  leaveSharedCalendar,
+  isInviteClosed,
+  setInviteClosed,
+  isSharedCalendarMuted,
+  setSharedCalendarMuted,
 } from '../../services/sharedCalendarService';
 
 interface Props {
   visible: boolean;
   calendar: LocalCalendar;
   onClose: () => void;
+  /** Called after this device successfully leaves a shared calendar it doesn't own — the calendar is gone locally, so the caller should navigate away from it. */
+  onLeft?: () => void;
 }
 
 /** 「まだ開いていない」が伝わればいいので、粒度は日どまりで足りる。 */
@@ -57,25 +69,34 @@ const lastSeenLabel = (iso: string, t: (k: string, o?: any) => string): string =
   return `${then.getFullYear()}/${then.getMonth() + 1}/${then.getDate()}`;
 };
 
-const ShareMembersModal: React.FC<Props> = ({visible, calendar, onClose}) => {
+const ShareMembersModal: React.FC<Props> = ({visible, calendar, onClose, onLeft}) => {
   const {colors} = useTheme();
   const {t} = useTranslation();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [members, setMembers] = useState<ShareMember[]>([]);
   const [myName, setMyNameState] = useState('');
+  const [myColor, setMyColorState] = useState(MEMBER_COLORS[0]);
   // 仮に付けた名前かどうか。招待を送る前に本人に決めてもらいたい。
   const [nameIsAuto, setNameIsAuto] = useState(true);
   const [editingName, setEditingName] = useState(false);
   const [draftName, setDraftName] = useState('');
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [inviteClosed, setInviteClosedState] = useState(false);
+  const [muted, setMutedState] = useState(false);
+  const [leaving, setLeaving] = useState(false);
 
   const reload = useCallback(async () => {
-    const [list, me] = await Promise.all([getMembers(calendar.id), getMe()]);
+    const [list, me, closed, isMuted] = await Promise.all([
+      getMembers(calendar.id), getMe(), isInviteClosed(calendar.id), isSharedCalendarMuted(calendar.id),
+    ]);
     setMembers(sortMembers(list));
     setMyNameState(me?.name ?? '');
+    setMyColorState(me?.color ?? MEMBER_COLORS[0]);
     setNameIsAuto(!me || !!me.auto);
+    setInviteClosedState(closed);
+    setMutedState(isMuted);
   }, [calendar.id]);
 
   // 開いたら手元のぶんをすぐ出し、そのうしろで取りに行く。圏外でも
@@ -135,6 +156,103 @@ const ShareMembersModal: React.FC<Props> = ({visible, calendar, onClose}) => {
     }
   }, [calendar, t, reload, nameIsAuto, myName]);
 
+  const commitColor = useCallback(async (color: string) => {
+    setMyColorState(color);
+    await setMyColor(color);
+    await reload();
+    syncCalendar(calendar.id).catch(() => {});
+  }, [calendar.id, reload]);
+
+  const myRole = members.find(member => member.isMe)?.role ?? 'member';
+  const canManage = myRole === 'owner' || myRole === 'admin';
+
+  const doKick = useCallback((member: ShareMember) => {
+    Alert.alert(
+      t('shareKickConfirmTitle', {name: member.name}),
+      t('shareKickConfirmBody'),
+      [
+        {
+          text: t('shareKickAction'),
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await kickMember(calendar.id, member.id);
+              await reload();
+            } catch {
+              Alert.alert(t('shareKickErrorTitle'), t('shareKickErrorBody'));
+            }
+          },
+        },
+        {text: t('cancel'), style: 'cancel'},
+      ],
+    );
+  }, [calendar.id, reload, t]);
+
+  const manageMember = useCallback((member: ShareMember) => {
+    if (!canManage || member.isMe || member.role === 'owner') return;
+    const options: Array<{label: string; role: 'admin' | 'member' | 'viewer'}> = [
+      {label: t('shareRoleAdmin'), role: 'admin'},
+      {label: t('shareRoleMember'), role: 'member'},
+      {label: t('shareRoleViewer'), role: 'viewer'},
+    ];
+    Alert.alert(t('shareRoleChangeTitle'), member.name, [
+      ...options.map(o => ({
+        text: o.label,
+        onPress: async () => {
+          try {
+            await setSharedMemberRole(calendar.id, member.id, o.role);
+            await reload();
+          } catch {
+            Alert.alert(t('shareRoleErrorTitle'), t('shareRoleErrorBody'));
+          }
+        },
+      })),
+      {text: t('shareKickAction'), style: 'destructive', onPress: () => doKick(member)},
+      {text: t('cancel'), style: 'cancel'},
+    ]);
+  }, [calendar.id, canManage, reload, t, doKick]);
+
+  const toggleInviteClosed = useCallback(async (value: boolean) => {
+    // value here is "allow new joins", inverse of the closed flag.
+    const closed = !value;
+    setInviteClosedState(closed);
+    try {
+      await setInviteClosed(calendar.id, closed);
+    } catch {
+      setInviteClosedState(!closed);
+      Alert.alert(t('shareInviteClosedErrorTitle'), t('shareInviteClosedErrorBody'));
+    }
+  }, [calendar.id, t]);
+
+  const toggleMute = useCallback(async (value: boolean) => {
+    // value here is "notify me", inverse of the muted flag.
+    const nextMuted = !value;
+    setMutedState(nextMuted);
+    await setSharedCalendarMuted(calendar.id, nextMuted);
+  }, [calendar.id]);
+
+  const onLeave = useCallback(() => {
+    Alert.alert(t('shareLeaveConfirmTitle'), t('shareLeaveConfirmBody'), [
+      {
+        text: t('shareLeaveAction'),
+        style: 'destructive',
+        onPress: async () => {
+          setLeaving(true);
+          try {
+            await leaveSharedCalendar(calendar.id);
+            onClose();
+            onLeft?.();
+          } catch {
+            Alert.alert(t('shareLeaveErrorTitle'), t('shareLeaveErrorBody'));
+          } finally {
+            setLeaving(false);
+          }
+        },
+      },
+      {text: t('cancel'), style: 'cancel'},
+    ]);
+  }, [calendar.id, onClose, onLeft, t]);
+
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.overlay}>
@@ -186,29 +304,77 @@ const ShareMembersModal: React.FC<Props> = ({visible, calendar, onClose}) => {
               </TouchableOpacity>
             )}
 
+            <Text style={styles.colorHelp}>{t('shareMemberColorHelp', {defaultValue: 'この色で、あなたが作成した予定を表示します'})}</Text>
+            <View style={styles.colorRow}>
+              {MEMBER_COLORS.map(c => (
+                <TouchableOpacity
+                  key={c}
+                  onPress={() => commitColor(c)}
+                  style={[styles.colorSwatch, {backgroundColor: c}, myColor === c && styles.colorSwatchActive]}>
+                  {myColor === c && <Ionicons name="checkmark" size={16} color="#fff" />}
+                </TouchableOpacity>
+              ))}
+            </View>
+
             <Text style={[styles.sectionLabel, styles.sectionGap]}>
               {t('shareMembersCount', {count: members.length})}
             </Text>
             {members.length === 0 ? (
               <Text style={styles.empty}>{t('shareMembersEmpty')}</Text>
             ) : (
-              members.map(m => (
-                <View key={m.id} style={styles.row}>
-                  <View style={[styles.avatar, {backgroundColor: calendar.color + '22'}]}>
-                    <Text style={[styles.avatarText, {color: calendar.color}]}>
-                      {(m.name || '?').slice(0, 1)}
-                    </Text>
-                  </View>
-                  <View style={styles.rowMain}>
-                    <Text style={styles.rowText} numberOfLines={1}>
-                      {m.name}
-                      {m.isMe ? ` (${t('shareMembersYou')})` : ''}
-                    </Text>
-                    <Text style={styles.rowSub}>{lastSeenLabel(m.lastSeenAt, t)}</Text>
-                  </View>
-                </View>
-              ))
+              members.map(m => {
+                const roleLabel = m.role === 'owner' ? t('shareRoleOwner')
+                  : m.role === 'admin' ? t('shareRoleAdmin')
+                  : m.role === 'viewer' ? t('shareRoleViewer')
+                  : t('shareRoleMember');
+                return (
+                  <TouchableOpacity key={m.id} style={styles.row} onPress={() => manageMember(m)} disabled={!canManage || m.isMe || m.role === 'owner'}>
+                    <View style={[styles.avatar, {backgroundColor: (m.color || calendar.color) + '22'}]}>
+                      <Text style={[styles.avatarText, {color: m.color || calendar.color}]}>
+                        {(m.name || '?').slice(0, 1)}
+                      </Text>
+                    </View>
+                    <View style={styles.rowMain}>
+                      <Text style={styles.rowText} numberOfLines={1}>
+                        {m.name}
+                        {m.isMe ? ` (${t('shareMembersYou')})` : ''}
+                      </Text>
+                      <Text style={styles.rowSub}>{lastSeenLabel(m.lastSeenAt, t)}</Text>
+                      <Text style={styles.roleText}>{roleLabel}</Text>
+                    </View>
+                    {canManage && !m.isMe && m.role !== 'owner' && (
+                      <Ionicons name="chevron-forward" size={15} color={colors.textTertiary}/>
+                    )}
+                  </TouchableOpacity>
+                );
+              })
             )}
+
+            {myRole === 'owner' && (
+              <View style={[styles.row, styles.sectionGap]}>
+                <View style={styles.rowMain}>
+                  <Text style={styles.rowText}>{t('shareInviteClosedLabel')}</Text>
+                  <Text style={styles.rowSub}>{t('shareInviteClosedHelp')}</Text>
+                </View>
+                <Switch
+                  value={!inviteClosed}
+                  onValueChange={toggleInviteClosed}
+                  trackColor={{false: colors.inputBackground, true: colors.primary}}
+                />
+              </View>
+            )}
+
+            <View style={[styles.row, myRole !== 'owner' && styles.sectionGap]}>
+              <View style={styles.rowMain}>
+                <Text style={styles.rowText}>{t('shareMuteLabel')}</Text>
+                <Text style={styles.rowSub}>{t('shareMuteHelp')}</Text>
+              </View>
+              <Switch
+                value={!muted}
+                onValueChange={toggleMute}
+                trackColor={{false: colors.inputBackground, true: colors.primary}}
+              />
+            </View>
 
             <TouchableOpacity
               style={[styles.invite, {borderColor: colors.primary}]}
@@ -226,6 +392,24 @@ const ShareMembersModal: React.FC<Props> = ({visible, calendar, onClose}) => {
               )}
             </TouchableOpacity>
             <Text style={styles.note}>{t('shareMembersNote')}</Text>
+
+            {myRole !== 'owner' && (
+              <TouchableOpacity
+                style={[styles.invite, styles.leaveBtn, {borderColor: colors.error}]}
+                onPress={onLeave}
+                disabled={leaving}>
+                {leaving ? (
+                  <ActivityIndicator color={colors.error} />
+                ) : (
+                  <>
+                    <Ionicons name="exit-outline" size={18} color={colors.error} />
+                    <Text style={[styles.inviteText, {color: colors.error}]}>
+                      {t('shareLeaveAction')}
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            )}
           </ScrollView>
         </View>
       </View>
@@ -269,6 +453,7 @@ const makeStyles = (colors: ThemeColors) =>
     rowMain: {flex: 1},
     rowText: {flex: 1, fontSize: 16, color: colors.text},
     rowSub: {fontSize: 12, color: colors.textTertiary, marginTop: 2},
+    roleText: {fontSize: 11, color: colors.primary, marginTop: 2},
     avatar: {width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center'},
     avatarText: {fontSize: 16, fontWeight: '700'},
     empty: {fontSize: 14, color: colors.textTertiary, paddingVertical: 12},
@@ -284,6 +469,10 @@ const makeStyles = (colors: ThemeColors) =>
     },
     nameSave: {paddingHorizontal: 12, paddingVertical: 12},
     nameSaveText: {fontSize: 16, fontWeight: '600', color: colors.primary},
+    colorHelp: {fontSize: 12, color: colors.textTertiary, marginTop: 4},
+    colorRow: {flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingVertical: 6},
+    colorSwatch: {width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center'},
+    colorSwatchActive: {borderWidth: 3, borderColor: colors.text},
     invite: {
       marginTop: 22,
       flexDirection: 'row',
@@ -295,6 +484,7 @@ const makeStyles = (colors: ThemeColors) =>
       paddingVertical: 14,
     },
     inviteText: {fontSize: 16, fontWeight: '600'},
+    leaveBtn: {marginTop: 10},
     note: {fontSize: 12, color: colors.textTertiary, marginTop: 12, lineHeight: 18},
   });
 

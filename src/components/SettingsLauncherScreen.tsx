@@ -53,7 +53,6 @@ interface Props {
   onOpenShareAvail: () => void;
   onOpenPoll: () => void;
   onOpenSettings: () => void;
-  onOpenIncomeWall: () => void;
   onOpenJobs: () => void;
   onOpenPhotos: () => void;
   onExportBackup: () => void;
@@ -66,7 +65,6 @@ const SettingsLauncherScreen: React.FC<Props> = ({
   onOpenShareAvail,
   onOpenPoll,
   onOpenSettings,
-  onOpenIncomeWall,
   onOpenJobs,
   onOpenPhotos,
   onExportBackup,
@@ -183,17 +181,6 @@ const SettingsLauncherScreen: React.FC<Props> = ({
             label={t('setJobsLabel')}
             sublabel={t('setJobsSub')}
             onPress={onOpenJobs}
-          />
-          {/* Stats lives on its own tab; a row here would be the third entry
-              to the same screen. Only the income wall, which the tab hides,
-              still needs a launcher. */}
-          <Row
-            colors={colors}
-            icon="trending-up-outline"
-            tint="#FF3B30"
-            label={t('setIncomeWallLabel')}
-            sublabel={t('setIncomeWallSub')}
-            onPress={onOpenIncomeWall}
             isLast
           />
         </Section>

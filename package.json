@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "start": "react-native start",
     "test": "jest",
-    "test:dst": "TZ=Europe/Berlin jest nightPremiumDst"
+    "test:dst": "TZ=Europe/Berlin jest nightPremiumDst",
+    "test:shared-load": "node scripts/sharedCalendarLoadTest.js"
   },
   "dependencies": {
     "@notifee/react-native": "^9.1.8",

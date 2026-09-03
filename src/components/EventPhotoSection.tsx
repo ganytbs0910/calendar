@@ -23,9 +23,13 @@ import {addEventPhoto, EventPhoto, getEventPhotos, removeEventPhoto} from '../se
 interface Props {
   eventId?: string;
   onCountChange?: (count: number) => void;
+  pendingUris?: string[];
+  onPendingUrisChange?: (uris: string[]) => void;
+  /** Use when the section already sits inside a padded form card. */
+  embedded?: boolean;
 }
 
-const EventPhotoSection: React.FC<Props> = ({eventId, onCountChange}) => {
+const EventPhotoSection: React.FC<Props> = ({eventId, onCountChange, pendingUris = [], onPendingUrisChange, embedded = false}) => {
   const {colors} = useTheme();
   const {t} = useTranslation();
   const [photos, setPhotos] = useState<EventPhoto[]>([]);
@@ -44,7 +48,10 @@ const EventPhotoSection: React.FC<Props> = ({eventId, onCountChange}) => {
 
   const ingest = useCallback(
     async (uris: string[]) => {
-      if (!eventId) return;
+      if (!eventId) {
+        onPendingUrisChange?.([...pendingUris, ...uris]);
+        return;
+      }
       // addEventPhoto returns the full authoritative list from storage, so use
       // its latest return value rather than seeding from the (possibly stale)
       // `photos` state — which could drop just-added photos on overlapping adds.
@@ -61,7 +68,7 @@ const EventPhotoSection: React.FC<Props> = ({eventId, onCountChange}) => {
         onCountChange?.(latest.length);
       }
     },
-    [eventId, onCountChange],
+    [eventId, onCountChange, onPendingUrisChange, pendingUris],
   );
 
   const pickFromLibrary = useCallback(async () => {
@@ -104,23 +111,29 @@ const EventPhotoSection: React.FC<Props> = ({eventId, onCountChange}) => {
     [eventId, onCountChange, t],
   );
 
-  if (!eventId) return null;
+  const removePending = useCallback((uri: string) => {
+    onPendingUrisChange?.(pendingUris.filter(item => item !== uri));
+    setViewer(null);
+  }, [onPendingUrisChange, pendingUris]);
+
+  if (!eventId && !onPendingUrisChange) return null;
   const s = makeStyles(colors);
+  const displayedPhotos = eventId ? photos : pendingUris.map(uri => ({uri, addedAt: ''}));
 
   return (
-    <View style={[s.section, {backgroundColor: colors.surface}]}>
+    <View style={[s.section, embedded && s.embeddedSection, {backgroundColor: colors.surface}]}>
       <View style={s.headRow}>
         <Ionicons name="images-outline" size={16} color={colors.textSecondary} />
         <Text style={[s.headText, {color: colors.textSecondary}]}>
-          思い出 {photos.length > 0 ? `(${photos.length})` : ''}
+          {t('photos', {defaultValue: '写真'})} {displayedPhotos.length > 0 ? `(${displayedPhotos.length})` : ''}
         </Text>
       </View>
       <View style={s.grid}>
-        {photos.map(p => (
+        {displayedPhotos.map(p => (
           <TouchableOpacity
             key={p.uri}
             onPress={() => setViewer(p.uri)}
-            onLongPress={() => onDelete(p.uri)}
+            onLongPress={() => eventId ? onDelete(p.uri) : removePending(p.uri)}
             delayLongPress={300}>
             <Image source={{uri: p.uri}} style={s.thumb} />
           </TouchableOpacity>
@@ -130,12 +143,6 @@ const EventPhotoSection: React.FC<Props> = ({eventId, onCountChange}) => {
           <Text style={[s.addText, {color: colors.primary}]}>{t('add')}</Text>
         </TouchableOpacity>
       </View>
-      {photos.length === 0 && (
-        <Text style={[s.hint, {color: colors.textTertiary}]}>
-          {t('photoHint')}
-        </Text>
-      )}
-
       <Modal visible={!!viewer} transparent animationType="fade" onRequestClose={() => setViewer(null)}>
         <View style={s.viewerBg}>
           <TouchableOpacity style={s.viewerClose} onPress={() => setViewer(null)}>
@@ -143,7 +150,7 @@ const EventPhotoSection: React.FC<Props> = ({eventId, onCountChange}) => {
           </TouchableOpacity>
           {viewer && <Image source={{uri: viewer}} style={s.viewerImg} resizeMode="contain" />}
           {viewer && (
-            <TouchableOpacity style={s.viewerDelete} onPress={() => onDelete(viewer)}>
+            <TouchableOpacity style={s.viewerDelete} onPress={() => eventId ? onDelete(viewer) : removePending(viewer)}>
               <Ionicons name="trash-outline" size={20} color="#fff" />
               <Text style={s.viewerDeleteText}>{t('delete')}</Text>
             </TouchableOpacity>
@@ -157,13 +164,13 @@ const EventPhotoSection: React.FC<Props> = ({eventId, onCountChange}) => {
 const makeStyles = (_colors: any) =>
   StyleSheet.create({
     section: {marginTop: 12, marginHorizontal: 16, borderRadius: 12, padding: 14},
+    embeddedSection: {marginHorizontal: 0, paddingHorizontal: 0, paddingBottom: 0},
     headRow: {flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10},
     headText: {fontSize: 13, fontWeight: '600'},
     grid: {flexDirection: 'row', flexWrap: 'wrap', gap: 8},
     thumb: {width: 72, height: 72, borderRadius: 10, backgroundColor: '#0001'},
     addTile: {width: 72, height: 72, borderRadius: 10, borderWidth: 1.5, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', gap: 2},
     addText: {fontSize: 11, fontWeight: '600'},
-    hint: {fontSize: 11, marginTop: 10, lineHeight: 16},
     viewerBg: {flex: 1, backgroundColor: 'rgba(0,0,0,0.92)', alignItems: 'center', justifyContent: 'center'},
     viewerClose: {position: 'absolute', top: 60, right: 24, zIndex: 2},
     viewerImg: {width: '100%', height: '80%'},

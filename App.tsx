@@ -17,6 +17,7 @@ import {
   Switch,
   Share,
   InteractionManager,
+  ActivityIndicator,
 } from 'react-native';
 import {SafeAreaProvider, SafeAreaView, useSafeAreaInsets} from 'react-native-safe-area-context';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
@@ -101,6 +102,7 @@ import {
   sendTestNotification,
   cleanupExpiredEventNotifications,
 } from './src/services/notificationService';
+import {initWakeAlarmListeners, cleanupExpiredWakeAlarms} from './src/services/wakeAlarmService';
 import {maybeAskForReview, recordActiveDay} from './src/services/reviewPromptService';
 import {
   codeFromUrl, fetchShareMeta, joinSharedCalendar, syncAllShared,
@@ -351,6 +353,15 @@ function AppContent() {
   const {isPremium} = usePremium();
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState('auto');
+  // These values all affect the vertical layout of the first screen. Keep the
+  // launch cover up until they have settled so the user never sees each row
+  // pop in separately.
+  const [languageReady, setLanguageReady] = useState(false);
+  const [onboardingReady, setOnboardingReady] = useState(false);
+  const [permissionReady, setPermissionReady] = useState(false);
+  const [calendarsReady, setCalendarsReady] = useState(false);
+  const [templatesReady, setTemplatesReady] = useState(false);
+  const [sleepReady, setSleepReady] = useState(false);
   const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   // Former tabs, now full-screen destinations: Settings opens from the header
@@ -388,7 +399,6 @@ function AppContent() {
   const closePhotos = useCallback(() => setShowPhotos(false), []);
   const openFeedback = useCallback(() => setShowFeedback(true), []);
   const closeFeedback = useCallback(() => setShowFeedback(false), []);
-  const openIncomeWall = useCallback(() => setShowIncomeWall(true), []);
   const openJobs = useCallback(() => setShowJobsManager(true), []);
   // Once the launch settles, mount the remaining tabs in the background so the
   // first tap on one doesn't pay for a whole screen mount. Hidden tabs fetch
@@ -408,7 +418,6 @@ function AppContent() {
   const [searchResults, setSearchResults] = useState<CalendarEventReadable[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showSleepSetup, setShowSleepSetup] = useState(false);
-  const [showIncomeWall, setShowIncomeWall] = useState(false);
   const [sleepSettings, setSleepSettings] = useState<SleepSettings | null>(null);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [templates, setTemplates] = useState<EventTemplate[]>([]);
@@ -514,7 +523,7 @@ function AppContent() {
     AsyncStorageRoot.getItem('@dev_open_screen')
       .then(screen => {
         switch (screen) {
-          case 'incomeWall': setShowIncomeWall(true); break;
+          case 'incomeWall': setActiveTab('stats'); break;
           case 'shareAvail': setShowShareAvail(true); break;
           case 'poll': setShowPoll(true); break;
           case 'jobs': setShowJobsManager(true); break;
@@ -623,9 +632,13 @@ function AppContent() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      await loadSavedLanguage();
-      const code = await getSavedLanguageCode();
-      if (!cancelled) setSelectedLanguage(code);
+      try {
+        await loadSavedLanguage();
+        const code = await getSavedLanguageCode();
+        if (!cancelled) setSelectedLanguage(code);
+      } finally {
+        if (!cancelled) setLanguageReady(true);
+      }
     })();
     return () => { cancelled = true; };
   }, []);
@@ -638,6 +651,9 @@ function AppContent() {
         const seen = await AsyncStorageRoot.getItem('@onboarded');
         if (!cancelled && seen !== '1') setShowOnboarding(true);
       } catch { /* ignore */ }
+      finally {
+        if (!cancelled) setOnboardingReady(true);
+      }
     })();
     return () => { cancelled = true; };
   }, []);
@@ -682,9 +698,13 @@ function AppContent() {
       // e.g. left over after the system clock jumped forward or a delivery
       // failed silently. Repeating reminders are preserved.
       cleanupExpiredEventNotifications().catch(() => {});
+      cleanupExpiredWakeAlarms().catch(() => {});
       // Counts distinct days, so three launches in one afternoon stay one day.
       recordActiveDay().catch(() => {});
     })();
+    // The "起きた" button already stops the ringing and cancels the alarm on
+    // its own (see wakeAlarmService) — no navigation hookup needed for that yet.
+    initWakeAlarmListeners(() => {});
   }, []);
 
   const handleToggleNotifications = useCallback(async (next: boolean) => {
@@ -850,17 +870,24 @@ function AppContent() {
   }, []);
 
   useEffect(() => {
-    isPinSet().then(set => {
-      setLockEnabled(set);
-      setIsLocked(set);
-      setLockReady(true);
-    });
+    isPinSet()
+      .then(set => {
+        setLockEnabled(set);
+        setIsLocked(set);
+      })
+      .catch(() => {
+        setLockEnabled(false);
+        setIsLocked(false);
+      })
+      .finally(() => setLockReady(true));
     refreshLockStatus();
   }, [refreshLockStatus]);
 
   // Load user calendars (seed defaults on first run)
   useEffect(() => {
-    ensureDefaultsSeeded().then(setUserCalendars);
+    ensureDefaultsSeeded()
+      .then(setUserCalendars)
+      .finally(() => setCalendarsReady(true));
   }, []);
 
   // Re-lock the app when it goes to background (only if a PIN is set)
@@ -882,20 +909,27 @@ function AppContent() {
   // first-run user is handled by onboarding's last page instead; this path only
   // covers someone who installed before that page existed.
   useEffect(() => {
-    if (showOnboarding) return;
+    if (!onboardingReady || showOnboarding) {
+      if (onboardingReady) setSleepReady(true);
+      return;
+    }
     (async () => {
-      const settings = await getSleepSettings();
-      if (settings) {
-        setSleepSettings(settings);
-        return;
+      try {
+        const settings = await getSleepSettings();
+        if (settings) {
+          setSleepSettings(settings);
+          return;
+        }
+        const [deferred, onboarded] = await Promise.all([
+          isSleepSetupDeferred(),
+          AsyncStorageRoot.getItem('@onboarded'),
+        ]);
+        if (!deferred && onboarded === '1') setShowSleepSetup(true);
+      } finally {
+        setSleepReady(true);
       }
-      const [deferred, onboarded] = await Promise.all([
-        isSleepSetupDeferred(),
-        AsyncStorageRoot.getItem('@onboarded'),
-      ]);
-      if (!deferred && onboarded === '1') setShowSleepSetup(true);
     })();
-  }, [showOnboarding]);
+  }, [onboardingReady, showOnboarding]);
 
   const handleSaveSleepSettings = useCallback(async (settings: SleepSettings) => {
     await saveSleepSettings(settings);
@@ -922,7 +956,9 @@ function AppContent() {
   // Read once at startup so the template hint above the calendar can tell
   // whether the user has any templates at all before offering the shortcut.
   useEffect(() => {
-    loadTemplates().catch(() => {});
+    loadTemplates()
+      .catch(() => {})
+      .finally(() => setTemplatesReady(true));
   }, [loadTemplates]);
 
   const handleDeleteTemplate = useCallback(async (id: string) => {
@@ -1026,6 +1062,8 @@ function AppContent() {
           t('calendarPermissionError'),
           [{text: 'OK'}],
         );
+      } finally {
+        setPermissionReady(true);
       }
     };
     checkAndRequestPermission();
@@ -1597,6 +1635,14 @@ function AppContent() {
       ...styles.header,
     },
   };
+  const startupReady =
+    languageReady &&
+    onboardingReady &&
+    permissionReady &&
+    calendarsReady &&
+    templatesReady &&
+    sleepReady &&
+    lockReady;
 
   return (
     <>
@@ -1691,7 +1737,7 @@ function AppContent() {
           </View>
         </View>
 
-        {!hasPermission && (
+        {permissionReady && !hasPermission && (
           <TouchableOpacity
             style={[styles.permissionBanner, {backgroundColor: colors.error}]}
             onPress={() => Linking.openSettings()}
@@ -1790,7 +1836,7 @@ function AppContent() {
 
         {visitedTabs.has('tasks') && (
           <View style={[styles.tabPage, activeTab !== 'tasks' && styles.tabHidden]}>
-            <AgentScreen />
+            <AgentScreen onApplied={refreshAllViews} />
           </View>
         )}
 
@@ -1806,8 +1852,7 @@ function AppContent() {
 
         {visitedTabs.has('stats') && (
           <View style={[styles.tabPage, activeTab !== 'stats' && styles.tabHidden]}>
-            {/* 統計タブ: 活動サマリー・月の給料集計を表示。年収の壁は設定からのみ。
-                visible=タブ表示中のみ → 入るたびに最新化（年フェッチは省略済みで軽量）。 */}
+            {/* 統計と年収の壁は、この画面上部のタブで切り替える。 */}
             <StatsScreen embedded hideIncomeWall visible={activeTab === 'stats'} onClose={NOOP} initialDate={currentDate} />
           </View>
         )}
@@ -2546,9 +2591,6 @@ function AppContent() {
           </View>
         </Modal>
 
-        {/* Stats Screen */}
-        <StatsScreen visible={showIncomeWall} onClose={() => setShowIncomeWall(false)} initialDate={currentDate} onlyIncomeWall />
-
         {/* ① 空き日シェアカード */}
         <ShareAvailabilityModal
           visible={showShareAvail}
@@ -2730,7 +2772,6 @@ function AppContent() {
             onOpenShareAvail={openShareAvail}
             onOpenPoll={openPoll}
             onOpenSettings={openSettingsModal}
-            onOpenIncomeWall={openIncomeWall}
             onOpenJobs={openJobs}
             onOpenPhotos={openPhotos}
             onExportBackup={handleExportBackup}
@@ -2810,11 +2851,26 @@ function AppContent() {
           setUpdateInfo(null);
         }}
       />
+      {!startupReady && (
+        <View
+          style={[styles.startupCover, {backgroundColor: colors.background}]}
+          accessibilityViewIsModal
+          accessibilityLabel={t('loading')}>
+          <ActivityIndicator size="small" color={colors.primary} />
+        </View>
+      )}
     </>
   );
 }
 
 const styles = StyleSheet.create({
+  startupCover: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 10000,
+    elevation: 10000,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
