@@ -122,6 +122,11 @@ const LocalCalendarsScreen: React.FC<Props> = ({visible, onClose}) => {
     return (
       <LocalCalendarDetail
         calendar={fresh}
+        calendars={calendars}
+        onSwitchCalendar={id => {
+          const target = calendars.find(c => c.id === id);
+          if (target) setOpenCal(target);
+        }}
         onBack={() => {
           setOpenCal(null);
           reload();

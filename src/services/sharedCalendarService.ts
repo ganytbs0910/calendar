@@ -519,7 +519,7 @@ export const syncSharedCalendar = async (
     writeCalendar: (c: LocalCalendar) => Promise<void>;
     writeEvents: (list: LocalEvent[]) => Promise<void>;
   },
-): Promise<{pushed: number; pulled: number} | null> => {
+): Promise<{pushed: number; pulled: number; changedByOthers: {added: number; updated: number; deleted: number}} | null> => {
   const code = await getShareCode(calendarId);
   if (!code) return null;
 
@@ -561,10 +561,13 @@ export const syncSharedCalendar = async (
   const remoteEvents: LocalEvent[] = (res.events ?? []).map((r: any) =>
     fromRemoteEvent(r, calendarId));
 
-  // Notify on what someone ELSE changed since our own last successful sync —
-  // never on our own edits (creatorId === me.id), and never on the very
-  // first sync of a freshly-joined calendar (since === null), which would
-  // otherwise report every existing event as "new" in one flood.
+  // What someone ELSE changed since our own last successful sync — never our
+  // own edits (creatorId === me.id), and never the very first sync of a
+  // freshly-joined calendar (since === null), which would otherwise report
+  // every existing event as "new" in one flood. Drives both the one-off
+  // notification below and the persistent "new" indicator the caller shows
+  // (e.g. LocalCalendarDetail's header badge next to the search icon).
+  let changedByOthers = {added: 0, updated: 0, deleted: 0};
   if (since) {
     const priorById = new Map(events.map(e => [e.id, e]));
     let added = 0, updated = 0, deleted = 0;
@@ -577,6 +580,7 @@ export const syncSharedCalendar = async (
         else updated += 1;
       }
     }
+    changedByOthers = {added, updated, deleted};
     if (added || updated || deleted) {
       const muted = await isSharedCalendarMuted(calendarId);
       if (!muted) {
@@ -603,7 +607,7 @@ export const syncSharedCalendar = async (
 
   // push は全件を返すので、そのときのカーソルは「今」。pull は差分だけ。
   if (res.now) await setCursor(calendarId, res.now);
-  return {pushed: outgoing.length, pulled: remoteEvents.length};
+  return {pushed: outgoing.length, pulled: remoteEvents.length, changedByOthers};
 };
 
 // ── 画面から呼ぶ入口 ────────────────────────────────────────────────────────

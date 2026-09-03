@@ -581,6 +581,8 @@ export default {
   localCalDeleteDesc: 'All of its events will be deleted too.',
   localCalDeleteBtn: 'Delete calendar',
   localCalMonthLabel: '{{month}}/{{year}}',
+  localCalSwitchTitle: 'Switch calendar',
+  sharedNewChangesLabel: 'New changes',
   localEventNew: 'New event',
   localEventEdit: 'Edit event',
   localEventNeedTitle: 'Please enter a title',

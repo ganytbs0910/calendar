@@ -15,6 +15,7 @@ import AddEventModal from '../AddEventModal';
 import EventDetailModal from '../EventDetailModal';
 import {CalendarEventStore, CalendarEventDraft} from '../../types/calendarEventStore';
 import ShareMembersModal from './ShareMembersModal';
+import CalendarSwitcherModal from './CalendarSwitcherModal';
 import {
   getShareCode,
   syncCalendar,
@@ -29,13 +30,20 @@ import {scheduleWakeAlarm, cancelWakeAlarm, shiftWakeAlarm} from '../../services
 interface Props {
   calendar: LocalCalendar;
   onBack: () => void;
+  /** The user's other local calendars, for the title-tap switcher below —
+   * the caller already has this list loaded (it's the list screen's own
+   * state), so this screen doesn't fetch a duplicate copy. */
+  calendars?: LocalCalendar[];
+  /** Jump straight to another of the user's local calendars without going
+   * back to the list screen first. */
+  onSwitchCalendar?: (calendarId: string) => void;
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const datePart = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const timePart = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
-const LocalCalendarDetail: React.FC<Props> = ({calendar, onBack}) => {
+const LocalCalendarDetail: React.FC<Props> = ({calendar, onBack, calendars = [], onSwitchCalendar}) => {
   const {colors} = useTheme();
   const {t} = useTranslation();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -48,11 +56,24 @@ const LocalCalendarDetail: React.FC<Props> = ({calendar, onBack}) => {
   const [initialDate, setInitialDate] = useState(() => new Date());
   const [shared, setShared] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
+  const [switcherOpen, setSwitcherOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [members, setMembers] = useState<ShareMember[]>([]);
   const [myMemberId, setMyMemberId] = useState<string | undefined>();
+  // Set whenever a sync (initial open, poll, or realtime-triggered) pulls in
+  // something someone ELSE added/changed/deleted — cleared when the user
+  // taps it. Session-scoped only (not persisted): the point is "did anything
+  // arrive while I've had this calendar open", not an unread count that
+  // survives app restarts.
+  const [hasNewChanges, setHasNewChanges] = useState(false);
   const calendarRef = useRef<CalendarRef>(null);
+
+  const noteRemoteChanges = useCallback((result: {changedByOthers: {added: number; updated: number; deleted: number}} | null) => {
+    if (!result) return;
+    const {added, updated, deleted} = result.changedByOthers;
+    if (added || updated || deleted) setHasNewChanges(true);
+  }, []);
 
   const reload = useCallback(async () => {
     const [nextEvents, nextMembers, me] = await Promise.all([
@@ -78,8 +99,10 @@ const LocalCalendarDetail: React.FC<Props> = ({calendar, onBack}) => {
       setShared(!!code);
       if (!code) return;
       try {
-        await syncCalendar(calendar.id);
-        if (alive) await reload();
+        const result = await syncCalendar(calendar.id);
+        if (!alive) return;
+        noteRemoteChanges(result);
+        await reload();
       } catch {
         // 圏外でも自分の予定は見られる。黙って諦める。
       }
@@ -87,7 +110,7 @@ const LocalCalendarDetail: React.FC<Props> = ({calendar, onBack}) => {
     return () => {
       alive = false;
     };
-  }, [calendar.id, reload]);
+  }, [calendar.id, reload, noteRemoteChanges]);
 
   // Keep an open shared calendar fresh. Foreground polling is deliberately
   // modest; local edits remain instant and failed pulls retry on the next tick.
@@ -99,7 +122,8 @@ const LocalCalendarDetail: React.FC<Props> = ({calendar, onBack}) => {
       if (!active || syncing) return;
       syncing = true;
       try {
-        await syncCalendar(calendar.id);
+        const result = await syncCalendar(calendar.id);
+        noteRemoteChanges(result);
         await reload();
       } catch {
         // Offline is an expected state; local changes stay queued by updatedAt.
@@ -119,7 +143,7 @@ const LocalCalendarDetail: React.FC<Props> = ({calendar, onBack}) => {
     });
     run();
     return () => { mounted = false; clearInterval(timer); sub.remove(); unsubscribe(); };
-  }, [calendar.id, reload, shared]);
+  }, [calendar.id, reload, shared, noteRemoteChanges]);
 
   // 「共有する」と「誰と共有しているか見る」を1枚にまとめたシートを開く。
   // 招待リンクの送信もその中。ここから分岐させると、共有済みかどうかで
@@ -242,10 +266,22 @@ const LocalCalendarDetail: React.FC<Props> = ({calendar, onBack}) => {
         <TouchableOpacity onPress={onBack} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={26} color={colors.primary} />
         </TouchableOpacity>
-        <View style={styles.titleWrap}>
+        <TouchableOpacity
+          style={styles.titleWrap}
+          onPress={onSwitchCalendar ? () => setSwitcherOpen(true) : undefined}
+          accessibilityRole="button">
           <Text style={styles.emoji}>{calendar.emoji}</Text>
           <Text style={styles.title} numberOfLines={1}>{calendar.name}</Text>
-        </View>
+          {!!onSwitchCalendar && <Ionicons name="chevron-down" size={14} color={colors.textTertiary} />}
+        </TouchableOpacity>
+        {hasNewChanges && (
+          <TouchableOpacity
+            onPress={() => setHasNewChanges(false)}
+            style={styles.newDot}
+            accessibilityRole="button"
+            accessibilityLabel={t('sharedNewChangesLabel', {defaultValue: '新着の変更があります'})}
+          />
+        )}
         <TouchableOpacity
           onPress={() => {setSearchOpen(v => !v); if (searchOpen) setSearchQuery('');}}
           style={styles.iconBtn}
@@ -305,6 +341,16 @@ const LocalCalendarDetail: React.FC<Props> = ({calendar, onBack}) => {
         onLeft={onBack}
       />
 
+      {onSwitchCalendar && (
+        <CalendarSwitcherModal
+          visible={switcherOpen}
+          calendars={calendars}
+          currentCalendarId={calendar.id}
+          onClose={() => setSwitcherOpen(false)}
+          onSelect={onSwitchCalendar}
+        />
+      )}
+
       <AddEventModal
         visible={modalVisible}
         eventStore={eventStore}
@@ -347,6 +393,7 @@ const makeStyles = (colors: ThemeColors) =>
     // icon to its left). Centered, with a bit of its own breathing room.
     shareBtn: {width: 44, height: 32, alignItems: 'center', justifyContent: 'center', marginLeft: 6},
     titleWrap: {flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6},
+    newDot: {width: 9, height: 9, borderRadius: 4.5, backgroundColor: colors.error, marginRight: 2},
     emoji: {fontSize: 18},
     title: {fontSize: 17, fontWeight: '600', color: colors.text, maxWidth: '70%'},
     searchBar: {

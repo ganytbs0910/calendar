@@ -75,11 +75,15 @@ describe('他のメンバーの変更を通知する', () => {
       now: '2030-02-01T00:00:00.000Z',
     });
     const {io} = deps(CAL, []);
-    await syncSharedCalendar('lc-1', io);
+    const result = await syncSharedCalendar('lc-1', io);
 
     expect(notifee.displayNotification).toHaveBeenCalledTimes(1);
     const args = (notifee.displayNotification as jest.Mock).mock.calls[0][0];
     expect(args.body).toContain('1');
+    // The same diff drives LocalCalendarDetail's persistent "new" header
+    // badge — the caller needs it back on the result, not just as a
+    // side-effect notification.
+    expect(result!.changedByOthers).toEqual({added: 1, updated: 0, deleted: 0});
   });
 
   it('自分自身の変更では通知しない', async () => {

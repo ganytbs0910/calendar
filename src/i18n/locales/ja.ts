@@ -604,6 +604,8 @@ export default {
   localCalDeleteDesc: '中の予定もすべて削除されます。',
   localCalDeleteBtn: 'カレンダーを削除',
   localCalMonthLabel: '{{year}}年{{month}}月',
+  localCalSwitchTitle: 'カレンダーを切り替え',
+  sharedNewChangesLabel: '新着の変更があります',
   localEventNew: '予定を追加',
   localEventEdit: '予定を編集',
   localEventNeedTitle: 'タイトルを入力してください',
