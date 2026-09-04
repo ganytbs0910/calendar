@@ -122,19 +122,35 @@ const ShareMembersModal: React.FC<Props> = ({visible, calendar, onClose, onLeft}
     };
   }, [visible, calendar.id, reload]);
 
-  const commitName = useCallback(async () => {
+  // 保存ボタンを押させる意味が無い(1行のテキストを直すだけの画面で、
+  // 押し忘れて閉じると変更が消えるほうが事故になる)ので、入力が止まったら
+  // 自動保存し、フィールドを離れたら確定して編集モードを抜ける。
+  const commitName = useCallback(async (opts: {silent?: boolean} = {}) => {
     const name = draftName.trim();
     if (!name) {
-      Alert.alert(t('shareNameRequired'));
+      if (!opts.silent) Alert.alert(t('shareNameRequired'));
       return;
     }
     await setMyName(name);
-    setEditingName(false);
     setNameIsAuto(false);
     await reload();
     // 名乗り直しは次の同期で相手に伝わる。待たせる必要はない。
     syncCalendar(calendar.id).catch(() => {});
   }, [draftName, t, reload, calendar.id]);
+
+  // 入力中、一呼吸止まったら黙って保存する(編集モードはそのまま)。
+  useEffect(() => {
+    if (!editingName || !draftName.trim()) return;
+    const timer = setTimeout(() => { commitName({silent: true}); }, 700);
+    return () => clearTimeout(timer);
+  }, [draftName, editingName, commitName]);
+
+  // フィールドを離れる(タップアウト/キーボードのdone)ときに最終確定して
+  // 編集モードを抜ける。空のまま離れた場合は何も保存せず静かに戻る。
+  const finishEditingName = useCallback(() => {
+    if (draftName.trim()) commitName({silent: true});
+    setEditingName(false);
+  }, [draftName, commitName]);
 
   const onInvite = useCallback(async () => {
     // 名前のまま招待すると、相手の一覧に「名前未設定」で並ぶ。送る前に一度だけ聞く。
@@ -280,11 +296,9 @@ const ShareMembersModal: React.FC<Props> = ({visible, calendar, onClose, onLeft}
                   maxLength={24}
                   autoFocus
                   returnKeyType="done"
-                  onSubmitEditing={commitName}
+                  onSubmitEditing={finishEditingName}
+                  onBlur={finishEditingName}
                 />
-                <TouchableOpacity onPress={commitName} style={styles.nameSave}>
-                  <Text style={styles.nameSaveText}>{t('save')}</Text>
-                </TouchableOpacity>
               </View>
             ) : (
               <TouchableOpacity
@@ -467,8 +481,6 @@ const makeStyles = (colors: ThemeColors) =>
       fontSize: 16,
       color: colors.text,
     },
-    nameSave: {paddingHorizontal: 12, paddingVertical: 12},
-    nameSaveText: {fontSize: 16, fontWeight: '600', color: colors.primary},
     colorHelp: {fontSize: 12, color: colors.textTertiary, marginTop: 4},
     colorRow: {flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingVertical: 6},
     colorSwatch: {width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center'},
