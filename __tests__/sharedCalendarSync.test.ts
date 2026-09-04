@@ -119,14 +119,15 @@ describe('共有カレンダーの一往復', () => {
     reply({calendar: null, events: [], now: '2030-01-01T00:00:00.000Z'});
     await syncSharedCalendar('lc-1', deps(CAL, []).io);
 
-    // 2回目: 相手が時間指定の予定を追加。
+    // 2回目: 相手(みちこ)が時間指定の予定を追加。
     reply({
       calendar: null,
       events: [{
         id: 'e1', title: 'サークル飲み会', start_date: '2030-01-20', end_date: '2030-01-20',
         all_day: false, start_time: '18:00', end_time: '20:00', memo: null,
-        updated_at: '2030-01-15T00:00:00.000Z', deleted: false,
+        creator_id: 'm-michiko', updated_at: '2030-01-15T00:00:00.000Z', deleted: false,
       }],
+      members: [{member_id: 'm-michiko', name: 'みちこ', emoji: '', last_seen_at: '2030-01-15T00:00:00.000Z', updated_at: '2030-01-15T00:00:00.000Z', role: 'member'}],
       now: '2030-01-16T00:00:00.000Z',
     });
     await syncSharedCalendar('lc-1', deps(CAL, []).io);
@@ -135,8 +136,32 @@ describe('共有カレンダーの一往復', () => {
     expect(history.length).toBe(1);
     expect(history[0].calendarId).toBe('lc-1');
     expect(history[0].title).toBe('サークル飲み会');
+    expect(history[0].body).toContain('みちこ');
     expect(history[0].body).toContain('18:00');
     expect(history[0].body).toContain('20:00');
+  });
+
+  it('抜けたメンバーの変更は名前なしで通知履歴に書く', async () => {
+    reply({calendar: null, events: [], now: '2030-01-01T00:00:00.000Z'});
+    await syncSharedCalendar('lc-1', deps(CAL, []).io);
+
+    // members に本人が含まれない(抜けた/取得できない)ケース。
+    reply({
+      calendar: null,
+      events: [{
+        id: 'e1', title: '打ち上げ', start_date: '2030-01-20', end_date: '2030-01-20',
+        all_day: true, start_time: null, end_time: null, memo: null,
+        creator_id: 'm-gone', updated_at: '2030-01-15T00:00:00.000Z', deleted: false,
+      }],
+      members: [],
+      now: '2030-01-16T00:00:00.000Z',
+    });
+    await syncSharedCalendar('lc-1', deps(CAL, []).io);
+
+    const history = await getNotificationHistory();
+    expect(history[0].title).toBe('打ち上げ');
+    expect(history[0].body).not.toContain('undefined');
+    expect(history[0].body).not.toContain('null');
   });
 
   it('カーソルは端末の時計ではなくサーバが返した時刻を使う', async () => {

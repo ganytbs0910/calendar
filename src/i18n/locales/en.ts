@@ -258,6 +258,7 @@ export default {
   notifChangeType_updated: 'Changed',
   notifChangeType_deleted: 'Deleted',
   notifTimeRange: '{{start}}–{{end}}',
+  notifChangeByLine: '{{name}} {{type}}',
   deleteHistoryEntry: 'Remove from history',
   deleteHistoryEntryConfirm: 'Remove "{{title}}" from history?',
 

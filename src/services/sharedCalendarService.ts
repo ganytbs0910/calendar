@@ -587,10 +587,16 @@ export const codeFromUrl = (url: string): string | null => {
 const formatChangeHistoryEntry = (
   type: 'added' | 'updated' | 'deleted',
   event: LocalEvent,
+  creatorName?: string,
 ): {title: string; body: string} => {
   const typeLabel = i18n.t(`notifChangeType_${type}`, {
     defaultValue: type === 'added' ? '追加' : type === 'updated' ? '変更' : '削除',
   });
+  // 誰の変更かは、抜けた/古いメンバーだと分からないことがある — その場合は
+  // 種別だけの表示に自然に落ちる(「Aさんが追加」→「追加」)。
+  const byLine = creatorName
+    ? i18n.t('notifChangeByLine', {name: creatorName, type: typeLabel, defaultValue: `${creatorName}さんが${typeLabel}`})
+    : typeLabel;
   const d = new Date(`${event.startDate}T00:00:00`);
   const weekdays = i18n.t('weekdaysSingle', {returnObjects: true}) as string[];
   const when = Number.isNaN(d.getTime())
@@ -604,7 +610,7 @@ const formatChangeHistoryEntry = (
       ? ` ${i18n.t('notifTimeRange', {start: event.startTime, end: event.endTime})}`
       : ` ${event.startTime}`;
   }
-  return {title: event.title, body: `${typeLabel} · ${when}${timePart}`};
+  return {title: event.title, body: `${byLine} · ${when}${timePart}`};
 };
 
 // ── 同期 ────────────────────────────────────────────────────────────────────
@@ -665,6 +671,11 @@ export const syncSharedCalendar = async (
   if (Array.isArray(res.members)) {
     await setMembers(calendarId, res.members.map(fromRemoteMember));
   }
+  // 通知履歴に「誰が」を出すための引き当て用。抜けたメンバーは載らないので
+  // その場合は名前なしにフォールバックする(下の formatChangeHistoryEntry)。
+  const memberNameById = new Map<string, string>(
+    (Array.isArray(res.members) ? res.members : []).map((m: any) => [m.member_id, m.name]),
+  );
 
   const remoteEvents: LocalEvent[] = (res.events ?? []).map((r: any) =>
     fromRemoteEvent(r, calendarId));
@@ -697,7 +708,8 @@ export const syncSharedCalendar = async (
       // something happened or erase the log of what it was.
       await addUnseenChanges(calendarId, added + updated + deleted);
       for (const {type, event} of changeEntries) {
-        const {title, body} = formatChangeHistoryEntry(type, event);
+        const creatorName = event.creatorId ? memberNameById.get(event.creatorId) : undefined;
+        const {title, body} = formatChangeHistoryEntry(type, event, creatorName);
         addNotificationHistoryEntry({title, body, calendarId}).catch(() => {});
       }
       const muted = await isSharedCalendarMuted(calendarId);

@@ -272,6 +272,7 @@ export default {
   notifChangeType_updated: '変更',
   notifChangeType_deleted: '削除',
   notifTimeRange: '{{start}}〜{{end}}',
+  notifChangeByLine: '{{name}}さんが{{type}}',
   deleteHistoryEntry: '履歴を削除',
   deleteHistoryEntryConfirm: '「{{title}}」を履歴から削除しますか？',
 
