@@ -465,7 +465,14 @@ const rpc = async (fn: string, body: Record<string, unknown>): Promise<any> => {
       }
       throw new SharedRpcError(reason);
     }
-    return await res.json();
+    // A `returns void` function (calendar_share_set_invite_closed,
+    // calendar_share_leave) comes back as HTTP 204 with a genuinely empty
+    // body — confirmed live. res.json() throws on that (not a
+    // SharedRpcError), which used to surface as the generic "check your
+    // connection" alert even though the call had already succeeded on the
+    // server, and reverted the UI's optimistic update on top of it.
+    const text = await res.text();
+    return text ? JSON.parse(text) : null;
   } finally {
     clearTimeout(timer);
   }

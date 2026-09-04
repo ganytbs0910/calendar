@@ -39,7 +39,15 @@ let calls: Array<{fn: string; body: any}>;
 const reply = (payload: any) => {
   (globalThis as any).fetch = jest.fn(async (url: string, init: any) => {
     calls.push({fn: String(url).split('/rpc/')[1], body: JSON.parse(init.body)});
-    return {ok: true, json: async () => payload} as any;
+    return {ok: true, json: async () => payload, text: async () => JSON.stringify(payload)} as any;
+  });
+};
+
+/** Simulates PostgREST's real response to a `returns void` function: HTTP 204, empty body. */
+const replyEmpty = () => {
+  (globalThis as any).fetch = jest.fn(async (url: string, init: any) => {
+    calls.push({fn: String(url).split('/rpc/')[1], body: JSON.parse(init.body)});
+    return {ok: true, status: 204, json: async () => { throw new Error('Unexpected end of JSON input'); }, text: async () => ''} as any;
   });
 };
 
@@ -226,8 +234,12 @@ describe('ミュート設定', () => {
 
 describe('招待の停止', () => {
   it('サーバのRPCを呼び、結果をローカルにキャッシュする', async () => {
+    // calendar_share_set_invite_closed は `returns void` — PostgREST は
+    // 本当に空のボディで返す(reply({}) の '{}' ではない)。ここを違えると
+    // 実際には成功しているのに res.json() が空ボディで例外を投げ、
+    // 「通信エラー」に化けて楽観更新まで巻き戻る不具合を見逃す。
     await setMyName('オーナー');
-    reply({});
+    replyEmpty();
     await setInviteClosed('lc-1', true);
 
     expect(calls[0].fn).toBe('calendar_share_set_invite_closed');
@@ -262,7 +274,7 @@ describe('メンバー管理', () => {
     await addLocalCalendar('サークル', '#007AFF', '🍻');
     const [added] = await getLocalCalendars();
     await setShareCode(added.id, 'b'.repeat(32));
-    reply({});
+    replyEmpty(); // calendar_share_leave も `returns void`
 
     await leaveSharedCalendar(added.id);
 

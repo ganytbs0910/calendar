@@ -33,7 +33,7 @@ let calls: Array<{fn: string; body: any}>;
 const reply = (payload: any) => {
   (globalThis as any).fetch = jest.fn(async (url: string, init: any) => {
     calls.push({fn: String(url).split('/rpc/')[1], body: JSON.parse(init.body)});
-    return {ok: true, json: async () => payload} as any;
+    return {ok: true, json: async () => payload, text: async () => JSON.stringify(payload)} as any;
   });
 };
 
