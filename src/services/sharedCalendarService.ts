@@ -139,6 +139,22 @@ type Me = {
 
 const newMemberSecret = (): string => `${newMemberId()}${newMemberId()}`;
 
+/**
+ * The server rejects (and never backfills a hash for) any secret that isn't
+ * exactly 64 hex chars — but until now, this side never checked that either,
+ * only whether *some* value was present. A secret that got corrupted, or was
+ * ever written by an earlier/different format, would sit there forever
+ * passing every local truthiness check while the server permanently refused
+ * to authenticate it — confirmed live: a real member row stayed
+ * `member_secret_hash IS NULL` (see 20260829's self-heal, which explicitly
+ * refuses to touch a badly-shaped secret) because the device kept resending
+ * the same malformed one on every sync. Owner/admin actions on that
+ * member_id (invite-close, kick, leave, role-set) always came back
+ * 'unauthorized member' as a result, with no way for either side to recover.
+ */
+const isValidSecret = (secret: string | undefined): secret is string =>
+  !!secret && /^[0-9a-f]{64}$/.test(secret);
+
 export const MEMBER_COLORS = [
   '#007AFF', '#FF2D55', '#34C759', '#AF52DE', '#FF9500',
   '#30B0C7', '#5856D6', '#E85D75', '#8A6D3B',
@@ -172,7 +188,7 @@ export const setMyName = async (name: string, emoji = '', auto = false): Promise
     color: prev?.color ?? colorForId(id),
     updatedAt: new Date().toISOString(),
     auto,
-    secret: prev?.secret ?? newMemberSecret(),
+    secret: prev && isValidSecret(prev.secret) ? prev.secret : newMemberSecret(),
   };
   await AsyncStorage.setItem(ME_KEY, JSON.stringify(me));
   return me;
@@ -209,7 +225,10 @@ const autoName = (): string => i18n.t('shareNameUnset', {defaultValue: '名前�
  */
 const ensureMe = async (): Promise<Me> => {
   const me = await getMe();
-  if (me?.secret && (!me.auto || me.name === autoName())) return me;
+  if (me && isValidSecret(me.secret) && (!me.auto || me.name === autoName())) return me;
+  // 有効な secret が無い（未生成 or 壊れた形式）だけが理由なら、本人が
+  // 決めた名前は消さずに setMyName 経由で secret だけ作り直す。
+  if (me && !me.auto) return setMyName(me.name, me.emoji, false);
   return setMyName(autoName(), '', true);
 };
 

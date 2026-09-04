@@ -11,7 +11,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import notifee from '@notifee/react-native';
 
 import {
-  setShareCode, syncSharedCalendar, setMyName, getMe,
+  setShareCode, syncSharedCalendar, setMyName, getMe, getOrCreateMe,
   isSharedCalendarMuted, setSharedCalendarMuted,
   isInviteClosed, setInviteClosed,
   kickMember, leaveSharedCalendar,
@@ -307,5 +307,49 @@ describe('サーバのエラーメッセージをそのまま持ち帰る', () =
     await expect(setInviteClosed('lc-1', true)).rejects.toMatchObject({
       reason: 'calendar_share_set_invite_closed 500',
     });
+  });
+});
+
+describe('壊れた形式の secret を自動で作り直す', () => {
+  // サーバは64桁の16進以外の secret には永久にハッシュを埋めない
+  // (20260829の自己修復も同条件で弾く)ので、こちら側が「存在してさえいれば
+  // 有効」という真偽値だけの判定をしている限り、壊れた secret は無限に
+  // 直らずに 'unauthorized member' を出し続ける。実機で確認された症状。
+  it('secret が短すぎる/16進でない場合は再生成し、本人が決めた名前は消さない', async () => {
+    await AsyncStorage.setItem('@shared_calendar_me', JSON.stringify({
+      id: 'member-1', name: 'わたし', emoji: '🙂', color: '#007AFF',
+      updatedAt: '2030-01-01T00:00:00.000Z', auto: false, secret: 'too-short',
+    }));
+
+    const me = await getOrCreateMe();
+
+    expect(me.name).toBe('わたし');
+    expect(me.auto).toBe(false);
+    expect(me.secret).toMatch(/^[0-9a-f]{64}$/);
+    expect(me.secret).not.toBe('too-short');
+  });
+
+  it('secret が無い場合も再生成し、本人が決めた名前は消さない', async () => {
+    await AsyncStorage.setItem('@shared_calendar_me', JSON.stringify({
+      id: 'member-1', name: 'わたし', emoji: '🙂', color: '#007AFF',
+      updatedAt: '2030-01-01T00:00:00.000Z', auto: false,
+    }));
+
+    const me = await getOrCreateMe();
+
+    expect(me.name).toBe('わたし');
+    expect(me.secret).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('有効な secret が既にある場合は作り直さない', async () => {
+    const validSecret = '0'.repeat(64);
+    await AsyncStorage.setItem('@shared_calendar_me', JSON.stringify({
+      id: 'member-1', name: 'わたし', emoji: '🙂', color: '#007AFF',
+      updatedAt: '2030-01-01T00:00:00.000Z', auto: false, secret: validSecret,
+    }));
+
+    const me = await getOrCreateMe();
+
+    expect(me.secret).toBe(validSecret);
   });
 });
