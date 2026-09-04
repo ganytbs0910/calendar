@@ -411,6 +411,15 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   const {colors} = useTheme();
   const {isPremium} = usePremium();
   const [saveSuccess, setSaveSuccess] = useState(false);
+  // Two independent Save buttons (header + bottom of form) both call
+  // handleSave directly, and the function awaits several steps (permission
+  // check, conflict/income-wall alerts, RNCalendarEvents calls) before the
+  // modal gives any feedback — a double-tap or hitting both buttons before
+  // that resolves used to fire the whole save twice, creating two events.
+  // savingRef is checked synchronously (state wouldn't update in time to
+  // block a near-simultaneous second call); isSaving just drives the UI.
+  const savingRef = useRef(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [title, setTitle] = useState('');
   const [startDate, setStartDate] = useState(new Date());
   const [endDate, setEndDate] = useState(new Date());
@@ -732,6 +741,10 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   }, [t]);
 
   const handleSave = useCallback(async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setIsSaving(true);
+    try {
     // Check and request permission before saving. iOS 17+ returns "fullAccess"
     // alongside the older "authorized", but the library's TS types haven't
     // caught up — widen to string for the comparison.
@@ -995,6 +1008,10 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
     } catch (error) {
       console.error('Error saving event:', error);
       Alert.alert(t('error'), isEditing ? t('updateFailed') : t('saveFailed'));
+    }
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
     }
     // breakTouched / breakOverride decide whether the break the user typed is
     // persisted at all, and `jobs` backs the income-wall check. Leaving them
@@ -1396,9 +1413,10 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           <TouchableOpacity
             testID="save-event"
             onPress={handleSave}
+            disabled={isSaving}
             accessibilityLabel={t('save')}
             accessibilityRole="button">
-            <Text style={[styles.saveButton, {color: colors.primary}]}>{t('save')}</Text>
+            <Text style={[styles.saveButton, {color: isSaving ? colors.textTertiary : colors.primary}]}>{t('save')}</Text>
           </TouchableOpacity>
         </View>
 
@@ -1975,8 +1993,10 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.saveButtonBottom, {backgroundColor: colors.primary}]}
-              onPress={handleSave}>
+              testID="save-event-bottom"
+              style={[styles.saveButtonBottom, {backgroundColor: isSaving ? colors.textTertiary : colors.primary}]}
+              onPress={handleSave}
+              disabled={isSaving}>
               <Text style={styles.saveButtonBottomText} numberOfLines={1} adjustsFontSizeToFit>{t('save')}</Text>
             </TouchableOpacity>
           </View>
