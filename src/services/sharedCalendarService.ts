@@ -29,6 +29,20 @@ export const MAX_EVENTS_PER_PUSH = 200;
 
 const TIMEOUT_MS = 15000;
 
+/**
+ * Thrown when the server actually answered (not a network/timeout failure)
+ * but rejected the request — `reason` is the raw plpgsql `RAISE EXCEPTION`
+ * message (e.g. 'forbidden', 'unauthorized member'), passed through as-is so
+ * callers can show something more useful than "check your connection" for
+ * what's actually a permission/state problem, not a network one.
+ */
+export class SharedRpcError extends Error {
+  constructor(public reason: string) {
+    super(reason);
+    this.name = 'SharedRpcError';
+  }
+}
+
 /** calendarId -> 共有コード。共有していないカレンダーはここに載らない。 */
 const LINK_KEY = '@shared_calendar_links';
 /** calendarId -> 最後に取り込めたサーバ時刻。次回はここから後だけ取る。 */
@@ -418,7 +432,20 @@ const rpc = async (fn: string, body: Record<string, unknown>): Promise<any> => {
       },
       body: JSON.stringify(body),
     });
-    if (!res.ok) throw new Error(`${fn} ${res.status}`);
+    if (!res.ok) {
+      // PostgREST turns a plpgsql `raise exception 'forbidden'` into
+      // {"code":"P0001","message":"forbidden",...} — surface that message
+      // verbatim rather than collapsing every non-2xx response into the
+      // same opaque "<fn> <status>" the caller can't act on.
+      let reason = `${fn} ${res.status}`;
+      try {
+        const errBody = await res.json();
+        if (typeof errBody?.message === 'string' && errBody.message) reason = errBody.message;
+      } catch {
+        // No JSON body (or not the shape we expect) — keep the generic reason.
+      }
+      throw new SharedRpcError(reason);
+    }
     return await res.json();
   } finally {
     clearTimeout(timer);

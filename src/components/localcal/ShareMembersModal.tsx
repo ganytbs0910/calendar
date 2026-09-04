@@ -43,7 +43,45 @@ import {
   setInviteClosed,
   isSharedCalendarMuted,
   setSharedCalendarMuted,
+  SharedRpcError,
 } from '../../services/sharedCalendarService';
+
+type TFunc = (key: string, opts?: any) => string;
+
+/**
+ * A known, non-network RPC rejection (see SharedRpcError) gets its own
+ * message instead of the generic "check your connection" — that message is
+ * actively misleading for e.g. "you're not the owner", and gave no way to
+ * tell a real permission/state problem from an actual dropped connection.
+ * Returns null for anything unrecognized (including real network/timeout
+ * errors, which never throw SharedRpcError), so callers fall back to their
+ * existing generic copy.
+ */
+const shareErrorDetail = (err: unknown, t: TFunc): string | null => {
+  if (!(err instanceof SharedRpcError)) return null;
+  switch (err.reason) {
+    case 'forbidden':
+      return t('shareErrorForbidden');
+    case 'unauthorized member':
+      return t('shareErrorUnauthorized');
+    case 'member banned':
+      return t('shareErrorBanned');
+    case 'cannot kick the owner':
+      return t('shareErrorCannotKickOwner');
+    case 'use leave, not kick, on yourself':
+      return t('shareErrorUseLeave');
+    case 'member not found':
+      return t('shareErrorMemberNotFound');
+    case 'owner cannot leave; delete the calendar instead':
+      return t('shareErrorOwnerCannotLeave');
+    case 'cannot change own role':
+      return t('shareErrorCannotChangeOwnRole');
+    case 'bad role':
+      return t('shareErrorBadRole');
+    default:
+      return null;
+  }
+};
 
 interface Props {
   visible: boolean;
@@ -179,6 +217,22 @@ const ShareMembersModal: React.FC<Props> = ({visible, calendar, onClose, onLeft}
     syncCalendar(calendar.id).catch(() => {});
   }, [calendar.id, reload]);
 
+  // A push/pull always refreshes this device's member_secret_hash server-side
+  // (calendar_share_member_put) — so if this exact identity had simply never
+  // synced since the hash column existed, a resync fixes it. Try that once
+  // before surfacing an error the user can't do anything about themselves.
+  const withRetryOnAuthDrift = useCallback(async <T,>(op: () => Promise<T>): Promise<T> => {
+    try {
+      return await op();
+    } catch (err) {
+      if (err instanceof SharedRpcError && err.reason === 'unauthorized member') {
+        await syncCalendar(calendar.id).catch(() => {});
+        return await op();
+      }
+      throw err;
+    }
+  }, [calendar.id]);
+
   const myRole = members.find(member => member.isMe)?.role ?? 'member';
   const canManage = myRole === 'owner' || myRole === 'admin';
 
@@ -192,17 +246,17 @@ const ShareMembersModal: React.FC<Props> = ({visible, calendar, onClose, onLeft}
           style: 'destructive',
           onPress: async () => {
             try {
-              await kickMember(calendar.id, member.id);
+              await withRetryOnAuthDrift(() => kickMember(calendar.id, member.id));
               await reload();
-            } catch {
-              Alert.alert(t('shareKickErrorTitle'), t('shareKickErrorBody'));
+            } catch (err) {
+              Alert.alert(t('shareKickErrorTitle'), shareErrorDetail(err, t) ?? t('shareKickErrorBody'));
             }
           },
         },
         {text: t('cancel'), style: 'cancel'},
       ],
     );
-  }, [calendar.id, reload, t]);
+  }, [calendar.id, reload, t, withRetryOnAuthDrift]);
 
   const manageMember = useCallback((member: ShareMember) => {
     if (!canManage || member.isMe || member.role === 'owner') return;
@@ -216,29 +270,29 @@ const ShareMembersModal: React.FC<Props> = ({visible, calendar, onClose, onLeft}
         text: o.label,
         onPress: async () => {
           try {
-            await setSharedMemberRole(calendar.id, member.id, o.role);
+            await withRetryOnAuthDrift(() => setSharedMemberRole(calendar.id, member.id, o.role));
             await reload();
-          } catch {
-            Alert.alert(t('shareRoleErrorTitle'), t('shareRoleErrorBody'));
+          } catch (err) {
+            Alert.alert(t('shareRoleErrorTitle'), shareErrorDetail(err, t) ?? t('shareRoleErrorBody'));
           }
         },
       })),
       {text: t('shareKickAction'), style: 'destructive', onPress: () => doKick(member)},
       {text: t('cancel'), style: 'cancel'},
     ]);
-  }, [calendar.id, canManage, reload, t, doKick]);
+  }, [calendar.id, canManage, reload, t, doKick, withRetryOnAuthDrift]);
 
   const toggleInviteClosed = useCallback(async (value: boolean) => {
     // value here is "allow new joins", inverse of the closed flag.
     const closed = !value;
     setInviteClosedState(closed);
     try {
-      await setInviteClosed(calendar.id, closed);
-    } catch {
+      await withRetryOnAuthDrift(() => setInviteClosed(calendar.id, closed));
+    } catch (err) {
       setInviteClosedState(!closed);
-      Alert.alert(t('shareInviteClosedErrorTitle'), t('shareInviteClosedErrorBody'));
+      Alert.alert(t('shareInviteClosedErrorTitle'), shareErrorDetail(err, t) ?? t('shareInviteClosedErrorBody'));
     }
-  }, [calendar.id, t]);
+  }, [calendar.id, t, withRetryOnAuthDrift]);
 
   const toggleMute = useCallback(async (value: boolean) => {
     // value here is "notify me", inverse of the muted flag.
@@ -255,11 +309,11 @@ const ShareMembersModal: React.FC<Props> = ({visible, calendar, onClose, onLeft}
         onPress: async () => {
           setLeaving(true);
           try {
-            await leaveSharedCalendar(calendar.id);
+            await withRetryOnAuthDrift(() => leaveSharedCalendar(calendar.id));
             onClose();
             onLeft?.();
-          } catch {
-            Alert.alert(t('shareLeaveErrorTitle'), t('shareLeaveErrorBody'));
+          } catch (err) {
+            Alert.alert(t('shareLeaveErrorTitle'), shareErrorDetail(err, t) ?? t('shareLeaveErrorBody'));
           } finally {
             setLeaving(false);
           }
@@ -267,7 +321,7 @@ const ShareMembersModal: React.FC<Props> = ({visible, calendar, onClose, onLeft}
       },
       {text: t('cancel'), style: 'cancel'},
     ]);
-  }, [calendar.id, onClose, onLeft, t]);
+  }, [calendar.id, onClose, onLeft, t, withRetryOnAuthDrift]);
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>

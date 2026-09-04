@@ -43,6 +43,15 @@ const reply = (payload: any) => {
   });
 };
 
+/** Simulates PostgREST's shape for a plpgsql `raise exception '<message>'`. */
+const replyError = (status: number, message: string) => {
+  (globalThis as any).fetch = jest.fn(async (url: string, init: any) => {
+    calls.push({fn: String(url).split('/rpc/')[1], body: JSON.parse(init.body)});
+    return {ok: false, status, json: async () => ({code: 'P0001', message, details: null, hint: null})} as any;
+  });
+};
+
+
 const deps = (cal: LocalCalendar, events: LocalEvent[]) => {
   const state = {cal, events};
   return {
@@ -260,5 +269,43 @@ describe('メンバー管理', () => {
     expect(calls[0].fn).toBe('calendar_share_leave');
     const after = await getLocalCalendars();
     expect(after.find(c => c.id === added.id)).toBeUndefined();
+  });
+});
+
+describe('サーバのエラーメッセージをそのまま持ち帰る', () => {
+  // 以前は非2xxを一律 `Error("<fn> <status>")` にしていて、「オーナー権限が
+  // 無い」のような正当な拒否も「通信状態を確認してください」という誤解を招く
+  // 汎用メッセージになっていた。plpgsqlの raise exception のメッセージを
+  // SharedRpcError.reason としてそのまま呼び出し側に渡す。
+  it('招待の停止がオーナーでないため拒否されたら、その理由がSharedRpcErrorとして届く', async () => {
+    await setMyName('わたし');
+    replyError(400, 'forbidden');
+
+    await expect(setInviteClosed('lc-1', true)).rejects.toMatchObject({
+      name: 'SharedRpcError',
+      reason: 'forbidden',
+    });
+  });
+
+  it('本人確認が一致しない場合も reason="unauthorized member" が呼び出し側に判別できる形で届く', async () => {
+    // 実際の自動再試行(同期し直して1回だけ再挑戦)はUI側
+    // (ShareMembersModal.withRetryOnAuthDrift)の責務 — ここではサービス層が
+    // 判別可能な reason を投げることだけを確認する。
+    await setMyName('わたし');
+    replyError(400, 'unauthorized member');
+
+    await expect(setInviteClosed('lc-1', true)).rejects.toMatchObject({
+      name: 'SharedRpcError',
+      reason: 'unauthorized member',
+    });
+  });
+
+  it('サーバから理由が返らない場合は関数名とステータスにフォールバックする', async () => {
+    await setMyName('わたし');
+    (globalThis as any).fetch = jest.fn(async () => ({ok: false, status: 500, json: async () => { throw new Error('not json'); }}));
+
+    await expect(setInviteClosed('lc-1', true)).rejects.toMatchObject({
+      reason: 'calendar_share_set_invite_closed 500',
+    });
   });
 });
