@@ -408,8 +408,8 @@ const ShareMembersModal: React.FC<Props> = ({visible, calendar, onClose, onLeft}
                         {m.isMe ? ` (${t('shareMembersYou')})` : ''}
                       </Text>
                       <Text style={styles.rowSub}>{lastSeenLabel(m.lastSeenAt, t)}</Text>
-                      <Text style={styles.roleText}>{roleLabel}</Text>
                     </View>
+                    <Text style={styles.roleText} numberOfLines={1}>{roleLabel}</Text>
                     {canManage && !m.isMe && m.role !== 'owner' && (
                       <Ionicons name="chevron-forward" size={15} color={colors.textTertiary}/>
                     )}
@@ -512,18 +512,20 @@ const makeStyles = (colors: ThemeColors) =>
     row: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 12,
+      gap: 10,
       backgroundColor: colors.surface,
       borderRadius: 10,
       paddingHorizontal: 14,
-      paddingVertical: 12,
+      paddingVertical: 9,
     },
     rowMain: {flex: 1},
     rowText: {flex: 1, fontSize: 16, color: colors.text},
-    rowSub: {fontSize: 12, color: colors.textTertiary, marginTop: 2},
-    roleText: {fontSize: 11, color: colors.primary, marginTop: 2},
-    avatar: {width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center'},
-    avatarText: {fontSize: 16, fontWeight: '700'},
+    rowSub: {fontSize: 12, color: colors.textTertiary, marginTop: 1},
+    // 権限は行の右端(最終アクセス日時の右)に置く — 名前の下に積んで
+    // 縦に伸ばすより、1行に収めた方がリストが短く見渡しやすい。
+    roleText: {fontSize: 12, color: colors.primary, fontWeight: '600'},
+    avatar: {width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center'},
+    avatarText: {fontSize: 14, fontWeight: '700'},
     empty: {fontSize: 14, color: colors.textTertiary, paddingVertical: 12},
     nameRow: {flexDirection: 'row', alignItems: 'center', gap: 8},
     nameInput: {
