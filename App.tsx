@@ -51,7 +51,7 @@ import {PaywallScreen} from './src/components/PaywallScreen';
 import {TERMS_URL, PRIVACY_URL, openLegalLink} from './src/utils/legalLinks';
 import StatsScreen from './src/components/StatsScreen';
 import PhotosScreen from './src/components/PhotosScreen';
-import LocalCalendarsScreen from './src/components/localcal/LocalCalendarsScreen';
+import LocalCalendarsScreen, {LocalCalendarsScreenRef} from './src/components/localcal/LocalCalendarsScreen';
 import AgentScreen from './src/components/AgentScreen';
 import OneTimeHint from './src/components/OneTimeHint';
 import ScreenOverlay from './src/components/ScreenOverlay';
@@ -567,6 +567,10 @@ function AppContent() {
         return;
       }
       Alert.alert(t('joinShareDoneTitle'), t('joinShareDoneBody', {name: cal.name}));
+      // setActiveTab('share') alone is a no-op (and re-fetches nothing) when
+      // the user is already on that tab — reload it directly so the newly
+      // joined calendar shows up without having to switch tabs and back.
+      localCalendarsRef.current?.reload();
       setActiveTab('share');
     } catch {
       Alert.alert(t('joinShareGoneTitle'), t('joinShareGoneBody'));
@@ -620,6 +624,7 @@ function AppContent() {
 
   const calendarRef = useRef<CalendarRef>(null);
   const weekViewRef = useRef<WeekViewRef>(null);
+  const localCalendarsRef = useRef<LocalCalendarsScreenRef>(null);
   // Springy press feedback for the "+" add button — a tiny bit of delight on the
   // app's most-used action.
   const addBtnScale = useRef(new Animated.Value(1)).current;
@@ -1846,7 +1851,7 @@ function AppContent() {
                 共同編集できる共有カレンダーになる。メインの iCloud カレンダーと
                 は完全に別物（[[two-calendar-concepts]]）。
                 onClose を渡さないのはタブの根だから — 閉じる先が無い。 */}
-            <LocalCalendarsScreen visible={activeTab === 'share'} />
+            <LocalCalendarsScreen ref={localCalendarsRef} visible={activeTab === 'share'} />
           </View>
         )}
 

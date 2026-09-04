@@ -2,7 +2,7 @@
 // on-device calendars (private / 推し活 / …), a create+edit sheet, and routing
 // into a calendar's month view. All data lives in localCalendarService.
 
-import React, {useCallback, useEffect, useMemo, useState} from 'react';
+import React, {forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState} from 'react';
 import {
   View,
   Text,
@@ -34,6 +34,11 @@ interface Props {
   onClose?: () => void;
 }
 
+export interface LocalCalendarsScreenRef {
+  /** Re-fetches the list from storage. For callers that change it (e.g. joining a shared calendar) while this tab is already visible, so its own `visible`-prop reload effect won't re-fire on its own. */
+  reload: () => void;
+}
+
 const PALETTE = [
   '#FF2D55', '#FF9500', '#FFCC00', '#34C759', '#30B0C7',
   '#007AFF', '#5856D6', '#AF52DE', '#8E8E93',
@@ -43,7 +48,7 @@ const EMOJIS = [
   '🐾', '🌸', '💼', '⭐', '🍙', '🎬', '⚽', '🎵',
 ];
 
-const LocalCalendarsScreen: React.FC<Props> = ({visible, onClose}) => {
+const LocalCalendarsScreen = forwardRef<LocalCalendarsScreenRef, Props>(({visible, onClose}, ref) => {
   const {colors} = useTheme();
   const {t} = useTranslation();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -75,6 +80,8 @@ const LocalCalendarsScreen: React.FC<Props> = ({visible, onClose}) => {
   useEffect(() => {
     reload();
   }, [visible, reload]);
+
+  useImperativeHandle(ref, () => ({reload}), [reload]);
 
   const openCreate = () => {
     setEditingId(null);
@@ -265,7 +272,7 @@ const LocalCalendarsScreen: React.FC<Props> = ({visible, onClose}) => {
       </Modal>
     </View>
   );
-};
+});
 
 const makeStyles = (colors: ThemeColors) =>
   StyleSheet.create({
