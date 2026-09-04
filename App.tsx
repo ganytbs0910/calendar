@@ -52,6 +52,8 @@ import {TERMS_URL, PRIVACY_URL, openLegalLink} from './src/utils/legalLinks';
 import StatsScreen from './src/components/StatsScreen';
 import PhotosScreen from './src/components/PhotosScreen';
 import LocalCalendarsScreen, {LocalCalendarsScreenRef} from './src/components/localcal/LocalCalendarsScreen';
+import JoinShareScreen from './src/components/localcal/JoinShareScreen';
+import type {LocalCalendar} from './src/services/localCalendarService';
 import AgentScreen from './src/components/AgentScreen';
 import OneTimeHint from './src/components/OneTimeHint';
 import ScreenOverlay from './src/components/ScreenOverlay';
@@ -105,7 +107,7 @@ import {
 import {initWakeAlarmListeners, cleanupExpiredWakeAlarms} from './src/services/wakeAlarmService';
 import {maybeAskForReview, recordActiveDay} from './src/services/reviewPromptService';
 import {
-  codeFromUrl, fetchShareMeta, joinSharedCalendar, syncAllShared, getUnseenChangeCounts,
+  codeFromUrl, syncAllShared, getUnseenChangeCounts,
 } from './src/services/sharedCalendarService';
 import {clearDevSeedEvents, clearDevMaySeedEvents, clearDevJuneSeedEvents, seedDevJuneEventsIfNeeded, seedDevMayEventsIfNeeded, seedDevSummerEventsIfNeeded} from './src/services/devSeedData';
 import LockScreen, {PinSetupModal} from './src/components/LockScreen';
@@ -352,6 +354,8 @@ function AppContent() {
   const {colors, isDark, themeMode, setThemeMode, accentColor, setAccentColor} = useTheme();
   const {isPremium} = usePremium();
   const [showAddModal, setShowAddModal] = useState(false);
+  // Invite code currently being previewed/joined via JoinShareScreen; null hides it.
+  const [joinShareCode, setJoinShareCode] = useState<string | null>(null);
   const [selectedLanguage, setSelectedLanguage] = useState('auto');
   // These values all affect the vertical layout of the first screen. Keep the
   // launch cover up until they have settled so the user never sees each row
@@ -544,40 +548,21 @@ function AppContent() {
   /**
    * 招待リンクを開いたとき。参加は取り消しの利きにくい操作（相手の予定が
    * こちらに流れ込み、こちらの編集も相手に見える）なので、必ず何に参加するのか
-   * を見せてから聞く。
+   * を見せてから聞く — 実際の中身の表示・名乗りの入力・参加確定は
+   * JoinShareScreen 側の責務。ここはその画面を開くだけ。
    */
-  const handleJoinShare = useCallback(async (code: string) => {
-    try {
-      const meta = await fetchShareMeta(code);
-      if (!meta) {
-        Alert.alert(t('joinShareGoneTitle'), t('joinShareGoneBody'));
-        return;
-      }
-      const ok = await new Promise<boolean>(resolve => {
-        Alert.alert(
-          t('joinShareTitle'),
-          t('joinShareBody', {emoji: meta.emoji, name: meta.name, count: meta.events}),
-          [
-            {text: t('cancel'), style: 'cancel', onPress: () => resolve(false)},
-            {text: t('joinShareAction'), onPress: () => resolve(true)},
-          ],
-        );
-      });
-      if (!ok) return;
-      const cal = await joinSharedCalendar(code);
-      if (!cal) {
-        Alert.alert(t('joinShareGoneTitle'), t('joinShareGoneBody'));
-        return;
-      }
-      Alert.alert(t('joinShareDoneTitle'), t('joinShareDoneBody', {name: cal.name}));
-      // setActiveTab('share') alone is a no-op (and re-fetches nothing) when
-      // the user is already on that tab — reload it directly so the newly
-      // joined calendar shows up without having to switch tabs and back.
-      localCalendarsRef.current?.reload();
-      setActiveTab('share');
-    } catch {
-      Alert.alert(t('joinShareGoneTitle'), t('joinShareGoneBody'));
-    }
+  const handleJoinShare = useCallback((code: string) => {
+    setJoinShareCode(code);
+  }, []);
+
+  const handleShareJoined = useCallback((cal: LocalCalendar) => {
+    setJoinShareCode(null);
+    Alert.alert(t('joinShareDoneTitle'), t('joinShareDoneBody', {name: cal.name}));
+    // setActiveTab('share') alone is a no-op (and re-fetches nothing) when
+    // the user is already on that tab — reload it directly so the newly
+    // joined calendar shows up without having to switch tabs and back.
+    localCalendarsRef.current?.reload();
+    setActiveTab('share');
   }, [t]);
 
   const launchUrlHandled = useRef(false);
@@ -1997,6 +1982,12 @@ function AppContent() {
             <EventHistoryList onPick={handleUseHistoryEntry} refreshKey={showHistoryScreen ? 1 : 0} />
           </SafeAreaView>
         </Modal>
+
+        <JoinShareScreen
+          code={joinShareCode}
+          onClose={() => setJoinShareCode(null)}
+          onJoined={handleShareJoined}
+        />
 
         {/* Search Modal */}
         <Modal

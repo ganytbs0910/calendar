@@ -520,11 +520,20 @@ export const setSharedMemberRole = async (
 export const createShare = async (cal: LocalCalendar): Promise<string> =>
   rpc('calendar_share_create', {p_name: cal.name, p_color: cal.color, p_emoji: cal.emoji});
 
+export interface ShareMetaMember {
+  name: string;
+  emoji: string;
+  color: string;
+}
+
 /** 参加前に「何に参加しようとしているか」を見せるため。予定の中身は来ない。 */
 export const fetchShareMeta = async (
   code: string,
-): Promise<{name: string; color: string; emoji: string; events: number} | null> =>
-  (await rpc('calendar_share_meta', {p_code: code})) ?? null;
+): Promise<{name: string; color: string; emoji: string; events: number; members: number; memberPreview: ShareMetaMember[]} | null> => {
+  const raw = await rpc('calendar_share_meta', {p_code: code});
+  if (!raw) return null;
+  return {...raw, memberPreview: raw.memberPreview ?? []};
+};
 
 const toRemoteMember = (me: Me | null) =>
   me ? {id: me.id, name: me.name, emoji: me.emoji, color: me.color, secret: me.secret, updatedAt: me.updatedAt} : null;
@@ -778,9 +787,19 @@ export const shareLocalCalendar = async (cal: LocalCalendar): Promise<string> =>
  * 招待リンクから参加する。端末ごとにローカルの id は別で構わない
  * （サーバ側はコードで束ねていて、予定は自分の id を持って回る）。
  */
-export const joinSharedCalendar = async (code: string): Promise<LocalCalendar | null> => {
+export const joinSharedCalendar = async (
+  code: string,
+  profile?: {name: string; color: string},
+): Promise<LocalCalendar | null> => {
   const meta = await fetchShareMeta(code);
   if (!meta) return null;
+  // 名乗りを先に決めてから最初の同期に載せる — 決めずに参加すると仮の
+  // 「名前未設定」で相手の一覧に出てしまい、後から自分で名乗り直す
+  // 手間が要る(joinShareScreen が導入される前の挙動)。
+  if (profile) {
+    await setMyName(profile.name, '', false);
+    await setMyColor(profile.color);
+  }
   const cal = await addLocalCalendar(meta.name, meta.color, meta.emoji);
   await setShareCode(cal.id, code);
   await syncSharedCalendar(cal.id, io(cal.id));
