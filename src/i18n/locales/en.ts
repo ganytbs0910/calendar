@@ -247,6 +247,13 @@ export default {
   noEventHistory: 'No history yet',
   eventHistoryHint: 'Past events you create will appear here.',
   eventHistoryUseCount: '×{{count}}',
+  notificationHistory: 'Notifications',
+  noNotificationHistory: 'No notifications yet',
+  notificationHistoryHint: "You'll see updates here when someone adds, changes, or deletes an event in a shared calendar.",
+  justNow: 'Just now',
+  minutesAgo: '{{count}}m ago',
+  hoursAgo: '{{count}}h ago',
+  daysAgo: '{{count}}d ago',
   deleteHistoryEntry: 'Remove from history',
   deleteHistoryEntryConfirm: 'Remove "{{title}}" from history?',
 

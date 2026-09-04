@@ -92,6 +92,8 @@ import {
 import {EventTemplate, getTemplates, deleteTemplate} from './src/services/templateService';
 import {EventHistoryEntry} from './src/services/eventHistoryService';
 import EventHistoryList from './src/components/EventHistoryList';
+import NotificationHistoryList from './src/components/NotificationHistoryList';
+import {getUnreadNotificationCount, markAllNotificationsRead} from './src/services/notificationHistoryService';
 import {
   cancelEventNotification,
   isNotificationsEnabled,
@@ -394,6 +396,12 @@ function AppContent() {
   const openPoll = useCallback(() => setShowPoll(true), []);
   const openSettingsModal = useCallback(() => setShowSettingsModal(true), []);
   const openSettingsScreen = useCallback(() => setShowSettingsScreen(true), []);
+  // Opening the list is what "seeing" the notifications means — clear the
+  // badge right away rather than waiting for the modal to close.
+  const openNotificationHistory = useCallback(() => {
+    setShowNotificationHistory(true);
+    markAllNotificationsRead().then(() => setUnreadNotificationCount(0)).catch(() => {});
+  }, []);
   const closeSettingsScreen = useCallback(() => setShowSettingsScreen(false), []);
   const openPhotos = useCallback(() => setShowPhotos(true), []);
   const closePhotos = useCallback(() => setShowPhotos(false), []);
@@ -423,6 +431,8 @@ function AppContent() {
   const [templates, setTemplates] = useState<EventTemplate[]>([]);
   const [templateTab, setTemplateTab] = useState<'template' | 'history'>('template');
   const [showHistoryScreen, setShowHistoryScreen] = useState(false);
+  const [showNotificationHistory, setShowNotificationHistory] = useState(false);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const [notificationsOn, setNotificationsOn] = useState(true);
   const [notificationSound, setNotificationSound] = useState(true);
   const [undoAction, setUndoAction] = useState<UndoAction | null>(null);
@@ -598,13 +608,17 @@ function AppContent() {
 
   // 前面に戻ったら共有ぶんを取りに行く。相手の編集が「開き直したら入っている」
   // ようにするための最低限。常時接続は持たない。
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', state => {
-      if (state === 'active') syncAllShared().catch(() => {});
-    });
-    syncAllShared().catch(() => {});
-    return () => sub.remove();
+  const refreshUnreadNotificationCount = useCallback(() => {
+    getUnreadNotificationCount().then(setUnreadNotificationCount).catch(() => {});
   }, []);
+  useEffect(() => {
+    const syncAndRefresh = () => syncAllShared().then(refreshUnreadNotificationCount).catch(() => {});
+    const sub = AppState.addEventListener('change', state => {
+      if (state === 'active') syncAndRefresh();
+    });
+    syncAndRefresh();
+    return () => sub.remove();
+  }, [refreshUnreadNotificationCount]);
 
   const openCalendarCreate = useCallback(() => {
     setEditingCalendarId(null);
@@ -1734,6 +1748,21 @@ function AppContent() {
             <TouchableOpacity
               style={styles.iconBtn}
               hitSlop={ICON_HIT_SLOP}
+              onPress={openNotificationHistory}
+              accessibilityLabel={t('notificationHistory')}
+              accessibilityRole="button">
+              <Ionicons name="notifications-outline" size={20} color={colors.primary} />
+              {unreadNotificationCount > 0 && (
+                <View style={[styles.notifBadge, {backgroundColor: colors.error}]}>
+                  <Text style={styles.notifBadgeText}>
+                    {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.iconBtn}
+              hitSlop={ICON_HIT_SLOP}
               onPress={openSettingsScreen}
               accessibilityLabel={t('settings')}
               accessibilityRole="button">
@@ -1979,6 +2008,24 @@ function AppContent() {
               <View style={{width: 80}} />
             </View>
             <EventHistoryList onPick={handleUseHistoryEntry} refreshKey={showHistoryScreen ? 1 : 0} />
+          </SafeAreaView>
+        </Modal>
+
+        {/* Notification History Modal (bell icon) */}
+        <Modal
+          visible={showNotificationHistory}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={() => setShowNotificationHistory(false)}>
+          <SafeAreaView style={[styles.searchModalContainer, {backgroundColor: colors.background}]}>
+            <View style={[styles.searchHeader, {borderBottomColor: colors.border}]}>
+              <TouchableOpacity onPress={() => setShowNotificationHistory(false)}>
+                <Text style={[styles.searchCancelBtn, {color: colors.primary}]}>{t('close')}</Text>
+              </TouchableOpacity>
+              <Text style={[styles.searchTitle, {color: colors.text}]}>{t('notificationHistory')}</Text>
+              <View style={{width: 80}} />
+            </View>
+            <NotificationHistoryList refreshKey={showNotificationHistory ? 1 : 0} />
           </SafeAreaView>
         </Modal>
 
@@ -2992,6 +3039,22 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  notifBadge: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 3,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  notifBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '700',
   },
   moreMenuOverlay: {
     flex: 1,

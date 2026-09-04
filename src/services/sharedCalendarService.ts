@@ -667,7 +667,7 @@ export const syncSharedCalendar = async (
       await addUnseenChanges(calendarId, added + updated + deleted);
       const muted = await isSharedCalendarMuted(calendarId);
       if (!muted) {
-        displaySharedCalendarChangeNotification(cal.name, {added, updated, deleted}).catch(() => {});
+        displaySharedCalendarChangeNotification(cal.name, {added, updated, deleted}, calendarId).catch(() => {});
       }
     }
   }

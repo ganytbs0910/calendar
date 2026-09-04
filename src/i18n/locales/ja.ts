@@ -261,6 +261,13 @@ export default {
   noEventHistory: '履歴がありません',
   eventHistoryHint: '予定を追加すると、ここに履歴が残ります',
   eventHistoryUseCount: '{{count}}回',
+  notificationHistory: '通知',
+  noNotificationHistory: 'まだ通知はありません',
+  notificationHistoryHint: '共有カレンダーで誰かが予定を追加・変更・削除すると、ここに届きます',
+  justNow: 'たった今',
+  minutesAgo: '{{count}}分前',
+  hoursAgo: '{{count}}時間前',
+  daysAgo: '{{count}}日前',
   deleteHistoryEntry: '履歴を削除',
   deleteHistoryEntryConfirm: '「{{title}}」を履歴から削除しますか？',
 
