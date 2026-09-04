@@ -17,6 +17,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import i18n from '../i18n/i18n';
 import {displaySharedCalendarChangeNotification} from './notificationService';
+import {addNotificationHistoryEntry} from './notificationHistoryService';
 
 import {LocalCalendar, LocalEvent} from './localCalendarService';
 
@@ -578,6 +579,34 @@ export const codeFromUrl = (url: string): string | null => {
   return m ? m[1].toLowerCase() : null;
 };
 
+/**
+ * 通知履歴の1行分。「変更されました」だけでは何が変わったか分からず、
+ * わざわざカレンダーを開いて探し直す羽目になるので、予定名と日時まで
+ * その場で分かるようにする。
+ */
+const formatChangeHistoryEntry = (
+  type: 'added' | 'updated' | 'deleted',
+  event: LocalEvent,
+): {title: string; body: string} => {
+  const typeLabel = i18n.t(`notifChangeType_${type}`, {
+    defaultValue: type === 'added' ? '追加' : type === 'updated' ? '変更' : '削除',
+  });
+  const d = new Date(`${event.startDate}T00:00:00`);
+  const weekdays = i18n.t('weekdaysSingle', {returnObjects: true}) as string[];
+  const when = Number.isNaN(d.getTime())
+    ? event.startDate
+    : i18n.t('dateDayOfWeek', {month: d.getMonth() + 1, day: d.getDate(), weekday: weekdays[d.getDay()]});
+  let timePart = '';
+  if (event.allDay) {
+    timePart = ` ${i18n.t('allDay', {defaultValue: '終日'})}`;
+  } else if (event.startTime) {
+    timePart = event.endTime
+      ? ` ${i18n.t('notifTimeRange', {start: event.startTime, end: event.endTime})}`
+      : ` ${event.startTime}`;
+  }
+  return {title: event.title, body: `${typeLabel} · ${when}${timePart}`};
+};
+
 // ── 同期 ────────────────────────────────────────────────────────────────────
 
 /**
@@ -650,24 +679,30 @@ export const syncSharedCalendar = async (
   if (since) {
     const priorById = new Map(events.map(e => [e.id, e]));
     let added = 0, updated = 0, deleted = 0;
+    const changeEntries: Array<{type: 'added' | 'updated' | 'deleted'; event: LocalEvent}> = [];
     for (const r of remoteEvents) {
       if (r.creatorId && r.creatorId === me.id) continue;
       const prior = priorById.get(r.id);
       if (!prior || Date.parse(r.updatedAt) > Date.parse(prior.updatedAt)) {
-        if (r.deleted) { if (prior && !prior.deleted) deleted += 1; }
-        else if (!prior) added += 1;
-        else updated += 1;
+        if (r.deleted) { if (prior && !prior.deleted) { deleted += 1; changeEntries.push({type: 'deleted', event: r}); } }
+        else if (!prior) { added += 1; changeEntries.push({type: 'added', event: r}); }
+        else { updated += 1; changeEntries.push({type: 'updated', event: r}); }
       }
     }
     changedByOthers = {added, updated, deleted};
     if (added || updated || deleted) {
-      // The list-screen badge is a passive "you haven't looked at this yet"
-      // signal, independent of the push-notification mute — muting pings
-      // shouldn't also hide that something happened.
+      // The list-screen badge and the notification-history log are both
+      // passive "you haven't looked at this yet" records, independent of
+      // the push-notification mute — muting pings shouldn't also hide that
+      // something happened or erase the log of what it was.
       await addUnseenChanges(calendarId, added + updated + deleted);
+      for (const {type, event} of changeEntries) {
+        const {title, body} = formatChangeHistoryEntry(type, event);
+        addNotificationHistoryEntry({title, body, calendarId}).catch(() => {});
+      }
       const muted = await isSharedCalendarMuted(calendarId);
       if (!muted) {
-        displaySharedCalendarChangeNotification(cal.name, {added, updated, deleted}, calendarId).catch(() => {});
+        displaySharedCalendarChangeNotification(cal.name, {added, updated, deleted}).catch(() => {});
       }
     }
   }

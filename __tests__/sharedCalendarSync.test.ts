@@ -12,6 +12,7 @@ import {
   getMembers, setMyName, sortMembers, fromRemoteMember,
   markSharedEventDirty,
 } from '../src/services/sharedCalendarService';
+import {getNotificationHistory} from '../src/services/notificationHistoryService';
 import type {LocalCalendar, LocalEvent} from '../src/services/localCalendarService';
 
 const CAL: LocalCalendar = {
@@ -111,6 +112,31 @@ describe('共有カレンダーの一往復', () => {
     const {state, io} = deps(CAL, [ev('a', 'A', '2030-01-10T00:00:00.000Z')]);
     await syncSharedCalendar('lc-1', io);
     expect(state.events[0].deleted).toBe(true);
+  });
+
+  it('相手の変更を、日時と件名がわかる通知履歴として書く', async () => {
+    // 1回目でカーソルを確立(初回同期は「誰かが変更した」の対象外)。
+    reply({calendar: null, events: [], now: '2030-01-01T00:00:00.000Z'});
+    await syncSharedCalendar('lc-1', deps(CAL, []).io);
+
+    // 2回目: 相手が時間指定の予定を追加。
+    reply({
+      calendar: null,
+      events: [{
+        id: 'e1', title: 'サークル飲み会', start_date: '2030-01-20', end_date: '2030-01-20',
+        all_day: false, start_time: '18:00', end_time: '20:00', memo: null,
+        updated_at: '2030-01-15T00:00:00.000Z', deleted: false,
+      }],
+      now: '2030-01-16T00:00:00.000Z',
+    });
+    await syncSharedCalendar('lc-1', deps(CAL, []).io);
+
+    const history = await getNotificationHistory();
+    expect(history.length).toBe(1);
+    expect(history[0].calendarId).toBe('lc-1');
+    expect(history[0].title).toBe('サークル飲み会');
+    expect(history[0].body).toContain('18:00');
+    expect(history[0].body).toContain('20:00');
   });
 
   it('カーソルは端末の時計ではなくサーバが返した時刻を使う', async () => {

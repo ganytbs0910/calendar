@@ -268,6 +268,10 @@ export default {
   minutesAgo: '{{count}}分前',
   hoursAgo: '{{count}}時間前',
   daysAgo: '{{count}}日前',
+  notifChangeType_added: '追加',
+  notifChangeType_updated: '変更',
+  notifChangeType_deleted: '削除',
+  notifTimeRange: '{{start}}〜{{end}}',
   deleteHistoryEntry: '履歴を削除',
   deleteHistoryEntryConfirm: '「{{title}}」を履歴から削除しますか？',
 

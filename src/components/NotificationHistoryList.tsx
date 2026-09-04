@@ -9,6 +9,8 @@ import {
 
 interface NotificationHistoryListProps {
   refreshKey?: number;
+  /** Restrict to one calendar's notifications — omit to show every calendar's. */
+  calendarId?: string;
 }
 
 const relativeTime = (iso: string, t: (k: string, opts?: any) => string): string => {
@@ -25,7 +27,7 @@ const relativeTime = (iso: string, t: (k: string, opts?: any) => string): string
   return `${d.getMonth() + 1}/${d.getDate()}`;
 };
 
-export const NotificationHistoryList: React.FC<NotificationHistoryListProps> = ({refreshKey}) => {
+export const NotificationHistoryList: React.FC<NotificationHistoryListProps> = ({refreshKey, calendarId}) => {
   const {t} = useTranslation();
   const {colors} = useTheme();
   const [entries, setEntries] = useState<NotificationHistoryEntry[]>([]);
@@ -33,9 +35,9 @@ export const NotificationHistoryList: React.FC<NotificationHistoryListProps> = (
 
   const refresh = useCallback(async () => {
     const list = await getNotificationHistory();
-    setEntries(list);
+    setEntries(calendarId ? list.filter(e => e.calendarId === calendarId) : list);
     setLoaded(true);
-  }, []);
+  }, [calendarId]);
 
   useEffect(() => {
     refresh();

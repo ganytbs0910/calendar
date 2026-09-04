@@ -17,7 +17,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import i18n from '../i18n/i18n';
 import {WallImpact, wallLabel} from './incomeWallService';
-import {addNotificationHistoryEntry} from './notificationHistoryService';
 import notifee, {
   AndroidImportance,
   AuthorizationStatus,
@@ -364,28 +363,20 @@ export const displayWallImpactNotification = async (impact: WallImpact): Promise
 export const displaySharedCalendarChangeNotification = async (
   calendarName: string,
   counts: {added: number; updated: number; deleted: number},
-  calendarId?: string,
 ): Promise<void> => {
   const total = counts.added + counts.updated + counts.deleted;
   if (total <= 0) return;
+  const enabled = await isNotificationsEnabled();
+  if (!enabled) return;
 
   await ensureChannel();
+  const sound = await isSoundEnabled();
   const title = i18n.t('sharedChangeNotifTitle', {name: calendarName, defaultValue: `${calendarName}が更新されました`});
   const parts: string[] = [];
   if (counts.added) parts.push(i18n.t('sharedChangeAdded', {count: counts.added, defaultValue: `追加 ${counts.added}件`}));
   if (counts.updated) parts.push(i18n.t('sharedChangeUpdated', {count: counts.updated, defaultValue: `変更 ${counts.updated}件`}));
   if (counts.deleted) parts.push(i18n.t('sharedChangeDeleted', {count: counts.deleted, defaultValue: `削除 ${counts.deleted}件`}));
   const body = parts.join(' / ');
-
-  // The bell icon's history should show every change even if the OS banner
-  // is off (or the device already toggled notifications off), same as it
-  // would show up if you'd opened the calendar yourself — only the banner
-  // itself is gated by the notification toggle below.
-  addNotificationHistoryEntry({title, body, calendarId}).catch(() => {});
-
-  const enabled = await isNotificationsEnabled();
-  if (!enabled) return;
-  const sound = await isSoundEnabled();
 
   await notifee.displayNotification({
     title,

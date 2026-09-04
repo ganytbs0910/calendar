@@ -254,6 +254,10 @@ export default {
   minutesAgo: '{{count}}m ago',
   hoursAgo: '{{count}}h ago',
   daysAgo: '{{count}}d ago',
+  notifChangeType_added: 'Added',
+  notifChangeType_updated: 'Changed',
+  notifChangeType_deleted: 'Deleted',
+  notifTimeRange: '{{start}}–{{end}}',
   deleteHistoryEntry: 'Remove from history',
   deleteHistoryEntryConfirm: 'Remove "{{title}}" from history?',
 

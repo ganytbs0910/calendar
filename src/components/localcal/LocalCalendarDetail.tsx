@@ -3,7 +3,7 @@
 // only the on-device localCalendarService.
 
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {View, Text, StyleSheet, TouchableOpacity, TextInput, AppState} from 'react-native';
+import {View, Text, StyleSheet, TouchableOpacity, TextInput, AppState, Modal, SafeAreaView} from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {useTranslation} from 'react-i18next';
 import {useTheme} from '../../theme/ThemeContext';
@@ -13,6 +13,7 @@ import {LocalCalendar, LocalEvent, getLocalEvents, saveLocalEvent, deleteLocalEv
 import Calendar, {CalendarRef} from '../Calendar';
 import AddEventModal from '../AddEventModal';
 import EventDetailModal from '../EventDetailModal';
+import NotificationHistoryList from '../NotificationHistoryList';
 import {CalendarEventStore, CalendarEventDraft} from '../../types/calendarEventStore';
 import ShareMembersModal from './ShareMembersModal';
 import CalendarSwitcherModal from './CalendarSwitcherModal';
@@ -60,6 +61,7 @@ const LocalCalendarDetail: React.FC<Props> = ({calendar, onBack, calendars = [],
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [notificationHistoryOpen, setNotificationHistoryOpen] = useState(false);
   const [members, setMembers] = useState<ShareMember[]>([]);
   const [myMemberId, setMyMemberId] = useState<string | undefined>();
   // Set whenever a sync (initial open, poll, or realtime-triggered) pulls in
@@ -287,6 +289,15 @@ const LocalCalendarDetail: React.FC<Props> = ({calendar, onBack, calendars = [],
             accessibilityLabel={t('sharedNewChangesLabel', {defaultValue: '新着の変更があります'})}
           />
         )}
+        {shared && (
+          <TouchableOpacity
+            onPress={() => setNotificationHistoryOpen(true)}
+            style={styles.iconBtn}
+            accessibilityRole="button"
+            accessibilityLabel={t('notificationHistory')}>
+            <Ionicons name="notifications-outline" size={20} color={colors.textSecondary} />
+          </TouchableOpacity>
+        )}
         <TouchableOpacity
           onPress={() => {setSearchOpen(v => !v); if (searchOpen) setSearchQuery('');}}
           style={styles.iconBtn}
@@ -346,6 +357,23 @@ const LocalCalendarDetail: React.FC<Props> = ({calendar, onBack, calendars = [],
         onLeft={onBack}
       />
 
+      <Modal
+        visible={notificationHistoryOpen}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setNotificationHistoryOpen(false)}>
+        <SafeAreaView style={[styles.container, {backgroundColor: colors.background}]}>
+          <View style={[styles.header, {justifyContent: 'space-between'}]}>
+            <TouchableOpacity onPress={() => setNotificationHistoryOpen(false)}>
+              <Text style={styles.notifModalClose}>{t('close')}</Text>
+            </TouchableOpacity>
+            <Text style={styles.title}>{t('notificationHistory')}</Text>
+            <View style={{width: 44}} />
+          </View>
+          <NotificationHistoryList calendarId={calendar.id} refreshKey={notificationHistoryOpen ? 1 : 0} />
+        </SafeAreaView>
+      </Modal>
+
       {onSwitchCalendar && (
         <CalendarSwitcherModal
           visible={switcherOpen}
@@ -392,6 +420,7 @@ const makeStyles = (colors: ThemeColors) =>
     },
     backBtn: {width: 44, height: 32, justifyContent: 'center'},
     iconBtn: {width: 36, height: 32, alignItems: 'center', justifyContent: 'center'},
+    notifModalClose: {width: 44, fontSize: 15, color: colors.primary},
     // The invite/share button used to reuse backBtn, whose icon sits flush
     // to the box's left edge (fine for the back chevron flush against the
     // screen edge, but it crowded this button right up against the search
