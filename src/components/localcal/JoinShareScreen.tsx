@@ -111,7 +111,7 @@ const JoinShareScreen: React.FC<Props> = ({code, onClose, onJoined}) => {
       <View style={styles.overlay}>
         <View style={styles.sheet}>
           <View style={styles.header}>
-            <TouchableOpacity onPress={onClose} style={styles.headerBtn}>
+            <TouchableOpacity onPress={onClose} style={styles.headerBtn} accessibilityRole="button" accessibilityLabel={t('cancel')}>
               <Text style={styles.close}>{t('cancel')}</Text>
             </TouchableOpacity>
             <Text style={styles.title} numberOfLines={1}>{t('joinScreenTitle')}</Text>
@@ -171,7 +171,9 @@ const JoinShareScreen: React.FC<Props> = ({code, onClose, onJoined}) => {
                   <TouchableOpacity
                     key={c}
                     onPress={() => setColor(c)}
-                    style={[styles.colorSwatch, {backgroundColor: c}, color === c && styles.colorSwatchActive]}>
+                    style={[styles.colorSwatch, {backgroundColor: c}, color === c && styles.colorSwatchActive]}
+                    accessibilityRole="button"
+                    accessibilityState={{selected: color === c}}>
                     {color === c && <Ionicons name="checkmark" size={16} color="#fff" />}
                   </TouchableOpacity>
                 ))}
@@ -180,7 +182,9 @@ const JoinShareScreen: React.FC<Props> = ({code, onClose, onJoined}) => {
               <TouchableOpacity
                 style={[styles.joinBtn, {backgroundColor: colors.primary}, (joining || !name.trim()) && styles.joinBtnDisabled]}
                 onPress={handleJoin}
-                disabled={joining || !name.trim()}>
+                disabled={joining || !name.trim()}
+                accessibilityRole="button"
+                accessibilityLabel={t('joinShareAction')}>
                 {joining ? <ActivityIndicator color="#fff" /> : <Text style={styles.joinBtnText}>{t('joinShareAction')}</Text>}
               </TouchableOpacity>
             </ScrollView>

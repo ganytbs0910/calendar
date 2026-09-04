@@ -49,6 +49,18 @@ const formatDuration = (
   return t('minutesFmt', {m});
 };
 
+/**
+ * The monthly-summary header needs a short single-line number (unlike
+ * formatDuration's "13時間30分", which used to disagree with this card's own
+ * Math.round(minutes/60) — same data, two different numbers on one screen).
+ * One decimal place stays accurate without risking the wrap/overflow this
+ * compact 3-column row hits with longer strings.
+ */
+const formatHoursCompact = (
+  minutes: number,
+  t: (k: string, opts?: any) => string,
+): string => t('hoursFmt', {h: Math.round((minutes / 60) * 10) / 10});
+
 const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate, embedded = false, hideIncomeWall = false, onlyIncomeWall = false}) => {
   const {t} = useTranslation();
   const {colors, isDark} = useTheme();
@@ -232,7 +244,7 @@ const StatsScreen: React.FC<StatsScreenProps> = ({visible, onClose, initialDate,
                 </View>
                 <View style={styles.summaryCell}>
                   <Text style={styles.summaryNumber}>
-                    {Math.round(bundle.monthly.totalMinutes / 60)}
+                    {formatHoursCompact(bundle.monthly.totalMinutes, t)}
                   </Text>
                   <Text style={styles.summaryLabel}>{t('statsTotalHours')}</Text>
                 </View>
