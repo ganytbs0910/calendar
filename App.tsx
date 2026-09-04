@@ -1981,13 +1981,12 @@ function AppContent() {
         <Modal
           visible={showSearchModal}
           animationType="slide"
-          presentationStyle="pageSheet"
           onRequestClose={() => {
             setShowSearchModal(false);
             setSearchQuery('');
             setSearchResults([]);
           }}>
-          <View style={styles.searchModalContainer}>
+          <View style={[styles.searchModalContainer, {paddingTop: insets.top, paddingBottom: insets.bottom}]}>
             <View style={styles.searchHeader}>
               <TouchableOpacity
                 onPress={() => {
