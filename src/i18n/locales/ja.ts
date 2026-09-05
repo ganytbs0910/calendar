@@ -453,6 +453,7 @@ export default {
   nlEventError: '日時を読み取れませんでした',
   next: '次へ',
   fullscreenToggle: '全画面モード',
+  moreOptions: 'その他のオプション',
   // User calendars
   calAll: 'すべて',
   calCreateTitle: 'カレンダーを追加',

@@ -424,6 +424,9 @@ function AppContent() {
   const [showSleepSetup, setShowSleepSetup] = useState(false);
   const [sleepSettings, setSleepSettings] = useState<SleepSettings | null>(null);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
+  // Month header's "…" menu — holds the fullscreen and bulk-delete toggles,
+  // which used to be two separate always-visible icons.
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [templates, setTemplates] = useState<EventTemplate[]>([]);
   const [templateTab, setTemplateTab] = useState<'template' | 'history'>('template');
   const [showHistoryScreen, setShowHistoryScreen] = useState(false);
@@ -1700,26 +1703,11 @@ function AppContent() {
             {viewMode === 'month' && (
               <TouchableOpacity
                 style={styles.iconBtn}
-              hitSlop={ICON_HIT_SLOP}
-                onPress={() => setFullscreenMonth(prev => !prev)}
-                accessibilityLabel={t('fullscreenToggle')}
+                hitSlop={ICON_HIT_SLOP}
+                onPress={() => setShowMoreMenu(true)}
+                accessibilityLabel={t('moreOptions')}
                 accessibilityRole="button">
-                <Ionicons name={fullscreenMonth ? 'contract-outline' : 'expand-outline'} size={20} color={colors.primary} />
-              </TouchableOpacity>
-            )}
-            {viewMode === 'month' && (
-              <TouchableOpacity
-                style={styles.iconBtn}
-              hitSlop={ICON_HIT_SLOP}
-                onPress={() => (selectionMode ? exitSelectionMode() : enterSelectionMode())}
-                accessibilityLabel={t('bulkDeleteMode')}
-                accessibilityRole="button"
-                accessibilityState={{selected: selectionMode}}>
-                <Ionicons
-                  name={selectionMode ? 'checkmark-circle' : 'checkmark-circle-outline'}
-                  size={20}
-                  color={colors.primary}
-                />
+                <Ionicons name="ellipsis-horizontal" size={20} color={colors.primary} />
               </TouchableOpacity>
             )}
           </View>
@@ -1758,6 +1746,43 @@ function AppContent() {
             </TouchableOpacity>
           </View>
         </View>
+
+        <Modal visible={showMoreMenu} transparent animationType="fade" onRequestClose={() => setShowMoreMenu(false)}>
+          <TouchableOpacity
+            style={[styles.moreMenuOverlay, {paddingTop: insets.top + 52}]}
+            activeOpacity={1}
+            onPress={() => setShowMoreMenu(false)}>
+            <View style={[styles.moreMenuCard, {backgroundColor: colors.surface, borderColor: colors.border}]}>
+              <TouchableOpacity
+                style={styles.moreMenuItem}
+                onPress={() => {
+                  setShowMoreMenu(false);
+                  setFullscreenMonth(prev => !prev);
+                }}
+                accessibilityRole="button"
+                accessibilityState={{selected: fullscreenMonth}}>
+                <Ionicons name={fullscreenMonth ? 'contract-outline' : 'expand-outline'} size={20} color={colors.text} />
+                <Text style={[styles.moreMenuText, {color: colors.text}]}>{t('fullscreenToggle')}</Text>
+              </TouchableOpacity>
+              <View style={[styles.moreMenuDivider, {backgroundColor: colors.border}]} />
+              <TouchableOpacity
+                style={styles.moreMenuItem}
+                onPress={() => {
+                  setShowMoreMenu(false);
+                  selectionMode ? exitSelectionMode() : enterSelectionMode();
+                }}
+                accessibilityRole="button"
+                accessibilityState={{selected: selectionMode}}>
+                <Ionicons
+                  name={selectionMode ? 'checkmark-circle' : 'checkmark-circle-outline'}
+                  size={20}
+                  color={colors.text}
+                />
+                <Text style={[styles.moreMenuText, {color: colors.text}]}>{t('bulkDeleteMode')}</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </Modal>
 
         {permissionReady && !hasPermission && (
           <TouchableOpacity
@@ -3056,7 +3081,6 @@ const styles = StyleSheet.create({
   },
   moreMenuOverlay: {
     flex: 1,
-    paddingTop: 96,
     paddingHorizontal: 12,
     alignItems: 'flex-start',
   },
@@ -3081,6 +3105,10 @@ const styles = StyleSheet.create({
   moreMenuText: {
     fontSize: 15,
     fontWeight: '500',
+  },
+  moreMenuDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginHorizontal: 12,
   },
   calTabsContainer: {
     borderBottomWidth: 0.5,

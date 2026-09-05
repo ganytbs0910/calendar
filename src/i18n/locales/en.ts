@@ -432,6 +432,7 @@ export default {
   nlEventError: 'Could not parse a date/time',
   next: 'Next',
   fullscreenToggle: 'Fullscreen mode',
+  moreOptions: 'More options',
   // User calendars
   calAll: 'All',
   calCreateTitle: 'Add calendar',
