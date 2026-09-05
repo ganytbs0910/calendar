@@ -66,7 +66,6 @@ interface WeekViewProps {
   hasPermission?: boolean;
   sleepSettings?: SleepSettings | null;
   onOpenSleepSettings?: () => void;
-  onJumpToToday?: () => void;
   /** When set, only events whose resolved color matches are rendered. */
   filterColor?: string | null;
   /** Bubbled up from the あとでやる sheet's own add/toggle/delete/edit — see
@@ -97,7 +96,6 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
   hasPermission,
   sleepSettings,
   onOpenSleepSettings,
-  onJumpToToday,
   filterColor,
   onTasksChanged,
 }, ref) => {
@@ -582,17 +580,11 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
     <View style={[styles.container, {backgroundColor: colors.background}]}>
       {/* Fixed header row: corner + horizontal list of day headers */}
       <View style={[styles.header, {backgroundColor: colors.surface, borderBottomColor: colors.border}]}>
-        <TouchableOpacity
-          style={styles.timeCorner}
-          activeOpacity={0.6}
-          onPress={onJumpToToday}>
-          <Text style={[styles.monthLabel, {color: onJumpToToday ? colors.primary : colors.textSecondary}]}>
+        <View style={styles.timeCorner}>
+          <Text style={[styles.monthLabel, {color: colors.textSecondary}]}>
             {monthLabel}
           </Text>
-          {onJumpToToday && (
-            <Text style={[styles.jumpTodayHint, {color: colors.primary}]}>{t('today')}</Text>
-          )}
-        </TouchableOpacity>
+        </View>
         <FlatList
           ref={headerListRef}
           style={{width: screenWidth - TIME_LABEL_WIDTH, height: HEADER_ROW_HEIGHT}}
@@ -1311,11 +1303,6 @@ const styles = StyleSheet.create({
   monthLabel: {
     fontSize: 10,
     fontWeight: '600',
-  },
-  jumpTodayHint: {
-    fontSize: 9,
-    fontWeight: '700',
-    marginTop: 1,
   },
   headerDay: {
     alignItems: 'center',

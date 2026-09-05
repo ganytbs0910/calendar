@@ -1828,7 +1828,6 @@ function AppContent() {
             hasPermission={hasPermission}
             sleepSettings={sleepSettings}
             onOpenSleepSettings={openSleepSettings}
-            onJumpToToday={goToToday}
             filterColor={userCalendars.find(c => c.id === selectedCalendarId)?.color ?? null}
             onTasksChanged={refreshTaskViews}
           />
