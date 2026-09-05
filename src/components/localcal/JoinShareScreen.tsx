@@ -130,8 +130,9 @@ const JoinShareScreen: React.FC<Props> = ({code, onClose, onJoined}) => {
           ) : (
             <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
               <View style={styles.calCard}>
-                <View style={[styles.calDot, {backgroundColor: meta.color}]} />
-                <Text style={styles.calEmoji}>{meta.emoji}</Text>
+                <View style={[styles.calBadge, {backgroundColor: meta.color}]}>
+                  <Ionicons name="people" size={20} color="#fff" />
+                </View>
                 <View style={styles.calMain}>
                   <Text style={styles.calName} numberOfLines={1}>{meta.name}</Text>
                   <Text style={styles.calSub}>{t('joinScreenEventCount', {count: meta.events})}</Text>
@@ -228,8 +229,11 @@ const makeStyles = (colors: ThemeColors) =>
       borderRadius: 12,
       padding: 14,
     },
-    calDot: {width: 10, height: 10, borderRadius: 5},
-    calEmoji: {fontSize: 24},
+    // A plain colored badge instead of the calendar's own emoji — this
+    // screen is always about a shared calendar, so "shared" itself (people
+    // icon) is a more useful signal here than whichever emoji its owner
+    // happened to pick when creating it.
+    calBadge: {width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center'},
     calMain: {flex: 1},
     calName: {fontSize: 17, fontWeight: '700', color: colors.text},
     calSub: {fontSize: 12, color: colors.textTertiary, marginTop: 2},

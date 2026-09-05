@@ -277,7 +277,13 @@ const LocalCalendarDetail: React.FC<Props> = ({calendar, onBack, calendars = [],
           style={styles.titleWrap}
           onPress={onSwitchCalendar ? () => setSwitcherOpen(true) : undefined}
           accessibilityRole="button">
-          <Text style={styles.emoji}>{calendar.emoji}</Text>
+          {shared ? (
+            <View style={[styles.calBadge, {backgroundColor: calendar.color}]}>
+              <Ionicons name="people" size={12} color="#fff" />
+            </View>
+          ) : (
+            <Text style={styles.emoji}>{calendar.emoji}</Text>
+          )}
           <Text style={styles.title} numberOfLines={1}>{calendar.name}</Text>
           {!!onSwitchCalendar && <Ionicons name="chevron-down" size={14} color={colors.textTertiary} />}
         </TouchableOpacity>
@@ -429,6 +435,10 @@ const makeStyles = (colors: ThemeColors) =>
     titleWrap: {flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6},
     newDot: {width: 9, height: 9, borderRadius: 4.5, backgroundColor: colors.error, marginRight: 2},
     emoji: {fontSize: 18},
+    // Shown instead of the emoji once this calendar is shared — a plain
+    // colored badge reads as "this is a shared calendar" at a glance,
+    // rather than whichever emoji happened to be picked at creation.
+    calBadge: {width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center'},
     title: {fontSize: 17, fontWeight: '600', color: colors.text, maxWidth: '70%'},
     searchBar: {
       flexDirection: 'row', alignItems: 'center', gap: 8,
