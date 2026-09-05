@@ -383,6 +383,7 @@ export default {
 
   // Navigation
   goToToday: '今日に移動',
+  openMonthPicker: '年月を選択',
   searchEventsLabel: '予定を検索',
   settingsLabel: '設定',
   toggleView: '表示切替',

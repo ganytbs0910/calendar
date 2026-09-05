@@ -365,6 +365,7 @@ export default {
   noPurchaseFound: 'No previous purchase found',
 
   goToToday: 'Go to today',
+  openMonthPicker: 'Choose year and month',
   searchEventsLabel: 'Search events',
   settingsLabel: 'Settings',
   toggleView: 'Toggle view',

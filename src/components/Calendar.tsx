@@ -380,6 +380,16 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
   const currentYear = currentDate.getFullYear();
   const currentMonth = currentDate.getMonth();
 
+  // Year/month picker opened by tapping the header's "2026年9月" label.
+  const [showMonthPicker, setShowMonthPicker] = useState(false);
+  const [pickerYear, setPickerYear] = useState(currentYear);
+  const minPickerYear = baseDate.getFullYear() - 10;
+  const maxPickerYear = baseDate.getFullYear() + 10;
+  const openMonthPicker = useCallback(() => {
+    setPickerYear(currentYear);
+    setShowMonthPicker(true);
+  }, [currentYear]);
+
   const translatedWeekdays = t('weekdaysSingle', {returnObjects: true}) as string[];
   const translatedMonths = t('monthNames', {returnObjects: true}) as string[];
 
@@ -894,6 +904,17 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
     scrollToMonth(d);
   }, [currentYear, currentMonth, scrollToMonth]);
 
+  // monthData only covers ±MONTH_ANCHOR months around baseDate — clamp the
+  // requested index into that range so scrollToIndex never gets an
+  // out-of-bounds value (it would just warn and no-op otherwise).
+  const goToMonth = useCallback((year: number, month: number) => {
+    const idx = Math.max(0, Math.min(MONTH_ANCHOR * 2, getIndexForDate(new Date(year, month, 1))));
+    const resolved = getMonthForIndex(idx);
+    const d = new Date(resolved.year, resolved.month, 1);
+    setCurrentDate(d);
+    monthListRef.current?.scrollToIndex({index: idx, animated: true});
+  }, [getIndexForDate, getMonthForIndex]);
+
   const goToToday = useCallback(() => {
     const now = new Date();
     setCurrentDate(now);
@@ -1039,8 +1060,8 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
           </TouchableOpacity>
 
           <TouchableOpacity
-            onPress={goToToday}
-            accessibilityLabel={t('goToToday')}
+            onPress={openMonthPicker}
+            accessibilityLabel={t('openMonthPicker')}
             accessibilityRole="button">
             <Text style={[styles.headerTitle, {color: colors.text}]}>
               {t('yearMonthFormat', {year: currentYear, month: translatedMonths[currentMonth]})}
@@ -1055,6 +1076,56 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
             <Text style={[styles.navButtonText, {color: colors.primary}]}>{'>'}</Text>
           </TouchableOpacity>
         </View>
+
+        <Modal visible={showMonthPicker} transparent animationType="slide" onRequestClose={() => setShowMonthPicker(false)}>
+          <View style={styles.monthPickerOverlay}>
+            <View style={[styles.monthPickerSheet, {backgroundColor: colors.background}]}>
+              <View style={styles.monthPickerYearRow}>
+                <TouchableOpacity
+                  style={styles.monthPickerYearBtn}
+                  hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
+                  disabled={pickerYear <= minPickerYear}
+                  onPress={() => setPickerYear(y => y - 1)}
+                  accessibilityRole="button">
+                  <Text style={[styles.monthPickerYearArrow, {color: colors.primary, opacity: pickerYear <= minPickerYear ? 0.3 : 1}]}>{'<'}</Text>
+                </TouchableOpacity>
+                <Text style={[styles.monthPickerYearText, {color: colors.text}]}>{t('yearFormat', {year: pickerYear})}</Text>
+                <TouchableOpacity
+                  style={styles.monthPickerYearBtn}
+                  hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
+                  disabled={pickerYear >= maxPickerYear}
+                  onPress={() => setPickerYear(y => y + 1)}
+                  accessibilityRole="button">
+                  <Text style={[styles.monthPickerYearArrow, {color: colors.primary, opacity: pickerYear >= maxPickerYear ? 0.3 : 1}]}>{'>'}</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={styles.monthPickerGrid}>
+                {translatedMonths.map((label, idx) => {
+                  const isSelected = pickerYear === currentYear && idx === currentMonth;
+                  return (
+                    <TouchableOpacity
+                      key={idx}
+                      style={[styles.monthPickerCell, isSelected && {backgroundColor: colors.primary}]}
+                      onPress={() => {
+                        goToMonth(pickerYear, idx);
+                        setShowMonthPicker(false);
+                      }}
+                      accessibilityRole="button"
+                      accessibilityState={{selected: isSelected}}>
+                      <Text style={[styles.monthPickerCellText, {color: isSelected ? '#fff' : colors.text}]}>{label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <TouchableOpacity
+                style={styles.monthPickerCancelBtn}
+                onPress={() => setShowMonthPicker(false)}
+                accessibilityRole="button">
+                <Text style={[styles.monthPickerCancelText, {color: colors.primary}]}>{t('cancel')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
 
         {/* Loading indicator */}
         {isLoading && (
@@ -1524,6 +1595,65 @@ const styles = StyleSheet.create({
     fontSize: 20,
     color: '#007AFF',
     fontWeight: 'bold',
+  },
+  monthPickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'flex-end',
+  },
+  monthPickerSheet: {
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 28,
+  },
+  monthPickerYearRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 24,
+    marginBottom: 16,
+  },
+  monthPickerYearBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  monthPickerYearArrow: {
+    fontSize: 22,
+    fontWeight: 'bold',
+  },
+  monthPickerYearText: {
+    fontSize: 19,
+    fontWeight: '700',
+    minWidth: 90,
+    textAlign: 'center',
+  },
+  monthPickerGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  monthPickerCell: {
+    width: '31%',
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(120,120,128,0.12)',
+  },
+  monthPickerCellText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  monthPickerCancelBtn: {
+    marginTop: 18,
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  monthPickerCancelText: {
+    fontSize: 16,
+    fontWeight: '600',
   },
   loadingContainer: {
     position: 'absolute',
