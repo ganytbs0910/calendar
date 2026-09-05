@@ -23,6 +23,7 @@ import {useTheme} from '../theme/ThemeContext';
 import {usePremium} from '../context/PremiumContext';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {addTemplate} from '../services/templateService';
+import {addTaskForDate, getDateKey} from '../services/taskService';
 import {recordEventCreation, getEventHistory, deleteEventHistoryEntry, EventHistoryEntry} from '../services/eventHistoryService';
 import {getEventWage, setEventWage, removeEventWage, getRecentWages, addRecentWage, removeRecentWage, getEventJob, setEventJob, removeEventJob, getEventBreak, setEventBreak, removeEventBreak} from '../services/eventWageService';
 import {getJobs, Job} from '../services/jobService';
@@ -1020,6 +1021,27 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
     // the pay was wrong and nothing said so.
   }, [title, notes, pendingPhotoUris, startDate, endDate, isEditing, editingEvent, selectedColor, hourlyWage, selectedJobId, reminder, mustWake, recurrence, breakTouched, breakOverride, jobs, t, eventStore]);
 
+  /**
+   * "あとでやる" — skip picking a time altogether and file this under the
+   * Tasks tab's todo list instead of creating a timed calendar event. Shares
+   * handleSave's re-entrancy guard so a double-tap can't create two todos.
+   */
+  const handleSaveAsLater = useCallback(async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setIsSaving(true);
+    try {
+      const todoTitle = title.trim() || t('noTitle');
+      await addTaskForDate(todoTitle, getDateKey(startDate), undefined, undefined, 'todo');
+      onClose();
+    } catch {
+      Alert.alert(t('error'), t('saveFailed'));
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
+    }
+  }, [title, startDate, onClose, t]);
+
   const formatTime = (date: Date) => {
     return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
   };
@@ -1447,6 +1469,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
             <View style={styles.titleInputContainer}>
               <View style={[styles.titleIconBox, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="create-outline" size={12} color={colors.textSecondary} /></View>
               <TextInput
+                testID="event-title-input"
                 style={[styles.titleInput, {color: colors.text}]}
                 placeholder={t('titlePlaceholder')}
                 value={title}
@@ -1565,6 +1588,8 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           </View>
 
           <View style={[styles.dateTimeSection, {backgroundColor: colors.surface, borderBottomColor: colors.border}]}>
+          <View style={styles.dtMainRow}>
+          <View style={styles.dtColumn}>
             <View style={styles.dtLabeledRow}>
               <View style={styles.dtRowLabel}>
                 <View style={[styles.titleIconBox, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="calendar-outline" size={12} color={colors.textSecondary} /></View>
@@ -1629,6 +1654,20 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                 </TouchableOpacity>
               </View>
             </View>
+          </View>
+          {!isEditing && (
+            <TouchableOpacity
+              testID="save-as-later"
+              style={[styles.laterBtn, {backgroundColor: colors.inputBackground}, isSaving && styles.laterBtnDisabled]}
+              onPress={handleSaveAsLater}
+              disabled={isSaving}
+              accessibilityRole="button"
+              accessibilityLabel={t('laterTasks')}>
+              <Ionicons name="time-outline" size={18} color={colors.textSecondary} />
+              <Text style={[styles.laterBtnText, {color: colors.textSecondary}]} numberOfLines={1}>{t('laterTasks')}</Text>
+            </TouchableOpacity>
+          )}
+          </View>
             <View style={styles.durationInline}>
               <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
                 <View style={[styles.titleIconBox, {borderColor: colors.border, backgroundColor: colors.surfaceSecondary}]}><Ionicons name="time-outline" size={12} color={colors.textSecondary} /></View>
@@ -2447,6 +2486,29 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 10,
     marginBottom: 8,
+  },
+  dtMainRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 10,
+  },
+  dtColumn: {
+    flex: 1,
+  },
+  laterBtn: {
+    width: 64,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    paddingVertical: 4,
+  },
+  laterBtnDisabled: {
+    opacity: 0.5,
+  },
+  laterBtnText: {
+    fontSize: 11,
+    fontWeight: '600',
   },
   dtLabeledRow: {
     flexDirection: 'row',

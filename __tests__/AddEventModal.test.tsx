@@ -5,7 +5,9 @@
 import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
 import RNCalendarEvents from 'react-native-calendar-events';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {AddEventModal} from '../src/components/AddEventModal';
+import {getDateKey} from '../src/services/taskService';
 
 // Mock react-native-calendar-events
 jest.mock('react-native-calendar-events', () => ({
@@ -154,6 +156,41 @@ describe('AddEventModal', () => {
     await ReactTestRenderer.act(async () => {
       component!.unmount();
     });
+  });
+
+  it('「あとでやる」は予定を作らず、時間なしのタスクとして追加して閉じる', async () => {
+    let component: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      component = ReactTestRenderer.create(
+        <AddEventModal
+          visible={true}
+          onClose={mockOnClose}
+          onEventAdded={mockOnEventAdded}
+        />
+      );
+    });
+
+    const titleInput = component!.root.findByProps({testID: 'event-title-input'});
+    ReactTestRenderer.act(() => {
+      titleInput.props.onChangeText('資料を読む');
+    });
+
+    const laterBtn = component!.root.findByProps({testID: 'save-as-later'});
+    await ReactTestRenderer.act(async () => {
+      await laterBtn.props.onPress();
+    });
+
+    expect(RNCalendarEvents.saveEvent as jest.Mock).not.toHaveBeenCalled();
+    expect(mockOnClose).toHaveBeenCalled();
+
+    const setItemMock = AsyncStorage.setItem as jest.Mock;
+    const [, lastPayload] = setItemMock.mock.calls[setItemMock.mock.calls.length - 1];
+    const savedTasks = JSON.parse(lastPayload);
+    expect(savedTasks).toHaveLength(1);
+    expect(savedTasks[0].title).toBe('資料を読む');
+    expect(savedTasks[0].taskType).toBe('todo');
+    expect(savedTasks[0].time).toBeUndefined();
+    expect(savedTasks[0].dateKey).toBe(getDateKey(new Date()));
   });
 
 });
