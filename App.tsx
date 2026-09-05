@@ -385,6 +385,16 @@ function AppContent() {
   const [initialStartDate, setInitialStartDate] = useState<Date | undefined>();
   const [initialEndDate, setInitialEndDate] = useState<Date | undefined>();
   const [viewMode, setViewMode] = useState<ViewMode>('month');
+  // Month/week used to be a ternary that unmounted whichever side wasn't
+  // showing — Calendar's and WeekView's event/color/task caches all live in
+  // component-local refs, so every toggle threw them away and refetched from
+  // EventKit + AsyncStorage from scratch (the loading spinner + jank the
+  // user hit). Same kept-alive fix as visitedTabs below: mount WeekView once
+  // on first visit, then just hide/show with display:none.
+  const [weekViewVisited, setWeekViewVisited] = useState(false);
+  useEffect(() => {
+    if (viewMode === 'week') setWeekViewVisited(true);
+  }, [viewMode]);
   const [activeTab, setActiveTab] = useState<TabKey>('home');
   // Tabs are kept mounted once visited (lazy keep-alive) so switching back
   // doesn't unmount + refetch every time. Home is mounted from the start.
@@ -1827,36 +1837,39 @@ function AppContent() {
           />
         )}
 
-        {viewMode === 'month' ? (
-            <Calendar
-              ref={calendarRef}
-              onDateSelect={handleDateSelect}
-              onDateDoubleSelect={handleDateDoubleSelect}
-              onEventPress={handleEventPress}
-              onDateRangeSelect={handleTimeRangeSelect}
-              onMonthChange={setCurrentDate}
-              hasPermission={hasPermission}
-              fullscreenMode={fullscreenMonth}
-              filterColor={userCalendars.find(c => c.id === selectedCalendarId)?.color ?? null}
-              selectionMode={selectionMode}
-              selectedEventKeys={selectedEventKeys}
-              onToggleEventSelection={toggleEventSelection}
-              onEventLongPressSelect={handleEventLongPressSelect}
-            />
-        ) : (
-          <WeekView
-            ref={weekViewRef}
-            currentDate={currentDate}
-            onTimeRangeSelect={handleTimeRangeSelect}
+        <View style={[styles.calendarPane, viewMode !== 'month' && styles.tabHidden]}>
+          <Calendar
+            ref={calendarRef}
+            onDateSelect={handleDateSelect}
+            onDateDoubleSelect={handleDateDoubleSelect}
             onEventPress={handleEventPress}
-            onDayChange={handleDayChange}
+            onDateRangeSelect={handleTimeRangeSelect}
+            onMonthChange={setCurrentDate}
             hasPermission={hasPermission}
-            sleepSettings={sleepSettings}
-            onOpenSleepSettings={openSleepSettings}
-            onJumpToToday={goToToday}
+            fullscreenMode={fullscreenMonth}
             filterColor={userCalendars.find(c => c.id === selectedCalendarId)?.color ?? null}
-            onTasksChanged={refreshTaskViews}
+            selectionMode={selectionMode}
+            selectedEventKeys={selectedEventKeys}
+            onToggleEventSelection={toggleEventSelection}
+            onEventLongPressSelect={handleEventLongPressSelect}
           />
+        </View>
+        {weekViewVisited && (
+          <View style={[styles.calendarPane, viewMode !== 'week' && styles.tabHidden]}>
+            <WeekView
+              ref={weekViewRef}
+              currentDate={currentDate}
+              onTimeRangeSelect={handleTimeRangeSelect}
+              onEventPress={handleEventPress}
+              onDayChange={handleDayChange}
+              hasPermission={hasPermission}
+              sleepSettings={sleepSettings}
+              onOpenSleepSettings={openSleepSettings}
+              onJumpToToday={goToToday}
+              filterColor={userCalendars.find(c => c.id === selectedCalendarId)?.color ?? null}
+              onTasksChanged={refreshTaskViews}
+            />
+          </View>
         )}
 
         {selectionMode && (
@@ -2949,6 +2962,12 @@ const styles = StyleSheet.create({
   },
   tabHidden: {
     display: 'none',
+  },
+  // Same kept-alive treatment as tabPage, for Calendar/WeekView specifically
+  // (see weekViewVisited above) — named separately since it nests one level
+  // deeper, inside the home tabPage rather than alongside it.
+  calendarPane: {
+    flex: 1,
   },
   // Bulk-delete action bar. Sits above the month grid's own content rather
   // than over the tab bar, so switching tabs stays reachable.
