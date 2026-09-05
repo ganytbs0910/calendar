@@ -1253,10 +1253,13 @@ function AppContent() {
     maybeAskForReview(DeviceInfo.getVersion()).catch(() => {});
   }, []);
 
-  // あとでやる files a task, not a calendar event — refresh the todo caches
-  // (month grid + week view's TaskBottomSheet) instead of calendarRef/weekViewRef's
-  // event refresh, which wouldn't pick it up at all.
-  const handleTaskAdded = useCallback(() => {
+  // Month view (Calendar) and week view (WeekView/TaskBottomSheet) each keep
+  // their own independent task cache, with no other link between them — a
+  // todo added/toggled/deleted/edited in either one has no way to tell the
+  // other its copy is now stale. Shared refresh entry point for both:
+  // AddEventModal's あとでやる (onTaskAdded) and every TaskBottomSheet
+  // mutation (onTasksChanged, forwarded through WeekView) call this.
+  const refreshTaskViews = useCallback(() => {
     calendarRef.current?.refreshTasks();
     weekViewRef.current?.refreshTasks();
   }, []);
@@ -1822,6 +1825,7 @@ function AppContent() {
             onOpenSleepSettings={openSleepSettings}
             onJumpToToday={goToToday}
             filterColor={userCalendars.find(c => c.id === selectedCalendarId)?.color ?? null}
+            onTasksChanged={refreshTaskViews}
           />
         )}
 
@@ -1875,7 +1879,7 @@ function AppContent() {
           visible={showAddModal}
           onClose={handleCloseModal}
           onEventAdded={handleEventAdded}
-          onTaskAdded={handleTaskAdded}
+          onTaskAdded={refreshTaskViews}
           onDeleted={handleEventDeleted}
           initialDate={initialStartDate}
           initialEndDate={initialEndDate}

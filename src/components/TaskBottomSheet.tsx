@@ -92,6 +92,10 @@ interface TaskBottomSheetProps {
   eventColors: Record<string, string>;
   onEventPress?: (event: CalendarEventReadable) => void;
   onEventsRefresh?: () => void;
+  /** Fired after any add/toggle/delete/edit here — lets a sibling like month
+   * view's Calendar (a separate task cache, see Calendar.tsx's tasksCache)
+   * know its own copy is now stale, since this sheet only refreshes itself. */
+  onTasksChanged?: () => void;
 }
 
 type ScheduleItem = {
@@ -112,6 +116,7 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
   eventColors,
   onEventPress,
   onEventsRefresh,
+  onTasksChanged,
 }, ref) => {
   const {colors, isDark} = useTheme();
   const {t} = useTranslation();
@@ -289,7 +294,8 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
   const handleTogglePinTask = useCallback(async (task: Task) => {
     await updateTask(task.id, {pinned: !task.pinned});
     fetchTasks();
-  }, [fetchTasks]);
+    onTasksChanged?.();
+  }, [fetchTasks, onTasksChanged]);
 
   const handleTogglePinEvent = useCallback(async (eventId: string) => {
     await togglePinnedEvent(eventId);
@@ -320,12 +326,14 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
   const handleToggleTask = useCallback(async (taskId: string) => {
     await toggleTask(taskId);
     fetchTasks();
-  }, [fetchTasks]);
+    onTasksChanged?.();
+  }, [fetchTasks, onTasksChanged]);
 
   const handleDeleteTask = useCallback(async (taskId: string) => {
     await deleteTask(taskId);
     fetchTasks();
-  }, [fetchTasks]);
+    onTasksChanged?.();
+  }, [fetchTasks, onTasksChanged]);
 
   const handleDeleteScheduleItem = useCallback(async (item: ScheduleItem) => {
     if (item.isEvent && item.event?.id) {
@@ -338,8 +346,9 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
     } else if (item.task) {
       await deleteTask(item.task.id);
       fetchTasks();
+      onTasksChanged?.();
     }
-  }, [fetchTasks, onEventsRefresh, t]);
+  }, [fetchTasks, onEventsRefresh, onTasksChanged, t]);
 
   // ── Add task overlay ──
   const [addingTask, setAddingTask] = useState(false);
@@ -383,13 +392,14 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
       resetAddOverlay();
       Keyboard.dismiss();
       fetchTasks();
+      onTasksChanged?.();
     } catch (e) {
       console.error('handleAddTask error:', e);
     }
     // addDeadline must be a dependency. Typing the title first and setting the
     // deadline second — the natural order — left this closure holding the
     // deadline from before it was set, so the task saved without one.
-  }, [taskInputText, dateKey, taskDuration, addDeadline, fetchTasks]);
+  }, [taskInputText, dateKey, taskDuration, addDeadline, fetchTasks, onTasksChanged]);
 
   // ── Expand to edit a todo task ──
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
@@ -451,7 +461,8 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
     await updateTask(taskId, {time, duration: editTaskDuration || undefined, taskType: 'schedule'});
     setExpandedTaskId(null);
     fetchTasks();
-  }, [editTaskTimeHour, editTaskTimeMinute, editTaskDuration, fetchTasks]);
+    onTasksChanged?.();
+  }, [editTaskTimeHour, editTaskTimeMinute, editTaskDuration, fetchTasks, onTasksChanged]);
 
   const handleSaveEdits = useCallback(async (taskId: string) => {
     await updateTask(taskId, {
@@ -462,7 +473,8 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
     });
     setExpandedTaskId(null);
     fetchTasks();
-  }, [editTaskDuration, editDeadline, fetchTasks]);
+    onTasksChanged?.();
+  }, [editTaskDuration, editDeadline, fetchTasks, onTasksChanged]);
 
   // ── Render ──
   return (
@@ -486,6 +498,7 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
                 </View>
               )}
               <TouchableOpacity
+                testID="add-todo-button"
                 onPress={() => setAddingTask(true)}
                 hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
                 style={[styles.addInlineBtn, {borderColor: colors.primary}]}>
@@ -853,6 +866,7 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
                     showsVerticalScrollIndicator={false}>
                     <Text style={[styles.addCardTitle, {color: colors.text}]}>{t('laterTasks')}</Text>
                     <TextInput
+                  testID="todo-input"
                   style={[
                     styles.addInput,
                     {
@@ -986,6 +1000,7 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
                     <Text style={[styles.addActionText, {color: colors.textSecondary}]}>{t('cancel')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
+                    testID="confirm-add-todo"
                     style={[styles.addActionBtn, {backgroundColor: colors.primary}]}
                     onPress={handleAddTask}>
                     <Text style={[styles.addActionText, {color: colors.onPrimary}]}>{t('add')}</Text>

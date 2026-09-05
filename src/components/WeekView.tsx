@@ -69,6 +69,10 @@ interface WeekViewProps {
   onJumpToToday?: () => void;
   /** When set, only events whose resolved color matches are rendered. */
   filterColor?: string | null;
+  /** Bubbled up from the あとでやる sheet's own add/toggle/delete/edit — see
+   * TaskBottomSheetProps.onTasksChanged. Month view's Calendar keeps a
+   * separate task cache with no other way to learn it's stale. */
+  onTasksChanged?: () => void;
 }
 
 const dayKey = (d: Date): string =>
@@ -95,6 +99,7 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
   onOpenSleepSettings,
   onJumpToToday,
   filterColor,
+  onTasksChanged,
 }, ref) => {
   const {colors, isDark} = useTheme();
   const {t} = useTranslation();
@@ -730,6 +735,7 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
         eventColors={eventColors}
         onEventPress={onEventPress}
         onEventsRefresh={() => fetchEventsForCenter(leftVisibleIndexRef.current + 3)}
+        onTasksChanged={onTasksChanged}
       />
     </View>
   );
