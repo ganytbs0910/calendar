@@ -384,6 +384,10 @@ interface AddEventModalProps {
   visible: boolean;
   onClose: () => void;
   onEventAdded: () => void;
+  /** Fired after "あとでやる" files this as a time-undetermined task instead
+   * of a calendar event — lets the caller refresh whatever renders todos
+   * (month/week view), separate from onEventAdded's calendar-only refresh. */
+  onTaskAdded?: () => void;
   initialDate?: Date;
   initialEndDate?: Date;
   editingEvent?: CalendarEventReadable | null;
@@ -397,6 +401,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   visible,
   onClose,
   onEventAdded,
+  onTaskAdded,
   initialDate,
   initialEndDate,
   editingEvent,
@@ -421,6 +426,15 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   // block a near-simultaneous second call); isSaving just drives the UI.
   const savingRef = useRef(false);
   const [isSaving, setIsSaving] = useState(false);
+  // あとでやる — a *selection*, not an action: toggles what pressing the real
+  // Save button does (file a time-undetermined task instead of a calendar
+  // event), so the user can still change the title/duration/date first
+  // rather than it firing the moment they tap it.
+  const [laterMode, setLaterMode] = useState(false);
+  // Which onDone the SuccessOverlay should fire — set right before
+  // setSaveSuccess(true) in handleSave, since a task save must not trigger
+  // onEventAdded's calendar refresh / review-prompt logic.
+  const lastSaveKindRef = useRef<'event' | 'task'>('event');
   const [title, setTitle] = useState('');
   const [startDate, setStartDate] = useState(new Date());
   const [endDate, setEndDate] = useState(new Date());
@@ -554,6 +568,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
       setShowPayDetail(false); // always start collapsed
       setShowMemoPhotos(false); // memo/photos are optional and start collapsed
       setPendingPhotoUris([]);
+      setLaterMode(false);
       const isCopying = editingEvent && !editingEvent.id;
 
       if (editingEvent && !isCopying) {
@@ -746,6 +761,17 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
     savingRef.current = true;
     setIsSaving(true);
     try {
+    if (laterMode) {
+      // No calendar permission, conflict check, or income-wall logic applies
+      // to a todo — file it under today's date's title/duration as they
+      // stand right now and stop, skipping the entire event-save path below.
+      const todoTitle = title.trim() || t('noTitle');
+      const durationMinutes = Math.max(1, Math.round((endDate.getTime() - startDate.getTime()) / 60000));
+      await addTaskForDate(todoTitle, getDateKey(startDate), undefined, durationMinutes, 'todo');
+      lastSaveKindRef.current = 'task';
+      setSaveSuccess(true);
+      return;
+    }
     // Check and request permission before saving. iOS 17+ returns "fullAccess"
     // alongside the older "authorized", but the library's TS types haven't
     // caught up — widen to string for the comparison.
@@ -795,6 +821,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           mustWakeOffsetMinutes: mustWake ? 0 : null,
         });
         for (const uri of pendingPhotoUris) await addEventPhoto(savedId, uri);
+        lastSaveKindRef.current = 'event';
         setSaveSuccess(true);
       } catch {
         Alert.alert(t('error'), isEditing ? t('updateFailed') : t('saveFailed'));
@@ -1005,6 +1032,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
       }
 
       // Play a quick success animation, then close (onDone handler below).
+      lastSaveKindRef.current = 'event';
       setSaveSuccess(true);
     } catch (error) {
       console.error('Error saving event:', error);
@@ -1019,29 +1047,13 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
     // out meant a break entered after the last dep change was silently dropped
     // — the shift saved with the auto legal break instead of the real one, so
     // the pay was wrong and nothing said so.
-  }, [title, notes, pendingPhotoUris, startDate, endDate, isEditing, editingEvent, selectedColor, hourlyWage, selectedJobId, reminder, mustWake, recurrence, breakTouched, breakOverride, jobs, t, eventStore]);
+  }, [laterMode, title, notes, pendingPhotoUris, startDate, endDate, isEditing, editingEvent, selectedColor, hourlyWage, selectedJobId, reminder, mustWake, recurrence, breakTouched, breakOverride, jobs, t, eventStore]);
 
   /**
    * "あとでやる" — skip picking a time altogether and file this under the
    * Tasks tab's todo list instead of creating a timed calendar event. Shares
    * handleSave's re-entrancy guard so a double-tap can't create two todos.
    */
-  const handleSaveAsLater = useCallback(async () => {
-    if (savingRef.current) return;
-    savingRef.current = true;
-    setIsSaving(true);
-    try {
-      const todoTitle = title.trim() || t('noTitle');
-      await addTaskForDate(todoTitle, getDateKey(startDate), undefined, undefined, 'todo');
-      onClose();
-    } catch {
-      Alert.alert(t('error'), t('saveFailed'));
-    } finally {
-      savingRef.current = false;
-      setIsSaving(false);
-    }
-  }, [title, startDate, onClose, t]);
-
   const formatTime = (date: Date) => {
     return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
   };
@@ -1610,7 +1622,8 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[styles.dtTimeCell, {backgroundColor: colors.today}]}
+                  style={[styles.dtTimeCell, {backgroundColor: colors.today}, laterMode && styles.dtCellMuted]}
+                  disabled={laterMode}
                   onPress={() => {
                     setShowStartDatePicker(false);
                     setShowEndDatePicker(false);
@@ -1618,7 +1631,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                     setTempDate(new Date(startDate));
                     setShowStartTimePicker(true);
                   }}>
-                  <Text style={[styles.dtCellTime, {color: colors.primary}]}>{formatTime(startDate)}</Text>
+                  <Text style={[styles.dtCellTime, {color: colors.primary}]}>{laterMode ? '--:--' : formatTime(startDate)}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -1642,7 +1655,8 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[styles.dtTimeCell, {backgroundColor: colors.inputBackground}]}
+                  style={[styles.dtTimeCell, {backgroundColor: colors.inputBackground}, laterMode && styles.dtCellMuted]}
+                  disabled={laterMode}
                   onPress={() => {
                     setShowStartDatePicker(false);
                     setShowStartTimePicker(false);
@@ -1650,7 +1664,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                     setTempDate(new Date(endDate));
                     setShowEndTimePicker(true);
                   }}>
-                  <Text style={[styles.dtCellTime, {color: colors.text}]}>{formatTime(endDate)}</Text>
+                  <Text style={[styles.dtCellTime, {color: colors.text}]}>{laterMode ? '--:--' : formatTime(endDate)}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -1658,13 +1672,13 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           {!isEditing && (
             <TouchableOpacity
               testID="save-as-later"
-              style={[styles.laterBtn, {backgroundColor: colors.inputBackground}, isSaving && styles.laterBtnDisabled]}
-              onPress={handleSaveAsLater}
-              disabled={isSaving}
+              style={[styles.laterBtn, {backgroundColor: laterMode ? colors.primary : colors.inputBackground}]}
+              onPress={() => setLaterMode(v => !v)}
               accessibilityRole="button"
+              accessibilityState={{selected: laterMode}}
               accessibilityLabel={t('laterTasks')}>
-              <Ionicons name="time-outline" size={18} color={colors.textSecondary} />
-              <Text style={[styles.laterBtnText, {color: colors.textSecondary}]} numberOfLines={1}>{t('laterTasks')}</Text>
+              <Ionicons name="time-outline" size={18} color={laterMode ? '#fff' : colors.textSecondary} />
+              <Text style={[styles.laterBtnText, {color: laterMode ? '#fff' : colors.textSecondary}]} numberOfLines={1}>{t('laterTasks')}</Text>
             </TouchableOpacity>
           )}
           </View>
@@ -2310,7 +2324,11 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
             onDone={() => {
               setSaveSuccess(false);
               handleClose();
-              onEventAdded();
+              if (lastSaveKindRef.current === 'task') {
+                onTaskAdded?.();
+              } else {
+                onEventAdded();
+              }
             }}
           />
         )}
@@ -2503,9 +2521,6 @@ const styles = StyleSheet.create({
     gap: 2,
     paddingVertical: 4,
   },
-  laterBtnDisabled: {
-    opacity: 0.5,
-  },
   laterBtnText: {
     fontSize: 11,
     fontWeight: '600',
@@ -2543,6 +2558,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: 9,
     alignItems: 'center',
+  },
+  dtCellMuted: {
+    opacity: 0.4,
   },
   dtCellText: {
     fontSize: 15,

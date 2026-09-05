@@ -55,6 +55,7 @@ const REFETCH_THRESHOLD = 30;
 
 export interface WeekViewRef {
   refreshEvents: () => void;
+  refreshTasks: () => void;
 }
 
 interface WeekViewProps {
@@ -300,6 +301,7 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
 
   useImperativeHandle(ref, () => ({
     refreshEvents: () => fetchEventsForCenter(leftVisibleIndexRef.current + 3),
+    refreshTasks: () => taskSheetRef.current?.refresh(),
   }), [fetchEventsForCenter]);
 
   // ── External currentDate sync (e.g. month view tap) ──

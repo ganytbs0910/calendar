@@ -22,6 +22,7 @@ import {useTheme} from '../theme/ThemeContext';
 import {useTranslation} from 'react-i18next';
 import {eventDayKeys, eventDayRange} from '../utils/eventDays';
 import {CalendarEventStore} from '../types/calendarEventStore';
+import {getTasksForDateRange, Task} from '../services/taskService';
 
 const MONTH_ANCHOR = 120; // Center index for infinite-like scrolling
 // Container has paddingHorizontal: 12 (both sides = 24) total. The real grid
@@ -64,6 +65,7 @@ interface CalendarProps {
 
 export interface CalendarRef {
   refreshEvents: () => void;
+  refreshTasks: () => void;
   goToToday: () => void;
 }
 
@@ -91,6 +93,8 @@ type PageModel = {
   weeks: number;
   getEventsForDate: (date: Date) => CalendarEventReadable[];
   multiDayByWeek: MultiDayBar[][];
+  /** Time-less "あとでやる" todos filed under this day — see AddEventModal's あとでやる button. */
+  getTodosForDate: (date: Date) => Task[];
 };
 
 /**
@@ -154,6 +158,10 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
   const eventsCache = useRef<Map<string, CalendarEventReadable[]>>(new Map());
   const eventColorsCache = useRef<Record<string, string> | null>(null);
   const isFetching = useRef(false);
+  // あとでやる todos, cached by the same month-key shape as events above —
+  // a separate cache because todos come from taskService, not EventKit.
+  const tasksCache = useRef<Map<string, Task[]>>(new Map());
+  const [taskCacheVersion, setTaskCacheVersion] = useState(0);
   const [showDayEvents, setShowDayEvents] = useState(false);
   const [dayEventsDate, setDayEventsDate] = useState<Date | null>(null);
   const bottomSheetAnim = useState(new Animated.Value(0))[0];
@@ -445,6 +453,29 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
     return filteredEvents;
   }, [getMonthKey, eventStore]);
 
+  // あとでやる todos for one month, cached the same way as fetchMonthEvents
+  // above but from taskService instead of EventKit — a device-local list,
+  // independent of eventStore/permission.
+  const fetchMonthTasks = useCallback(async (year: number, month: number, forceRefresh = false) => {
+    const cacheKey = getMonthKey(year, month);
+    if (!forceRefresh && tasksCache.current.has(cacheKey)) return;
+
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const dateKeys: string[] = [];
+    for (let d = 1; d <= daysInMonth; d++) {
+      dateKeys.push(`${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
+    }
+    const byDate = await getTasksForDateRange(dateKeys);
+    const todos: Task[] = [];
+    for (const list of byDate.values()) {
+      for (const task of list) {
+        if (task.taskType === 'todo' || (!task.taskType && !task.time)) todos.push(task);
+      }
+    }
+    tasksCache.current.set(cacheKey, todos);
+    setTaskCacheVersion(v => v + 1);
+  }, [getMonthKey]);
+
   // Prefetch multiple months around the given month
   const prefetchMonths = useCallback(async (year: number, month: number, range: number = 2) => {
     if (!hasPermission) return;
@@ -564,6 +595,12 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
     fetchEvents();
   }, [fetchEvents]);
 
+  // Todos are device-local and unaffected by calendar permission — fetch on
+  // every month change independent of fetchEvents' permission gate above.
+  useEffect(() => {
+    fetchMonthTasks(currentYear, currentMonth);
+  }, [currentYear, currentMonth, fetchMonthTasks]);
+
   // Clear cache on permission change or when explicitly refreshing
   const clearCache = useCallback(() => {
     eventsCache.current.clear();
@@ -578,13 +615,16 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       if (eventStore) eventStore.refresh().catch(() => {});
       fetchEvents(true);
     },
+    refreshTasks: () => {
+      fetchMonthTasks(currentYear, currentMonth, true);
+    },
     goToToday: () => {
       const now = new Date();
       setCurrentDate(now);
       const idx = MONTH_ANCHOR + (now.getFullYear() - baseDate.getFullYear()) * 12 + (now.getMonth() - baseDate.getMonth());
       monthListRef.current?.scrollToIndex({index: idx, animated: true});
     },
-  }), [fetchEvents, clearCache, baseDate, eventStore]);
+  }), [fetchEvents, clearCache, baseDate, eventStore, fetchMonthTasks, currentYear, currentMonth]);
 
   const getDaysInMonth = useCallback((year: number, month: number) => {
     return new Date(year, month + 1, 0).getDate();
@@ -787,6 +827,16 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       return byWeek;
     };
 
+    const buildTodoIndex = (monthKey: string) => {
+      const index = new Map<string, Task[]>();
+      for (const task of tasksCache.current.get(monthKey) ?? []) {
+        const bucket = index.get(task.dateKey);
+        if (bucket) bucket.push(task);
+        else index.set(task.dateKey, [task]);
+      }
+      return index;
+    };
+
     return (year: number, month: number): PageModel => {
       const monthKey = `${year}-${month}`;
       const cached = byMonth.get(monthKey);
@@ -797,20 +847,25 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       const eventIndex = buildEventIndex(monthKey);
       const getEvents = (d: Date) =>
         eventIndex.get(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`) ?? [];
+      const todoIndex = buildTodoIndex(monthKey);
+      const getTodos = (d: Date) =>
+        todoIndex.get(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`) ?? [];
 
       const model: PageModel = {
         days,
         weeks,
         getEventsForDate: getEvents,
         multiDayByWeek: buildMultiDayByWeek(days, weeks, getEvents),
+        getTodosForDate: getTodos,
       };
       byMonth.set(monthKey, model);
       return model;
     };
-  // cacheVersion is deliberately a dependency even though the body never reads
-  // it: bumping it is how a refresh invalidates the memoised month models.
+  // cacheVersion/taskCacheVersion are deliberately dependencies even though
+  // the body never reads them: bumping either is how a refresh invalidates
+  // the memoised month models.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cacheVersion, filterColor, eventColors, getCalendarDaysForMonth]);
+  }, [cacheVersion, taskCacheVersion, filterColor, eventColors, getCalendarDaysForMonth]);
 
   // NOTE: a second multi-day layout pass and a "next upcoming event" lookup
   // used to sit here. Both were superseded — multi-day bars are built by
@@ -1077,6 +1132,7 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
               weeks: pageWeeks,
               getEventsForDate: pageGetEventsForDate,
               multiDayByWeek: pageMultiDayByWeek,
+              getTodosForDate: pageGetTodosForDate,
             } = getPageModel(pageYear, pageMonth);
             const pageDayHeight = Math.floor(gridHeight / pageWeeks);
 
@@ -1109,6 +1165,15 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                             s.setHours(0,0,0,0); en.setHours(0,0,0,0);
                             return s.getTime() === en.getTime();
                           });
+                          const dayTodos = pageGetTodosForDate(item.date);
+                          // Same cell, same slot budget as timed events — a todo is
+                          // still "something to do this day," just without a fixed time.
+                          const dayCellItems: Array<
+                            {kind: 'event'; event: CalendarEventReadable} | {kind: 'todo'; task: Task}
+                          > = [
+                            ...singleDayEvents.map(event => ({kind: 'event' as const, event})),
+                            ...dayTodos.map(task => ({kind: 'todo' as const, task})),
+                          ];
                           const multiDayRowCount = pageMultiDayByWeek[weekIndex]?.reduce((max, md) => {
                             if (dayIndex >= md.startDayIndex && dayIndex <= md.endDayIndex) return Math.max(max, md.rowIndex + 1);
                             return max;
@@ -1158,18 +1223,32 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                                 })()}
                               </View>
                               {(() => {
-                                // Cap total visible rows (multi-day bars + single-day events) to 2
-                                // when not in fullscreen mode. Multi-day bars take priority since they
-                                // are anchored to the row.
+                                // Cap total visible rows (multi-day bars + single-day events/todos)
+                                // to 2 when not in fullscreen mode. Multi-day bars take priority
+                                // since they are anchored to the row.
                                 const visibleSingleCount = fullscreenMode
-                                  ? singleDayEvents.length
+                                  ? dayCellItems.length
                                   : Math.max(0, 2 - multiDayRowCount);
-                                const visibleSingle = singleDayEvents.slice(0, visibleSingleCount);
-                                const hiddenCount = singleDayEvents.length - visibleSingle.length;
+                                const visibleSingle = dayCellItems.slice(0, visibleSingleCount);
+                                const hiddenCount = dayCellItems.length - visibleSingle.length;
                                 if (visibleSingle.length === 0 && hiddenCount === 0) return null;
                                 return (
                                   <View style={[styles.singleDayEventsContainer, {marginTop: multiDayOffset > 0 ? multiDayOffset + 2 : 2}]}>
-                                    {visibleSingle.map(event => {
+                                    {visibleSingle.map(item2 => {
+                                      if (item2.kind === 'todo') {
+                                        const task = item2.task;
+                                        return (
+                                          <View
+                                            key={`todo-${task.id}`}
+                                            style={[styles.singleDayEventBox, styles.todoEventBox, {borderColor: colors.textTertiary, backgroundColor: colors.surfaceSecondary}]}>
+                                            <Text style={[styles.singleDayEventTime, {color: colors.textSecondary}]}>--:--</Text>
+                                            <Text style={[styles.singleDayEventTitle, {color: colors.text}]} numberOfLines={1} ellipsizeMode="clip">
+                                              {task.title}
+                                            </Text>
+                                          </View>
+                                        );
+                                      }
+                                      const event = item2.event;
                                       const selected = isEventSelected(event);
                                       return (
                                         <TouchableOpacity
@@ -1620,6 +1699,12 @@ const styles = StyleSheet.create({
     width: '100%',
     alignItems: 'center',
     position: 'relative',
+  },
+  // あとでやる (time-undetermined todo) — dashed outline instead of a filled
+  // calendar color, so it reads as "not a real time slot" at a glance.
+  todoEventBox: {
+    borderWidth: 1,
+    borderStyle: 'dashed',
   },
   photoBadge: {
     position: 'absolute',

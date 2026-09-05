@@ -1253,6 +1253,14 @@ function AppContent() {
     maybeAskForReview(DeviceInfo.getVersion()).catch(() => {});
   }, []);
 
+  // あとでやる files a task, not a calendar event — refresh the todo caches
+  // (month grid + week view's TaskBottomSheet) instead of calendarRef/weekViewRef's
+  // event refresh, which wouldn't pick it up at all.
+  const handleTaskAdded = useCallback(() => {
+    calendarRef.current?.refreshTasks();
+    weekViewRef.current?.refreshTasks();
+  }, []);
+
   // Handle event tap to directly open edit modal
   const handleEventPress = useCallback((event: CalendarEventReadable) => {
     setEditingEvent(event);
@@ -1867,6 +1875,7 @@ function AppContent() {
           visible={showAddModal}
           onClose={handleCloseModal}
           onEventAdded={handleEventAdded}
+          onTaskAdded={handleTaskAdded}
           onDeleted={handleEventDeleted}
           initialDate={initialStartDate}
           initialEndDate={initialEndDate}

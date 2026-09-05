@@ -558,6 +558,11 @@ export const TaskBottomSheet = React.forwardRef<TaskBottomSheetRef, TaskBottomSh
                           numberOfLines={1}>{task.title}</Text>
                       </View>
                       <View style={{flexDirection: 'row', gap: 6}}>
+                        {/* あとでやる = time undetermined — shown the same way a
+                            real schedule item shows its time range, but as
+                            dashes, so this reads as "an event, just without a
+                            fixed time" rather than a plain checklist row. */}
+                        <Text style={[styles.sheetEventTime, {color: colors.textTertiary}]}>--:--</Text>
                         {task.duration ? (
                           <Text style={[styles.sheetEventTime, {color: colors.textSecondary}]}>
                             {formatDuration(task.duration, t)}

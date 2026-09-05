@@ -158,7 +158,7 @@ describe('AddEventModal', () => {
     });
   });
 
-  it('「あとでやる」は予定を作らず、時間なしのタスクとして追加して閉じる', async () => {
+  it('「あとでやる」は押した瞬間には何も保存しない選択(トグル)', async () => {
     let component: ReactTestRenderer.ReactTestRenderer;
     await ReactTestRenderer.act(async () => {
       component = ReactTestRenderer.create(
@@ -170,18 +170,59 @@ describe('AddEventModal', () => {
       );
     });
 
+    const laterBtn = component!.root.findByProps({testID: 'save-as-later'});
+    expect(laterBtn.props.accessibilityState?.selected).not.toBe(true);
+
+    ReactTestRenderer.act(() => {
+      laterBtn.props.onPress();
+    });
+
+    // Just a mode toggle — nothing saved, nothing closed, title/duration can
+    // still change afterward.
+    expect(RNCalendarEvents.saveEvent as jest.Mock).not.toHaveBeenCalled();
+    expect(AsyncStorage.setItem as jest.Mock).not.toHaveBeenCalled();
+    expect(mockOnClose).not.toHaveBeenCalled();
+    expect(laterBtn.props.accessibilityState?.selected).toBe(true);
+
+    // Toggling again turns it back off.
+    ReactTestRenderer.act(() => {
+      laterBtn.props.onPress();
+    });
+    expect(laterBtn.props.accessibilityState?.selected).toBe(false);
+
+    await ReactTestRenderer.act(async () => {
+      component!.unmount();
+    });
+  });
+
+  it('「あとでやる」をONにして保存すると、予定は作らず時間なしのタスクとして追加する', async () => {
+    let component: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      component = ReactTestRenderer.create(
+        <AddEventModal
+          visible={true}
+          onClose={mockOnClose}
+          onEventAdded={mockOnEventAdded}
+        />
+      );
+    });
+
+    const laterBtn = component!.root.findByProps({testID: 'save-as-later'});
+    ReactTestRenderer.act(() => {
+      laterBtn.props.onPress();
+    });
+
     const titleInput = component!.root.findByProps({testID: 'event-title-input'});
     ReactTestRenderer.act(() => {
       titleInput.props.onChangeText('資料を読む');
     });
 
-    const laterBtn = component!.root.findByProps({testID: 'save-as-later'});
+    const headerSave = component!.root.findByProps({testID: 'save-event'});
     await ReactTestRenderer.act(async () => {
-      await laterBtn.props.onPress();
+      await headerSave.props.onPress();
     });
 
     expect(RNCalendarEvents.saveEvent as jest.Mock).not.toHaveBeenCalled();
-    expect(mockOnClose).toHaveBeenCalled();
 
     const setItemMock = AsyncStorage.setItem as jest.Mock;
     const [, lastPayload] = setItemMock.mock.calls[setItemMock.mock.calls.length - 1];
@@ -191,6 +232,12 @@ describe('AddEventModal', () => {
     expect(savedTasks[0].taskType).toBe('todo');
     expect(savedTasks[0].time).toBeUndefined();
     expect(savedTasks[0].dateKey).toBe(getDateKey(new Date()));
+
+    // The success animation starts its own timer — unmount so it doesn't
+    // fire after Jest tears the environment down.
+    await ReactTestRenderer.act(async () => {
+      component!.unmount();
+    });
   });
 
 });
