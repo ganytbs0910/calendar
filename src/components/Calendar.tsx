@@ -1598,7 +1598,6 @@ const styles = StyleSheet.create({
   },
   monthPickerOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.35)',
     justifyContent: 'flex-end',
   },
   monthPickerSheet: {
@@ -1607,6 +1606,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 16,
     paddingBottom: 28,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    shadowOffset: {width: 0, height: -4},
+    elevation: 8,
   },
   monthPickerYearRow: {
     flexDirection: 'row',
