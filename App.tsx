@@ -633,6 +633,9 @@ function AppContent() {
     Animated.spring(addBtnScale, {toValue: to, useNativeDriver: true, friction: 4, tension: 200}).start();
   }, [addBtnScale]);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The bulk-delete selection bar used to be a plain flex sibling of the
+  // month grid — see enterSelectionMode/exitSelectionMode below for the fix.
+  const selectionBarAnim = useRef(new Animated.Value(0)).current;
 
   // Load saved language on mount
   useEffect(() => {
@@ -1457,7 +1460,9 @@ function AppContent() {
       return true;
     });
     setSelectionMode(true);
-  }, []);
+    selectionBarAnim.setValue(0);
+    Animated.timing(selectionBarAnim, {toValue: 1, duration: 180, useNativeDriver: true}).start();
+  }, [selectionBarAnim]);
 
   const exitSelectionMode = useCallback(() => {
     setSelectionMode(false);
@@ -1830,7 +1835,16 @@ function AppContent() {
         )}
 
         {selectionMode && (
-          <View style={[styles.selectionBar, {backgroundColor: colors.surface, borderTopColor: colors.border}]}>
+          <Animated.View
+            style={[
+              styles.selectionBar,
+              {
+                backgroundColor: colors.surface,
+                borderTopColor: colors.border,
+                opacity: selectionBarAnim,
+                transform: [{translateY: selectionBarAnim.interpolate({inputRange: [0, 1], outputRange: [16, 0]})}],
+              },
+            ]}>
             <TouchableOpacity onPress={exitSelectionMode} accessibilityRole="button">
               <Text style={[styles.selectionCancel, {color: colors.primary}]}>{t('cancel')}</Text>
             </TouchableOpacity>
@@ -1848,7 +1862,7 @@ function AppContent() {
               accessibilityRole="button">
               <Text style={styles.selectionDeleteText}>{t('delete')}</Text>
             </TouchableOpacity>
-          </View>
+          </Animated.View>
         )}
         </View>
 
@@ -2913,7 +2927,20 @@ const styles = StyleSheet.create({
   },
   // Bulk-delete action bar. Sits above the month grid's own content rather
   // than over the tab bar, so switching tabs stays reachable.
+  //
+  // Absolutely positioned (not a normal flex sibling of the grid): tabPage
+  // is flex:1 and ends exactly where the bottom tab bar begins, so bottom:0
+  // here lands the bar flush above the tab bar with zero effect on the
+  // grid's own layout. It used to be a plain View in the flex column, which
+  // shrank the grid's flex:1 space by this bar's own height the instant
+  // selection mode turned on — the dates/events jumped upward under the
+  // finger that had just tapped the checkmark, and the very next tap could
+  // land on whatever had moved into place.
   selectionBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
