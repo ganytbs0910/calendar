@@ -110,10 +110,23 @@ type PageModel = {
  */
 // Wraps the month grid in a vertical ScrollView when fullscreen mode is on,
 // so days with many events can grow tall and the user can scroll.
-const ConditionalScroll: React.FC<{fullscreen: boolean; children: React.ReactNode}> = ({fullscreen, children}) =>
-  fullscreen
-    ? <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{paddingBottom: 80}} nestedScrollEnabled>{children}</ScrollView>
-    : <>{children}</>;
+//
+// Always renders a ScrollView (never swaps to a Fragment) — toggling
+// fullscreen used to switch the returned element's type, which forces React
+// to unmount and remount the whole subtree beneath it instead of just
+// updating it. For a mounted month page that's every week row, day cell and
+// event box torn down and rebuilt from scratch, which is what made entering
+// selection mode (it also flips fullscreen on, see enterSelectionMode)
+// visibly heavy.
+const ConditionalScroll: React.FC<{fullscreen: boolean; children: React.ReactNode}> = ({fullscreen, children}) => (
+  <ScrollView
+    scrollEnabled={fullscreen}
+    showsVerticalScrollIndicator={false}
+    contentContainerStyle={fullscreen ? styles.conditionalScrollFullscreen : undefined}
+    nestedScrollEnabled={fullscreen}>
+    {children}
+  </ScrollView>
+);
 
 export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, onDateDoubleSelect, onEventPress, onDateRangeSelect, onMonthChange, hasPermission: hasPermissionProp, fullscreenMode, filterColor, selectionMode, selectedEventKeys, onToggleEventSelection, onEventLongPressSelect, eventStore}, ref) => {
   const {colors} = useTheme();
@@ -1495,6 +1508,9 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
 const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
+  },
+  conditionalScrollFullscreen: {
+    paddingBottom: 80,
   },
   container: {
     flex: 1,
