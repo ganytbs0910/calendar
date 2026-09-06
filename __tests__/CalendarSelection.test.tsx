@@ -183,6 +183,34 @@ describe('Calendar selection mode', () => {
   });
 });
 
+// Deleting used to force a full clearCache + EventKit refetch just to show
+// the grid without what was just deleted — removeEvents instead drops the
+// occurrence from the in-memory cache directly, so this covers that it
+// removes exactly the tapped occurrence and nothing else sharing its id.
+describe('CalendarRef.removeEvents', () => {
+  it('drops a specific occurrence in place, without touching a sibling occurrence of the same series', async () => {
+    const ref = React.createRef<any>();
+    let tree!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      tree = ReactTestRenderer.create(<Calendar ref={ref} hasPermission />);
+    });
+
+    expect(pressablesWithText(tree, 'Gym').length).toBeGreaterThan(0);
+    const shiftsBefore = pressablesWithText(tree, 'Shift');
+    expect(shiftsBefore.length).toBeGreaterThanOrEqual(2);
+
+    await ReactTestRenderer.act(async () => {
+      ref.current.removeEvents([eventOccurrenceKey(EVENTS[0] as any)]);
+    });
+
+    expect(pressablesWithText(tree, 'Gym').length).toBe(0);
+    // Untouched: a different event...
+    expect(pressablesWithText(tree, 'Lunch').length).toBeGreaterThan(0);
+    // ...and the other occurrence of the recurring series that shares 'r1'.
+    expect(pressablesWithText(tree, 'Shift').length).toBe(shiftsBefore.length);
+  });
+});
+
 // Long-pressing an event used to start a drag-and-drop move; it now hands the
 // event to the caller so it can enter selection mode with that event already
 // picked, matching the top-left checkmark button's destination.

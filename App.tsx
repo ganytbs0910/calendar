@@ -1307,6 +1307,16 @@ function AppContent() {
     setFreeTimeRefreshKey(k => k + 1);
   }, []);
 
+  // For deletions specifically: we already know exactly which occurrences
+  // went, so there's no need to pay for refreshAllViews' full clearCache +
+  // EventKit refetch — that round trip was the visible delay between
+  // confirming a bulk delete and the grid actually updating.
+  const removeEventsFromViews = useCallback((occurrenceKeys: string[]) => {
+    calendarRef.current?.removeEvents(occurrenceKeys);
+    weekViewRef.current?.removeEvents(occurrenceKeys);
+    setFreeTimeRefreshKey(k => k + 1);
+  }, []);
+
   const handleEventDeleted = useCallback(() => {
     refreshAllViews();
   }, [refreshAllViews]);
@@ -1510,7 +1520,7 @@ function AppContent() {
       .map(r => r.value);
 
     exitSelectionMode();
-    refreshAllViews();
+    removeEventsFromViews(deleted.map(eventOccurrenceKey));
 
     if (deleted.length === 0) {
       Alert.alert(t('error'), t('deleteFailed'));
@@ -1531,7 +1541,7 @@ function AppContent() {
       // than it does for one event.
       durationMs: BULK_UNDO_DURATION_MS,
     });
-  }, [exitSelectionMode, refreshAllViews, restoreEvents, discardDeletedEventData, t]);
+  }, [exitSelectionMode, removeEventsFromViews, restoreEvents, discardDeletedEventData, t]);
 
   const handleBulkDelete = useCallback(() => {
     const events = [...selectedForDelete.values()];

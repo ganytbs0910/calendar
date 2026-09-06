@@ -68,6 +68,14 @@ export interface CalendarRef {
   refreshEvents: () => void;
   refreshTasks: () => void;
   goToToday: () => void;
+  /**
+   * Drops specific occurrences (by eventOccurrenceKey) from the in-memory
+   * cache without refetching from EventKit. Deletion already knows exactly
+   * which occurrences went — a full refreshEvents() (clearCache + refetch)
+   * re-does that same round trip for no reason, which is the visible delay
+   * between confirming a bulk delete and the grid actually updating.
+   */
+  removeEvents: (occurrenceKeys: string[]) => void;
 }
 
 /**
@@ -833,6 +841,18 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
       setCurrentDate(now);
       const idx = MONTH_ANCHOR + (now.getFullYear() - baseDate.getFullYear()) * 12 + (now.getMonth() - baseDate.getMonth());
       monthListRef.current?.scrollToIndex({index: idx, animated: true});
+    },
+    removeEvents: (occurrenceKeys: string[]) => {
+      const keySet = new Set(occurrenceKeys);
+      let changed = false;
+      for (const [monthKey, list] of eventsCache.current.entries()) {
+        const filtered = list.filter(e => !keySet.has(eventOccurrenceKey(e)));
+        if (filtered.length !== list.length) {
+          eventsCache.current.set(monthKey, filtered);
+          changed = true;
+        }
+      }
+      if (changed) setCacheVersion(v => v + 1);
     },
   }), [fetchEvents, clearCache, baseDate, eventStore, fetchMonthTasks, currentYear, currentMonth]);
 

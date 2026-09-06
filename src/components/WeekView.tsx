@@ -22,6 +22,7 @@ import {eventDayKeys} from '../utils/eventDays';
 import TaskBottomSheet, {TaskBottomSheetRef} from './TaskBottomSheet';
 import OneTimeHint from './OneTimeHint';
 import {shiftEventNotification} from '../services/notificationService';
+import {eventOccurrenceKey} from './Calendar';
 
 const TIME_LABEL_WIDTH = 48;
 // A horizontal FlatList with no explicit height collapses to zero — it used
@@ -56,6 +57,8 @@ const REFETCH_THRESHOLD = 30;
 export interface WeekViewRef {
   refreshEvents: () => void;
   refreshTasks: () => void;
+  /** See CalendarRef.removeEvents (Calendar.tsx) — same in-memory-only removal, no refetch. */
+  removeEvents: (occurrenceKeys: string[]) => void;
 }
 
 interface WeekViewProps {
@@ -307,6 +310,10 @@ export const WeekView = forwardRef<WeekViewRef, WeekViewProps>(({
   useImperativeHandle(ref, () => ({
     refreshEvents: () => fetchEventsForCenter(leftVisibleIndexRef.current + 3),
     refreshTasks: () => taskSheetRef.current?.refresh(),
+    removeEvents: (occurrenceKeys: string[]) => {
+      const keySet = new Set(occurrenceKeys);
+      setEvents(prev => prev.filter(e => !keySet.has(eventOccurrenceKey(e))));
+    },
   }), [fetchEventsForCenter]);
 
   // ── External currentDate sync (e.g. month view tap) ──
