@@ -19,6 +19,7 @@ import {cancelEventNotification, getEventIdsWithTriggerNotifications} from '../s
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {fetchWeather, WeatherDay} from '../services/weatherService';
 import {useTheme} from '../theme/ThemeContext';
+import {ThemeColors} from '../theme/colors';
 import {useTranslation} from 'react-i18next';
 import {eventDayKeys, eventDayRange} from '../utils/eventDays';
 import {CalendarEventStore} from '../types/calendarEventStore';
@@ -79,6 +80,16 @@ export interface CalendarRef {
 export const eventOccurrenceKey = (event: CalendarEventReadable): string =>
   `${event.id}::${event.occurrenceDate ?? event.startDate ?? ''}`;
 
+// Compact time format for calendar cells (no leading zero on hours). Module-
+// level (not a closure) so DayCell below can use it without it needing to be
+// threaded through as a prop.
+const formatTimeCompact = (dateString: string) => {
+  const date = new Date(dateString);
+  const h = date.getHours();
+  const m = date.getMinutes();
+  return `${h}:${m.toString().padStart(2, '0')}`;
+};
+
 /** A multi-day event's span within one week row, and the row it stacks on. */
 type MultiDayBar = {
   event: CalendarEventReadable;
@@ -127,6 +138,192 @@ const ConditionalScroll: React.FC<{fullscreen: boolean; children: React.ReactNod
     {children}
   </ScrollView>
 );
+
+interface DayCellProps {
+  date: Date;
+  day: number;
+  pageDayHeight: number;
+  fullscreenMode: boolean;
+  selectionMode: boolean;
+  isTodayFlag: boolean;
+  isSundayFlag: boolean;
+  isSaturdayFlag: boolean;
+  inDragRange: boolean;
+  weatherIconName?: string;
+  weatherIconColor?: string;
+  /** All events for this date (not yet narrowed to single-day-only). */
+  dayEvts: CalendarEventReadable[];
+  dayTodos: Task[];
+  multiDayRowCount: number;
+  colors: ThemeColors;
+  eventColors: Record<string, string>;
+  eventPhotos: Record<string, number>;
+  eventNotifIds: Set<string>;
+  /**
+   * Comma-delimited, comma-padded (",key1,key2,") occurrence keys of the
+   * events in dayEvts that are currently selected. A plain string instead of
+   * the selection Set itself: the Set is rebuilt on every single tap
+   * (App.tsx toggles a Map then re-derives it), so a component that took it
+   * directly as a prop would never pass React.memo's shallow-equal check —
+   * every tap would re-render every mounted day cell, not just the one
+   * whose selection actually changed. This string is `===` across renders
+   * for every day whose own selection didn't change, so plain React.memo
+   * (no custom comparator) correctly skips those.
+   */
+  selectedEventIdsSignature: string;
+  onDateSelect: (date: Date) => void;
+  onEventTap: (event: CalendarEventReadable) => void;
+  onEventLongPress: (event: CalendarEventReadable) => void;
+  t: (key: string, opts?: any) => string;
+}
+
+const DayCellImpl: React.FC<DayCellProps> = ({
+  date, day, pageDayHeight, fullscreenMode, selectionMode, isTodayFlag, isSundayFlag, isSaturdayFlag,
+  inDragRange, weatherIconName, weatherIconColor, dayEvts, dayTodos, multiDayRowCount, colors, eventColors,
+  eventPhotos, eventNotifIds, selectedEventIdsSignature, onDateSelect, onEventTap, onEventLongPress, t,
+}) => {
+  const isSelected = (event: CalendarEventReadable) =>
+    selectedEventIdsSignature.includes(`,${eventOccurrenceKey(event)},`);
+
+  const singleDayEvents = dayEvts.filter(e => {
+    if (!e.startDate || !e.endDate) return false;
+    if (e.allDay) return false;
+    const s = new Date(e.startDate); const en = new Date(e.endDate);
+    s.setHours(0, 0, 0, 0); en.setHours(0, 0, 0, 0);
+    return s.getTime() === en.getTime();
+  });
+  // Same cell, same slot budget as timed events — a todo is still "something
+  // to do this day," just without a fixed time.
+  const dayCellItems: Array<
+    {kind: 'event'; event: CalendarEventReadable} | {kind: 'todo'; task: Task}
+  > = [
+    ...singleDayEvents.map(event => ({kind: 'event' as const, event})),
+    ...dayTodos.map(task => ({kind: 'todo' as const, task})),
+  ];
+  const multiDayOffset = multiDayRowCount * (EVENT_BAR_HEIGHT + 2);
+
+  const cellSizeStyle = fullscreenMode ? {minHeight: pageDayHeight, borderColor: colors.border} : {height: pageDayHeight, borderColor: colors.border};
+
+  return (
+    <TouchableOpacity
+      style={[
+        styles.dayCell,
+        cellSizeStyle,
+        isTodayFlag && {
+          backgroundColor: colors.today,
+          borderColor: colors.primary,
+          // Override the base cell's 0.5px right/bottom grid lines so the
+          // highlight ring is uniform on all four sides (otherwise the
+          // thicker top/left edges read as an asymmetric drop shadow).
+          borderWidth: 2,
+          borderTopWidth: 2,
+          borderRightWidth: 2,
+          borderBottomWidth: 2,
+          borderLeftWidth: 2,
+        },
+        inDragRange && {backgroundColor: colors.dragRange},
+      ]}
+      onPress={selectionMode ? undefined : () => onDateSelect(date)}
+      accessibilityRole="button">
+      <View style={styles.dayHeader}>
+        <Text style={[
+          styles.dayText,
+          {color: colors.text},
+          isSundayFlag && {color: colors.sunday},
+          isSaturdayFlag && {color: colors.saturday},
+          isTodayFlag && {color: colors.primary, fontWeight: 'bold'},
+        ]}>
+          {day}
+        </Text>
+        {!!weatherIconName && (
+          <Ionicons name={weatherIconName} size={10} color={weatherIconColor} style={{marginLeft: 6}} />
+        )}
+      </View>
+      {(() => {
+        // Cap total visible rows (multi-day bars + single-day events/todos)
+        // to 2 when not in fullscreen mode. Multi-day bars take priority
+        // since they are anchored to the row.
+        const visibleSingleCount = fullscreenMode
+          ? dayCellItems.length
+          : Math.max(0, 2 - multiDayRowCount);
+        const visibleSingle = dayCellItems.slice(0, visibleSingleCount);
+        const hiddenCount = dayCellItems.length - visibleSingle.length;
+        if (visibleSingle.length === 0 && hiddenCount === 0) return null;
+        return (
+          <View style={[styles.singleDayEventsContainer, {marginTop: multiDayOffset > 0 ? multiDayOffset + 2 : 2}]}>
+            {visibleSingle.map(item2 => {
+              if (item2.kind === 'todo') {
+                const task = item2.task;
+                return (
+                  <View
+                    key={`todo-${task.id}`}
+                    style={[styles.singleDayEventBox, styles.todoEventBox, {borderColor: colors.textTertiary, backgroundColor: colors.surfaceSecondary}]}>
+                    <Text style={[styles.singleDayEventTime, {color: colors.textSecondary}]}>--:--</Text>
+                    <Text style={[styles.singleDayEventTitle, {color: colors.text}]} numberOfLines={1} ellipsizeMode="clip">
+                      {task.title}
+                    </Text>
+                  </View>
+                );
+              }
+              const event = item2.event;
+              const selected = isSelected(event);
+              return (
+                <TouchableOpacity
+                  key={event.id}
+                  style={[
+                    styles.singleDayEventBox,
+                    {backgroundColor: (event.id && eventColors[event.id]) || event.calendar?.color || colors.primary},
+                    // Fade what is not picked so the selection reads at a
+                    // glance — the chips are too small for a checkbox.
+                    selectionMode && !selected && styles.unselectedEvent,
+                    selected && styles.selectedEvent,
+                  ]}
+                  onPress={() => onEventTap(event)}
+                  onLongPress={selectionMode ? undefined : () => onEventLongPress(event)}
+                  delayLongPress={200}>
+                  <Text style={[styles.singleDayEventTime, {color: colors.onEvent}]}>
+                    {event.startDate && formatTimeCompact(event.startDate)}
+                  </Text>
+                  <Text style={[styles.singleDayEventTime, {color: colors.onEvent}]}>
+                    {event.endDate && formatTimeCompact(event.endDate)}
+                  </Text>
+                  <Text style={[styles.singleDayEventTitle, {color: colors.onEvent}]} numberOfLines={1} ellipsizeMode="clip">
+                    {event.title}
+                  </Text>
+                  {selected ? (
+                    <View style={[styles.selectedBadge, {backgroundColor: colors.onEvent}]}>
+                      <Ionicons name="checkmark" size={9} color={(event.id && eventColors[event.id]) || event.calendar?.color || colors.primary} />
+                    </View>
+                  ) : !!(event.id && eventPhotos[event.id]) && (
+                    <View style={styles.photoBadge}>
+                      <Ionicons name="camera" size={10} color="#fff" />
+                    </View>
+                  )}
+                  {/* Independent of the selected/photo badge above (which
+                      share the top-right corner) so a reminder is always
+                      visible regardless of selection or photo state. */}
+                  {!!(event.alarms?.length || (event.id && eventNotifIds.has(event.id))) && (
+                    <View style={styles.reminderBadge}>
+                      <Ionicons name="notifications" size={9} color="#fff" />
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+            {!fullscreenMode && hiddenCount > 0 && (
+              <Text style={[styles.cellEventMore, {color: colors.textSecondary}]}>{t('totalEvents', {count: hiddenCount})}</Text>
+            )}
+          </View>
+        );
+      })()}
+    </TouchableOpacity>
+  );
+};
+
+// Memoized so a single event's selection toggle only re-renders the one day
+// cell it lives in (see selectedEventIdsSignature above) instead of every
+// mounted day cell across every visible month page — see calendar-perf-fix.
+const DayCell = React.memo(DayCellImpl);
 
 export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, onDateDoubleSelect, onEventPress, onDateRangeSelect, onMonthChange, hasPermission: hasPermissionProp, fullscreenMode, filterColor, selectionMode, selectedEventKeys, onToggleEventSelection, onEventLongPressSelect, eventStore}, ref) => {
   const {colors} = useTheme();
@@ -1006,14 +1203,6 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
     return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
   };
 
-  // Compact time format for calendar cells (no leading zero on hours)
-  const formatTimeCompact = (dateString: string) => {
-    const date = new Date(dateString);
-    const h = date.getHours();
-    const m = date.getMinutes();
-    return `${h}:${m.toString().padStart(2, '0')}`;
-  };
-
   // Navigate to previous day in bottom sheet
   const goToPreviousDay = useCallback(() => {
     if (!dayEventsDate) return;
@@ -1169,150 +1358,48 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                           if (!item.date) {
                             return <View key={`empty-${globalIndex}`} style={[styles.dayCell, fullscreenMode ? {minHeight: pageDayHeight, borderColor: colors.border} : {height: pageDayHeight, borderColor: colors.border}]} />;
                           }
+                          const date = item.date;
 
-                          const dayEvts = pageGetEventsForDate(item.date);
-                          const singleDayEvents = dayEvts.filter(e => {
-                            if (!e.startDate || !e.endDate) return false;
-                            if (e.allDay) return false;
-                            const s = new Date(e.startDate); const en = new Date(e.endDate);
-                            s.setHours(0,0,0,0); en.setHours(0,0,0,0);
-                            return s.getTime() === en.getTime();
-                          });
-                          const dayTodos = pageGetTodosForDate(item.date);
-                          // Same cell, same slot budget as timed events — a todo is
-                          // still "something to do this day," just without a fixed time.
-                          const dayCellItems: Array<
-                            {kind: 'event'; event: CalendarEventReadable} | {kind: 'todo'; task: Task}
-                          > = [
-                            ...singleDayEvents.map(event => ({kind: 'event' as const, event})),
-                            ...dayTodos.map(task => ({kind: 'todo' as const, task})),
-                          ];
+                          const dayEvts = pageGetEventsForDate(date);
+                          const dayTodos = pageGetTodosForDate(date);
                           const multiDayRowCount = pageMultiDayByWeek[weekIndex]?.reduce((max, md) => {
                             if (dayIndex >= md.startDayIndex && dayIndex <= md.endDayIndex) return Math.max(max, md.rowIndex + 1);
                             return max;
                           }, 0) || 0;
-                          const multiDayOffset = multiDayRowCount * (EVENT_BAR_HEIGHT + 2);
-
-                          const inDragRange = item.date && isInDragRange(item.date);
+                          const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+                          const weather = weatherData.get(dateKey);
+                          // See DayCellProps.selectedEventIdsSignature — this is what lets
+                          // React.memo(DayCell) skip every day whose own selection didn't change.
+                          const selectedIds = dayEvts.filter(isEventSelected).map(eventOccurrenceKey);
+                          const selectedEventIdsSignature = `,${selectedIds.join(',')},`;
 
                           return (
-                            <TouchableOpacity
-                              key={`${item.date.toISOString()}-${globalIndex}`}
-                              style={[
-                                styles.dayCell,
-                                fullscreenMode ? {minHeight: pageDayHeight, borderColor: colors.border} : {height: pageDayHeight, borderColor: colors.border},
-                                isToday(item.date) && {
-                                  backgroundColor: colors.today,
-                                  borderColor: colors.primary,
-                                  // Override the base cell's 0.5px right/bottom grid lines so the
-                                  // highlight ring is uniform on all four sides (otherwise the
-                                  // thicker top/left edges read as an asymmetric drop shadow).
-                                  borderWidth: 2,
-                                  borderTopWidth: 2,
-                                  borderRightWidth: 2,
-                                  borderBottomWidth: 2,
-                                  borderLeftWidth: 2,
-                                },
-                                inDragRange && {backgroundColor: colors.dragRange},
-                              ]}
-                              onPress={selectionMode ? undefined : () => handleDateSelect(item.date!)}
-                              accessibilityRole="button">
-                              <View style={styles.dayHeader}>
-                                <Text style={[
-                                  styles.dayText,
-                                  {color: colors.text},
-                                  isSunday(globalIndex) && {color: colors.sunday},
-                                  isSaturday(globalIndex) && {color: colors.saturday},
-                                  isToday(item.date) && {color: colors.primary, fontWeight: 'bold'},
-                                ]}>
-                                  {item.day}
-                                </Text>
-                                {(() => {
-                                  if (!item.date) return null;
-                                  const dateKey = `${item.date.getFullYear()}-${String(item.date.getMonth() + 1).padStart(2, '0')}-${String(item.date.getDate()).padStart(2, '0')}`;
-                                  const w = weatherData.get(dateKey);
-                                  if (!w) return null;
-                                  return <Ionicons name={w.iconName} size={10} color={w.iconColor} style={{marginLeft: 6}} />;
-                                })()}
-                              </View>
-                              {(() => {
-                                // Cap total visible rows (multi-day bars + single-day events/todos)
-                                // to 2 when not in fullscreen mode. Multi-day bars take priority
-                                // since they are anchored to the row.
-                                const visibleSingleCount = fullscreenMode
-                                  ? dayCellItems.length
-                                  : Math.max(0, 2 - multiDayRowCount);
-                                const visibleSingle = dayCellItems.slice(0, visibleSingleCount);
-                                const hiddenCount = dayCellItems.length - visibleSingle.length;
-                                if (visibleSingle.length === 0 && hiddenCount === 0) return null;
-                                return (
-                                  <View style={[styles.singleDayEventsContainer, {marginTop: multiDayOffset > 0 ? multiDayOffset + 2 : 2}]}>
-                                    {visibleSingle.map(item2 => {
-                                      if (item2.kind === 'todo') {
-                                        const task = item2.task;
-                                        return (
-                                          <View
-                                            key={`todo-${task.id}`}
-                                            style={[styles.singleDayEventBox, styles.todoEventBox, {borderColor: colors.textTertiary, backgroundColor: colors.surfaceSecondary}]}>
-                                            <Text style={[styles.singleDayEventTime, {color: colors.textSecondary}]}>--:--</Text>
-                                            <Text style={[styles.singleDayEventTitle, {color: colors.text}]} numberOfLines={1} ellipsizeMode="clip">
-                                              {task.title}
-                                            </Text>
-                                          </View>
-                                        );
-                                      }
-                                      const event = item2.event;
-                                      const selected = isEventSelected(event);
-                                      return (
-                                        <TouchableOpacity
-                                          key={event.id}
-                                          style={[
-                                            styles.singleDayEventBox,
-                                            {backgroundColor: (event.id && eventColors[event.id]) || event.calendar?.color || colors.primary},
-                                            // Fade what is not picked so the selection reads at a
-                                            // glance — the chips are too small for a checkbox.
-                                            selectionMode && !selected && styles.unselectedEvent,
-                                            selected && styles.selectedEvent,
-                                          ]}
-                                          onPress={() => handleEventTap(event)}
-                                          onLongPress={selectionMode ? undefined : () => handleEventLongPress(event)}
-                                          delayLongPress={200}>
-                                          <Text style={[styles.singleDayEventTime, {color: colors.onEvent}]}>
-                                            {event.startDate && formatTimeCompact(event.startDate)}
-                                          </Text>
-                                          <Text style={[styles.singleDayEventTime, {color: colors.onEvent}]}>
-                                            {event.endDate && formatTimeCompact(event.endDate)}
-                                          </Text>
-                                          <Text style={[styles.singleDayEventTitle, {color: colors.onEvent}]} numberOfLines={1} ellipsizeMode="clip">
-                                            {event.title}
-                                          </Text>
-                                          {selected ? (
-                                            <View style={[styles.selectedBadge, {backgroundColor: colors.onEvent}]}>
-                                              <Ionicons name="checkmark" size={9} color={(event.id && eventColors[event.id]) || event.calendar?.color || colors.primary} />
-                                            </View>
-                                          ) : !!(event.id && eventPhotos[event.id]) && (
-                                            <View style={styles.photoBadge}>
-                                              <Ionicons name="camera" size={10} color="#fff" />
-                                            </View>
-                                          )}
-                                          {/* Independent of the selected/photo badge above (which
-                                              share the top-right corner) so a reminder is always
-                                              visible regardless of selection or photo state. */}
-                                          {!!(event.alarms?.length || (event.id && eventNotifIds.has(event.id))) && (
-                                            <View style={styles.reminderBadge}>
-                                              <Ionicons name="notifications" size={9} color="#fff" />
-                                            </View>
-                                          )}
-                                        </TouchableOpacity>
-                                      );
-                                    })}
-                                    {!fullscreenMode && hiddenCount > 0 && (
-                                      <Text style={[styles.cellEventMore, {color: colors.textSecondary}]}>{t('totalEvents', {count: hiddenCount})}</Text>
-                                    )}
-                                  </View>
-                                );
-                              })()}
-                            </TouchableOpacity>
+                            <DayCell
+                              key={`${date.toISOString()}-${globalIndex}`}
+                              date={date}
+                              day={item.day}
+                              pageDayHeight={pageDayHeight}
+                              fullscreenMode={!!fullscreenMode}
+                              selectionMode={!!selectionMode}
+                              isTodayFlag={isToday(date)}
+                              isSundayFlag={isSunday(globalIndex)}
+                              isSaturdayFlag={isSaturday(globalIndex)}
+                              inDragRange={isInDragRange(date)}
+                              weatherIconName={weather?.iconName}
+                              weatherIconColor={weather?.iconColor}
+                              dayEvts={dayEvts}
+                              dayTodos={dayTodos}
+                              multiDayRowCount={multiDayRowCount}
+                              colors={colors}
+                              eventColors={eventColors}
+                              eventPhotos={eventPhotos}
+                              eventNotifIds={eventNotifIds}
+                              selectedEventIdsSignature={selectedEventIdsSignature}
+                              onDateSelect={handleDateSelect}
+                              onEventTap={handleEventTap}
+                              onEventLongPress={handleEventLongPress}
+                              t={t}
+                            />
                           );
                         })}
                         {/* 連続予定バー */}
