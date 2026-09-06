@@ -23,7 +23,7 @@ import {useTheme} from '../theme/ThemeContext';
 import {usePremium} from '../context/PremiumContext';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {addTemplate} from '../services/templateService';
-import {addTaskForDate, getDateKey} from '../services/taskService';
+import {addTaskForDate, updateTask, deleteTask, getDateKey, Task} from '../services/taskService';
 import {recordEventCreation, getEventHistory, deleteEventHistoryEntry, EventHistoryEntry} from '../services/eventHistoryService';
 import {getEventWage, setEventWage, removeEventWage, getRecentWages, addRecentWage, removeRecentWage, getEventJob, setEventJob, removeEventJob, getEventBreak, setEventBreak, removeEventBreak} from '../services/eventWageService';
 import {getJobs, Job} from '../services/jobService';
@@ -391,6 +391,10 @@ interface AddEventModalProps {
   initialDate?: Date;
   initialEndDate?: Date;
   editingEvent?: CalendarEventReadable | null;
+  /** Editing an existing あとでやる todo instead of a calendar event — same
+   * screen, just the laterMode (title + duration) surface, forced on and
+   * locked, with save/delete routed to taskService instead of RNCalendarEvents. */
+  editingTask?: Task | null;
   initialColor?: string;
   initialTitle?: string;
   onDeleted?: () => void;
@@ -405,6 +409,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   initialDate,
   initialEndDate,
   editingEvent,
+  editingTask,
   initialColor,
   initialTitle,
   onDeleted,
@@ -414,6 +419,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
   const WEEKDAYS = t('weekdaysSingle', {returnObjects: true}) as string[];
   const isEditing = !!(editingEvent?.id);
   const isCopying = !!(editingEvent && !editingEvent.id);
+  const isEditingTask = !!editingTask;
   const {colors} = useTheme();
   const {isPremium} = usePremium();
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -516,7 +522,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
 
   // Load recent event titles for suggestions
   useEffect(() => {
-    if (visible && !isEditing) {
+    if (visible && !isEditing && !isEditingTask) {
       const fetchTitles = async () => {
         try {
           const now = new Date();
@@ -544,7 +550,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
       };
       fetchTitles();
     }
-  }, [visible, isEditing]);
+  }, [visible, isEditing, isEditingTask]);
 
   // Load color settings on mount
   useEffect(() => {
@@ -571,7 +577,25 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
       setLaterMode(false);
       const isCopying = editingEvent && !editingEvent.id;
 
-      if (editingEvent && !isCopying) {
+      if (editingTask) {
+        // Editing an existing あとでやる todo — same laterMode surface used
+        // to create one (title + duration, no time-of-day), just prefilled
+        // and locked into that mode (see the laterMode toggle button below).
+        setTitle(editingTask.title);
+        setLaterMode(true);
+        const [y, m, d] = editingTask.dateKey.split('-').map(Number);
+        const start = new Date(y, m - 1, d, 0, 0, 0, 0);
+        const durationMinutes = editingTask.duration ?? 30;
+        setStartDate(start);
+        setEndDate(new Date(start.getTime() + durationMinutes * 60000));
+        setNotes('');
+        setReminder(null);
+        setMustWake(false);
+        setSelectedColor(DEFAULT_EVENT_COLORS[0].color);
+        setHourlyWage('');
+        setSelectedJobId(null);
+        setBreakMinutes(''); setBreakTouched(false);
+      } else if (editingEvent && !isCopying) {
         // Editing mode - load existing event data
         setTitle(editingEvent.title || '');
         setNotes(editingEvent.notes || '');
@@ -711,7 +735,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         setBreakMinutes(''); setBreakTouched(false);
       }
     }
-  }, [visible, initialDate, initialEndDate, editingEvent, initialColor, initialTitle]);
+  }, [visible, initialDate, initialEndDate, editingEvent, editingTask, initialColor, initialTitle]);
 
   const handleClose = useCallback(() => {
     onClose();
@@ -767,7 +791,11 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
       // stand right now and stop, skipping the entire event-save path below.
       const todoTitle = title.trim() || t('noTitle');
       const durationMinutes = Math.max(1, Math.round((endDate.getTime() - startDate.getTime()) / 60000));
-      await addTaskForDate(todoTitle, getDateKey(startDate), undefined, durationMinutes, 'todo');
+      if (editingTask) {
+        await updateTask(editingTask.id, {title: todoTitle, duration: durationMinutes});
+      } else {
+        await addTaskForDate(todoTitle, getDateKey(startDate), undefined, durationMinutes, 'todo');
+      }
       lastSaveKindRef.current = 'task';
       setSaveSuccess(true);
       return;
@@ -1047,7 +1075,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
     // out meant a break entered after the last dep change was silently dropped
     // — the shift saved with the auto legal break instead of the real one, so
     // the pay was wrong and nothing said so.
-  }, [laterMode, title, notes, pendingPhotoUris, startDate, endDate, isEditing, editingEvent, selectedColor, hourlyWage, selectedJobId, reminder, mustWake, recurrence, breakTouched, breakOverride, jobs, t, eventStore]);
+  }, [laterMode, title, notes, pendingPhotoUris, startDate, endDate, isEditing, editingEvent, editingTask, selectedColor, hourlyWage, selectedJobId, reminder, mustWake, recurrence, breakTouched, breakOverride, jobs, t, eventStore]);
 
   /**
    * "あとでやる" — skip picking a time altogether and file this under the
@@ -1442,7 +1470,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
             <Text style={[styles.cancelButton, {color: colors.primary}]}>{t('cancel')}</Text>
           </TouchableOpacity>
           <Text style={[styles.headerTitle, {color: colors.text}]} accessibilityRole="header">
-            {isEditing ? t('editEvent') : isCopying ? t('copyEvent') : t('addEvent')}
+            {isEditing || isEditingTask ? t('editEvent') : isCopying ? t('copyEvent') : t('addEvent')}
           </Text>
           <TouchableOpacity
             testID="save-event"
@@ -1456,7 +1484,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
 
         <ScrollView style={styles.form} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
           <View style={[styles.inputGroup, {backgroundColor: colors.surface, borderBottomColor: colors.border}]}>
-            {!isEditing && presets.length > 0 && (
+            {!isEditing && !isEditingTask && presets.length > 0 && (
               <View style={styles.presetWrap}>
                 <View style={{flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 6}}>
                   <Ionicons name="flash-outline" size={12} color={colors.textSecondary} />
@@ -1669,7 +1697,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
               </View>
             </View>
           </View>
-          {!isEditing && (
+          {!isEditing && !isEditingTask && (
             <TouchableOpacity
               testID="save-as-later"
               style={[styles.laterBtn, {backgroundColor: laterMode ? colors.primary : colors.inputBackground}]}
@@ -2013,7 +2041,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           )}
 
           <View style={styles.bottomButtonsRow}>
-            {!isEditing && !isCopying && (
+            {!isEditing && !isCopying && !isEditingTask && (
               <TouchableOpacity
                 style={[styles.templateButtonBottom, {borderColor: colors.primary}]}
                 onPress={async () => {
@@ -2035,16 +2063,18 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                 </Text>
               </TouchableOpacity>
             )}
-            <TouchableOpacity
-              style={[styles.copyButtonBottom, {borderColor: colors.primary}]}
-              onPress={handleShowCopyCalendar}>
-              <Text
-                style={[styles.copyButtonBottomText, {color: colors.primary}]}
-                numberOfLines={1}
-                adjustsFontSizeToFit>
-                {t('copy')}
-              </Text>
-            </TouchableOpacity>
+            {!isEditingTask && (
+              <TouchableOpacity
+                style={[styles.copyButtonBottom, {borderColor: colors.primary}]}
+                onPress={handleShowCopyCalendar}>
+                <Text
+                  style={[styles.copyButtonBottomText, {color: colors.primary}]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit>
+                  {t('copy')}
+                </Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity
               testID="save-event-bottom"
               style={[styles.saveButtonBottom, {backgroundColor: isSaving ? colors.textTertiary : colors.primary}]}
@@ -2054,7 +2084,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
             </TouchableOpacity>
           </View>
 
-          {isEditing && editingEvent?.id && (
+          {(isEditing && editingEvent?.id) && (
             <TouchableOpacity
               style={[styles.deleteButtonBottom, {backgroundColor: colors.surface}]}
               onPress={() => {
@@ -2072,6 +2102,35 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
                           else await RNCalendarEvents.removeEvent(editingEvent.id!);
                           handleClose();
                           onDeleted?.();
+                        } catch {
+                          Alert.alert(t('error'), t('deleteFailed'));
+                        }
+                      },
+                    },
+                  ],
+                );
+              }}>
+              <Text style={[styles.deleteButtonBottomText, {color: colors.delete}]}>{t('deleteThisEvent')}</Text>
+            </TouchableOpacity>
+          )}
+
+          {isEditingTask && editingTask && (
+            <TouchableOpacity
+              style={[styles.deleteButtonBottom, {backgroundColor: colors.surface}]}
+              onPress={() => {
+                Alert.alert(
+                  t('deleteEvent'),
+                  t('deleteEventConfirm', {title: title || editingTask.title}),
+                  [
+                    {text: t('cancel'), style: 'cancel'},
+                    {
+                      text: t('delete'),
+                      style: 'destructive',
+                      onPress: async () => {
+                        try {
+                          await deleteTask(editingTask.id);
+                          handleClose();
+                          onTaskAdded?.();
                         } catch {
                           Alert.alert(t('error'), t('deleteFailed'));
                         }

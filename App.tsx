@@ -22,6 +22,7 @@ import {
 import {SafeAreaProvider, SafeAreaView, useSafeAreaInsets} from 'react-native-safe-area-context';
 import RNCalendarEvents, {CalendarEventReadable} from 'react-native-calendar-events';
 import Calendar, {CalendarRef, eventOccurrenceKey} from './src/components/Calendar';
+import type {Task} from './src/services/taskService';
 import WeekView, {WeekViewRef} from './src/components/WeekView';
 import AddEventModal, {removeEventColor, getEventColor, setEventColor} from './src/components/AddEventModal';
 import {removeAllEventPhotos, reassignEventPhotos} from './src/services/eventPhotoService';
@@ -381,6 +382,7 @@ function AppContent() {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEventReadable | null>(null);
   const [editingEvent, setEditingEvent] = useState<CalendarEventReadable | null>(null);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [initialStartDate, setInitialStartDate] = useState<Date | undefined>();
   const [initialEndDate, setInitialEndDate] = useState<Date | undefined>();
@@ -1129,6 +1131,7 @@ function AppContent() {
     setInitialStartDate(undefined);
     setInitialEndDate(undefined);
     setEditingEvent(null);
+    setEditingTask(null);
     setInitialColor(undefined);
     setInitialTitle(undefined);
   }, []);
@@ -1265,6 +1268,13 @@ function AppContent() {
   const refreshTaskViews = useCallback(() => {
     calendarRef.current?.refreshTasks();
     weekViewRef.current?.refreshTasks();
+  }, []);
+
+  // Handle あとでやる tap — same editor screen as a normal event, just its
+  // laterMode (title + duration) surface, locked and prefilled.
+  const handleTodoPress = useCallback((task: Task) => {
+    setEditingTask(task);
+    setShowAddModal(true);
   }, []);
 
   // Handle event tap to directly open edit modal
@@ -1817,7 +1827,7 @@ function AppContent() {
               selectedEventKeys={selectedEventKeys}
               onToggleEventSelection={toggleEventSelection}
               onEventLongPressSelect={handleEventLongPressSelect}
-              onTasksChanged={refreshTaskViews}
+              onTodoPress={handleTodoPress}
             />
         ) : (
           <WeekView
@@ -1899,6 +1909,7 @@ function AppContent() {
           initialDate={initialStartDate}
           initialEndDate={initialEndDate}
           editingEvent={editingEvent}
+          editingTask={editingTask}
           initialColor={initialColor}
           initialTitle={initialTitle}
         />
