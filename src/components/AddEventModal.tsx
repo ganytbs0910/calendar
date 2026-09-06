@@ -795,6 +795,18 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         await updateTask(editingTask.id, {title: todoTitle, duration: durationMinutes});
       } else {
         await addTaskForDate(todoTitle, getDateKey(startDate), undefined, durationMinutes, 'todo');
+        // Toggling laterMode on while editing a real event converts it: the
+        // todo above is the new home for it, so the original calendar event
+        // has to go, or it would linger as a duplicate.
+        if (isEditing && editingEvent?.id) {
+          try {
+            if (eventStore) await eventStore.remove(editingEvent.id);
+            else await RNCalendarEvents.removeEvent(editingEvent.id);
+            cancelEventNotification(editingEvent.id).catch(() => {});
+          } catch {
+            // The todo is already saved; a stray leftover event isn't worth failing the whole save over.
+          }
+        }
       }
       lastSaveKindRef.current = 'task';
       setSaveSuccess(true);
@@ -849,6 +861,9 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           mustWakeOffsetMinutes: mustWake ? 0 : null,
         });
         for (const uri of pendingPhotoUris) await addEventPhoto(savedId, uri);
+        // Toggling laterMode off while editing a todo converts it the other
+        // way: the event above is its new home, so the original todo goes.
+        if (editingTask) await deleteTask(editingTask.id).catch(() => {});
         lastSaveKindRef.current = 'event';
         setSaveSuccess(true);
       } catch {
@@ -1058,6 +1073,11 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
       if (wageToSave !== null) {
         await addRecentWage(wageToSave);
       }
+
+      // Toggling laterMode off while editing a todo converts it the other
+      // way: the event just saved above is its new home, so the original
+      // todo goes.
+      if (editingTask) await deleteTask(editingTask.id).catch(() => {});
 
       // Play a quick success animation, then close (onDone handler below).
       lastSaveKindRef.current = 'event';
@@ -1697,18 +1717,20 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
               </View>
             </View>
           </View>
-          {!isEditing && !isEditingTask && (
-            <TouchableOpacity
-              testID="save-as-later"
-              style={[styles.laterBtn, {backgroundColor: laterMode ? colors.primary : colors.inputBackground}]}
-              onPress={() => setLaterMode(v => !v)}
-              accessibilityRole="button"
-              accessibilityState={{selected: laterMode}}
-              accessibilityLabel={t('laterTasks')}>
-              <Ionicons name="time-outline" size={18} color={laterMode ? '#fff' : colors.textSecondary} />
-              <Text style={[styles.laterBtnText, {color: laterMode ? '#fff' : colors.textSecondary}]} numberOfLines={1}>{t('laterTasks')}</Text>
-            </TouchableOpacity>
-          )}
+          {/* Shown while editing too (event or task), not just on creation —
+              this is also how an existing event converts to a todo and back:
+              toggling it and saving routes to updateTask/deleteTask or
+              RNCalendarEvents save/remove accordingly (see handleSave). */}
+          <TouchableOpacity
+            testID="save-as-later"
+            style={[styles.laterBtn, {backgroundColor: laterMode ? colors.primary : colors.inputBackground}]}
+            onPress={() => setLaterMode(v => !v)}
+            accessibilityRole="button"
+            accessibilityState={{selected: laterMode}}
+            accessibilityLabel={t('laterTasks')}>
+            <Ionicons name="time-outline" size={18} color={laterMode ? '#fff' : colors.textSecondary} />
+            <Text style={[styles.laterBtnText, {color: laterMode ? '#fff' : colors.textSecondary}]} numberOfLines={1}>{t('laterTasks')}</Text>
+          </TouchableOpacity>
           </View>
             <View style={styles.durationInline}>
               <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
