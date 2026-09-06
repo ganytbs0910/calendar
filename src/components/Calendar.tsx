@@ -926,18 +926,20 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
   const handleDateSelect = useCallback(
     (date: Date) => {
       // No "selected date" concept: a single tap opens the screen directly —
-      // the day-events sheet when the day has timed events, otherwise the
-      // add-event screen. Still sync the parent's current date for context
-      // (e.g. the "+" button / stats default to this day).
+      // the day-events sheet when the day has timed events or あとでやる
+      // todos, otherwise the add-event screen. Still sync the parent's
+      // current date for context (e.g. the "+" button / stats default to
+      // this day).
       onDateSelect?.(date);
       const dayEvents = getEventsForDate(date).filter(e => !e.allDay);
-      if (dayEvents.length > 0) {
+      const dayTodos = getPageModel(date.getFullYear(), date.getMonth()).getTodosForDate(date);
+      if (dayEvents.length > 0 || dayTodos.length > 0) {
         openDayEventsSheet(date);
       } else {
         onDateDoubleSelect?.(date);
       }
     },
-    [onDateSelect, onDateDoubleSelect, getEventsForDate, openDayEventsSheet],
+    [onDateSelect, onDateDoubleSelect, getEventsForDate, getPageModel, openDayEventsSheet],
   );
 
   const isToday = useCallback(
@@ -981,6 +983,14 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
     if (!dayEventsDate) return [];
     return getEventsForDate(dayEventsDate);
   }, [dayEventsDate, getEventsForDate]);
+
+  // あとでやる todos filed under the same day — shown alongside events so a
+  // todo-only day (no timed events) still has something to show when tapped,
+  // instead of handleDateSelect falling through to "add event" silently.
+  const dayTodosForSheet = useMemo(() => {
+    if (!dayEventsDate) return [];
+    return getPageModel(dayEventsDate.getFullYear(), dayEventsDate.getMonth()).getTodosForDate(dayEventsDate);
+  }, [dayEventsDate, getPageModel]);
 
   // Format date for bottom sheet header
   const formatSheetDate = useCallback((date: Date) => {
@@ -1421,10 +1431,23 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
               <Text style={styles.bottomSheetAddButtonText}>{t('addEventBtn')}</Text>
             </TouchableOpacity>
             <ScrollView style={styles.bottomSheetContent}>
-              {dayEventsForSheet.length === 0 ? (
+              {dayEventsForSheet.length === 0 && dayTodosForSheet.length === 0 ? (
                 <Text style={[styles.bottomSheetNoEvents, {color: colors.textTertiary}]}>{t('noEvents')}</Text>
               ) : (
-                dayEventsForSheet.map((event) => (
+                <>
+                {dayTodosForSheet.map((task) => (
+                  <View
+                    key={`todo-${task.id}`}
+                    style={[styles.bottomSheetEventItem, styles.bottomSheetTodoItem, {backgroundColor: colors.surfaceSecondary, borderColor: colors.textTertiary}]}>
+                    <View style={styles.bottomSheetEventContent}>
+                      <Text style={[styles.bottomSheetEventTitle, {color: colors.text}]} numberOfLines={1}>
+                        {task.title}
+                      </Text>
+                      <Text style={[styles.bottomSheetEventTime, {color: colors.textSecondary}]}>--:--</Text>
+                    </View>
+                  </View>
+                ))}
+                {dayEventsForSheet.map((event) => (
                   <View key={event.id} style={[styles.bottomSheetEventItem, {backgroundColor: colors.surfaceSecondary}]}>
                     <TouchableOpacity
                       style={styles.bottomSheetEventTouchable}
@@ -1482,7 +1505,8 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                       <Text style={[styles.bottomSheetDeleteButtonText, {color: colors.error}]}>×</Text>
                     </TouchableOpacity>
                   </View>
-                ))
+                ))}
+                </>
               )}
             </ScrollView>
           </Animated.View>
@@ -2031,6 +2055,12 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     overflow: 'hidden',
     alignItems: 'center',
+  },
+  // Same shape as an event row, but dashed — matches the month grid's own
+  // todo box so a todo reads as "not a real scheduled event" here too.
+  bottomSheetTodoItem: {
+    borderWidth: 1,
+    borderStyle: 'dashed',
   },
   bottomSheetEventTouchable: {
     flex: 1,
