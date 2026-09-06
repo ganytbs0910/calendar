@@ -68,7 +68,12 @@ const CalendarSwitcherModal: React.FC<Props> = ({visible, calendars, currentCale
 
 const makeStyles = (colors: ThemeColors) =>
   StyleSheet.create({
-    overlay: {flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24},
+    // Shadow alone doesn't read as "this is a popup" against a background
+    // that can be the same near-white/near-black as the card itself — a dim
+    // scrim behind it is what actually separates the two, not the corner
+    // radius or elevation. Kept moderate (not the old full-bleed 0.35 the
+    // bottom-sheet version used) since the card itself is small and centered.
+    overlay: {flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center', padding: 24},
     card: {
       width: '100%',
       maxWidth: 360,
