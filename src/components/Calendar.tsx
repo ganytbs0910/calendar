@@ -210,7 +210,16 @@ const DayCellImpl: React.FC<DayCellProps> = ({
   ];
   const multiDayOffset = multiDayRowCount * (EVENT_BAR_HEIGHT + 2);
 
-  const cellSizeStyle = fullscreenMode ? {minHeight: pageDayHeight, borderColor: colors.border} : {height: pageDayHeight, borderColor: colors.border};
+  // Always minHeight, never a fixed height that flips to minHeight on
+  // fullscreen toggle — that flip forced Yoga to re-measure every cell's
+  // content on every mounted page just to enter selection mode (which also
+  // flips fullscreen, see enterSelectionMode), on top of the re-render every
+  // cell already needs for the fade. Non-fullscreen cells cap at 2 visible
+  // items (visibleSingleCount below), so their natural content height never
+  // exceeds pageDayHeight anyway — minHeight alone renders identically, and
+  // weekRow's default flex stretch still keeps every cell in a row the same
+  // height regardless.
+  const cellSizeStyle = {minHeight: pageDayHeight, borderColor: colors.border};
 
   return (
     <TouchableOpacity
@@ -1372,11 +1381,11 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                   {Array.from({length: pageWeeks}).map((_, weekIndex) => {
                     const weekDays = pageDays.slice(weekIndex * 7, (weekIndex + 1) * 7);
                     return (
-                      <View key={weekIndex} style={[styles.weekRow, fullscreenMode ? {minHeight: pageDayHeight, position: 'relative'} : {height: pageDayHeight, position: 'relative'}]}>
+                      <View key={weekIndex} style={[styles.weekRow, {minHeight: pageDayHeight, position: 'relative'}]}>
                         {weekDays.map((item, dayIndex) => {
                           const globalIndex = weekIndex * 7 + dayIndex;
                           if (!item.date) {
-                            return <View key={`empty-${globalIndex}`} style={[styles.dayCell, fullscreenMode ? {minHeight: pageDayHeight, borderColor: colors.border} : {height: pageDayHeight, borderColor: colors.border}]} />;
+                            return <View key={`empty-${globalIndex}`} style={[styles.dayCell, {minHeight: pageDayHeight, borderColor: colors.border}]} />;
                           }
                           const date = item.date;
 
