@@ -2637,6 +2637,12 @@ const styles = StyleSheet.create({
   dtTimeCell: {
     paddingVertical: 9,
     paddingHorizontal: 14,
+    // Fixed instead of content-based: "--:--" (laterMode) is visibly
+    // narrower than a real "18:00" in this font, so leaving the width to
+    // the text made toggling laterMode resize this cell and, since the
+    // date cell next to it is flex:1, the date cell too — a layout shift
+    // nothing about turning laterMode on/off actually requires.
+    width: 100,
     borderRadius: 9,
     alignItems: 'center',
   },
