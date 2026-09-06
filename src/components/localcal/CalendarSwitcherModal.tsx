@@ -26,10 +26,9 @@ const CalendarSwitcherModal: React.FC<Props> = ({visible, calendars, currentCale
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <TouchableOpacity style={styles.scrim} onPress={onClose} />
-        <View style={styles.sheet}>
+    <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
+      <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={onClose}>
+        <View style={[styles.card, {backgroundColor: colors.background}]}>
           <View style={styles.header}>
             <TouchableOpacity onPress={onClose} style={styles.headerBtn}>
               <Text style={styles.close}>{t('close')}</Text>
@@ -44,7 +43,7 @@ const CalendarSwitcherModal: React.FC<Props> = ({visible, calendars, currentCale
               return (
                 <TouchableOpacity
                   key={cal.id}
-                  style={styles.row}
+                  style={[styles.row, {backgroundColor: colors.surface}]}
                   disabled={isCurrent}
                   onPress={() => {
                     onSelect(cal.id);
@@ -53,7 +52,7 @@ const CalendarSwitcherModal: React.FC<Props> = ({visible, calendars, currentCale
                   <View style={[styles.avatar, {backgroundColor: cal.color + '22'}]}>
                     <Text style={styles.avatarEmoji}>{cal.emoji}</Text>
                   </View>
-                  <Text style={[styles.rowText, isCurrent && {color: colors.primary, fontWeight: '700'}]} numberOfLines={1}>
+                  <Text style={[styles.rowText, {color: colors.text}, isCurrent && {color: colors.primary, fontWeight: '700'}]} numberOfLines={1}>
                     {cal.name}
                   </Text>
                   {isCurrent && <Ionicons name="checkmark" size={18} color={colors.primary} />}
@@ -62,21 +61,25 @@ const CalendarSwitcherModal: React.FC<Props> = ({visible, calendars, currentCale
             })}
           </ScrollView>
         </View>
-      </View>
+      </TouchableOpacity>
     </Modal>
   );
 };
 
 const makeStyles = (colors: ThemeColors) =>
   StyleSheet.create({
-    overlay: {flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end'},
-    scrim: {position: 'absolute', top: 0, left: 0, right: 0, bottom: 0},
-    sheet: {
-      backgroundColor: colors.background,
-      borderTopLeftRadius: 16,
-      borderTopRightRadius: 16,
+    overlay: {flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24},
+    card: {
+      width: '100%',
+      maxWidth: 360,
       maxHeight: '70%',
-      paddingBottom: 28,
+      borderRadius: 16,
+      overflow: 'hidden',
+      shadowColor: '#000',
+      shadowOpacity: 0.2,
+      shadowRadius: 16,
+      shadowOffset: {width: 0, height: 8},
+      elevation: 10,
     },
     header: {
       flexDirection: 'row',
@@ -94,14 +97,13 @@ const makeStyles = (colors: ThemeColors) =>
       flexDirection: 'row',
       alignItems: 'center',
       gap: 12,
-      backgroundColor: colors.surface,
       borderRadius: 10,
       paddingHorizontal: 14,
       paddingVertical: 12,
     },
     avatar: {width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center'},
     avatarEmoji: {fontSize: 17},
-    rowText: {flex: 1, fontSize: 16, color: colors.text},
+    rowText: {flex: 1, fontSize: 16},
   });
 
 export default CalendarSwitcherModal;
