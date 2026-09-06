@@ -1817,6 +1817,7 @@ function AppContent() {
               selectedEventKeys={selectedEventKeys}
               onToggleEventSelection={toggleEventSelection}
               onEventLongPressSelect={handleEventLongPressSelect}
+              onTasksChanged={refreshTaskViews}
             />
         ) : (
           <WeekView

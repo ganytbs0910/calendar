@@ -2,6 +2,7 @@ import React, {useState, useMemo, useCallback, useEffect, forwardRef, useImperat
 import {
   View,
   Text,
+  TextInput,
   TouchableOpacity,
   StyleSheet,
   useWindowDimensions,
@@ -22,7 +23,7 @@ import {useTheme} from '../theme/ThemeContext';
 import {useTranslation} from 'react-i18next';
 import {eventDayKeys, eventDayRange} from '../utils/eventDays';
 import {CalendarEventStore} from '../types/calendarEventStore';
-import {getTasksForDateRange, Task} from '../services/taskService';
+import {getTasksForDateRange, updateTask, deleteTask, Task} from '../services/taskService';
 
 const MONTH_ANCHOR = 120; // Center index for infinite-like scrolling
 // Container has paddingHorizontal: 12 (both sides = 24) total. The real grid
@@ -61,6 +62,10 @@ interface CalendarProps {
   onEventLongPressSelect?: (event: CalendarEventReadable) => void;
   /** Uses the identical calendar UI with a non-EventKit backing store. */
   eventStore?: CalendarEventStore;
+  /** Bubbled up after editing/deleting an あとでやる todo from this view, so
+   * WeekView's own task cache (see TaskBottomSheetProps.onTasksChanged)
+   * learns it's stale too. */
+  onTasksChanged?: () => void;
 }
 
 export interface CalendarRef {
@@ -78,6 +83,34 @@ export interface CalendarRef {
  */
 export const eventOccurrenceKey = (event: CalendarEventReadable): string =>
   `${event.id}::${event.occurrenceDate ?? event.startDate ?? ''}`;
+
+// あとでやる has no fixed time, but does have a duration — showing that
+// instead of a placeholder time (e.g. "--:--") tells the user something
+// useful ("how long will this take") instead of nothing.
+const formatTaskDuration = (minutes: number, tFn: (key: string, opts?: any) => string): string => {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h > 0 && m > 0) return tFn('hoursMinutesFmt', {h, m});
+  if (h > 0) return tFn('hoursFmt', {h});
+  return tFn('minutesFmt', {m});
+};
+
+// Same presets as TaskBottomSheet's duration picker (WeekView's あとでやる
+// editor) — duplicated rather than imported so this file has no dependency
+// on a week-view-specific component for a small constant list.
+const TODO_DURATION_OPTIONS: {label: string; value: number}[] = [
+  {label: 'duration5min', value: 5},
+  {label: 'duration10min', value: 10},
+  {label: 'duration15min', value: 15},
+  {label: 'duration20min', value: 20},
+  {label: 'duration30min', value: 30},
+  {label: 'duration45min', value: 45},
+  {label: 'duration1h', value: 60},
+  {label: 'duration1_5h', value: 90},
+  {label: 'duration2h', value: 120},
+  {label: 'duration3h', value: 180},
+  {label: 'duration6h', value: 360},
+];
 
 /** A multi-day event's span within one week row, and the row it stacks on. */
 type MultiDayBar = {
@@ -115,7 +148,7 @@ const ConditionalScroll: React.FC<{fullscreen: boolean; children: React.ReactNod
     ? <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{paddingBottom: 80}} nestedScrollEnabled>{children}</ScrollView>
     : <>{children}</>;
 
-export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, onDateDoubleSelect, onEventPress, onDateRangeSelect, onMonthChange, hasPermission: hasPermissionProp, fullscreenMode, filterColor, selectionMode, selectedEventKeys, onToggleEventSelection, onEventLongPressSelect, eventStore}, ref) => {
+export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, onDateDoubleSelect, onEventPress, onDateRangeSelect, onMonthChange, hasPermission: hasPermissionProp, fullscreenMode, filterColor, selectionMode, selectedEventKeys, onToggleEventSelection, onEventLongPressSelect, eventStore, onTasksChanged}, ref) => {
   const {colors} = useTheme();
   const {t} = useTranslation();
   // Seeds for the first paint only; both are replaced by the measured grid
@@ -992,6 +1025,43 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
     return getPageModel(dayEventsDate.getFullYear(), dayEventsDate.getMonth()).getTodosForDate(dayEventsDate);
   }, [dayEventsDate, getPageModel]);
 
+  // あとでやる editor — opened by tapping a todo, in either the month grid
+  // itself or the day-events sheet above. Kept minimal (title + duration):
+  // fuller task management (pin, deadline, converting to a scheduled time)
+  // stays TaskBottomSheet's job in week view.
+  const [editingTodo, setEditingTodo] = useState<Task | null>(null);
+  const [editTodoTitle, setEditTodoTitle] = useState('');
+  const [editTodoDuration, setEditTodoDuration] = useState<number | undefined>(undefined);
+
+  const openTodoEditor = useCallback((task: Task) => {
+    setEditingTodo(task);
+    setEditTodoTitle(task.title);
+    setEditTodoDuration(task.duration);
+  }, []);
+
+  const closeTodoEditor = useCallback(() => setEditingTodo(null), []);
+
+  const refreshAfterTodoEdit = useCallback(() => {
+    fetchMonthTasks(currentYear, currentMonth, true);
+    onTasksChanged?.();
+  }, [fetchMonthTasks, currentYear, currentMonth, onTasksChanged]);
+
+  const handleSaveTodoEdit = useCallback(async () => {
+    if (!editingTodo) return;
+    const title = editTodoTitle.trim();
+    if (!title) return;
+    await updateTask(editingTodo.id, {title, duration: editTodoDuration, clearDuration: !editTodoDuration});
+    setEditingTodo(null);
+    refreshAfterTodoEdit();
+  }, [editingTodo, editTodoTitle, editTodoDuration, refreshAfterTodoEdit]);
+
+  const handleDeleteTodo = useCallback(async () => {
+    if (!editingTodo) return;
+    await deleteTask(editingTodo.id);
+    setEditingTodo(null);
+    refreshAfterTodoEdit();
+  }, [editingTodo, refreshAfterTodoEdit]);
+
   // Format date for bottom sheet header
   const formatSheetDate = useCallback((date: Date) => {
     const weekday = translatedWeekdays[date.getDay()];
@@ -1248,14 +1318,17 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
                                       if (item2.kind === 'todo') {
                                         const task = item2.task;
                                         return (
-                                          <View
+                                          <TouchableOpacity
                                             key={`todo-${task.id}`}
-                                            style={[styles.singleDayEventBox, styles.todoEventBox, {borderColor: colors.textTertiary, backgroundColor: colors.surfaceSecondary}]}>
-                                            <Text style={[styles.singleDayEventTime, {color: colors.textSecondary}]}>--:--</Text>
+                                            style={[styles.singleDayEventBox, styles.todoEventBox, {borderColor: colors.textTertiary, backgroundColor: colors.surfaceSecondary}]}
+                                            onPress={() => openTodoEditor(task)}>
+                                            <Text style={[styles.singleDayEventTime, {color: colors.textSecondary}]}>
+                                              {task.duration ? formatTaskDuration(task.duration, t) : '--:--'}
+                                            </Text>
                                             <Text style={[styles.singleDayEventTitle, {color: colors.text}]} numberOfLines={1} ellipsizeMode="clip">
                                               {task.title}
                                             </Text>
-                                          </View>
+                                          </TouchableOpacity>
                                         );
                                       }
                                       const event = item2.event;
@@ -1436,16 +1509,19 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
               ) : (
                 <>
                 {dayTodosForSheet.map((task) => (
-                  <View
+                  <TouchableOpacity
                     key={`todo-${task.id}`}
-                    style={[styles.bottomSheetEventItem, styles.bottomSheetTodoItem, {backgroundColor: colors.surfaceSecondary, borderColor: colors.textTertiary}]}>
+                    style={[styles.bottomSheetEventItem, styles.bottomSheetTodoItem, {backgroundColor: colors.surfaceSecondary, borderColor: colors.textTertiary}]}
+                    onPress={() => openTodoEditor(task)}>
                     <View style={styles.bottomSheetEventContent}>
                       <Text style={[styles.bottomSheetEventTitle, {color: colors.text}]} numberOfLines={1}>
                         {task.title}
                       </Text>
-                      <Text style={[styles.bottomSheetEventTime, {color: colors.textSecondary}]}>--:--</Text>
+                      <Text style={[styles.bottomSheetEventTime, {color: colors.textSecondary}]}>
+                        {task.duration ? formatTaskDuration(task.duration, t) : '--:--'}
+                      </Text>
                     </View>
-                  </View>
+                  </TouchableOpacity>
                 ))}
                 {dayEventsForSheet.map((event) => (
                   <View key={event.id} style={[styles.bottomSheetEventItem, {backgroundColor: colors.surfaceSecondary}]}>
@@ -1511,6 +1587,51 @@ export const Calendar = forwardRef<CalendarRef, CalendarProps>(({onDateSelect, o
             </ScrollView>
           </Animated.View>
         </View>
+      </Modal>
+
+      <Modal visible={!!editingTodo} transparent animationType="fade" onRequestClose={closeTodoEditor}>
+        <TouchableOpacity style={styles.todoEditOverlay} activeOpacity={1} onPress={closeTodoEditor}>
+          <View style={[styles.todoEditCard, {backgroundColor: colors.background}]}>
+            <Text style={[styles.todoEditLabel, {color: colors.textSecondary}]}>{t('title')}</Text>
+            <TextInput
+              style={[styles.todoEditInput, {color: colors.text, borderColor: colors.border}]}
+              value={editTodoTitle}
+              onChangeText={setEditTodoTitle}
+              placeholder={t('titlePlaceholder')}
+              placeholderTextColor={colors.textTertiary}
+              autoFocus
+              returnKeyType="done"
+            />
+            <Text style={[styles.todoEditLabel, {color: colors.textSecondary}]}>{t('duration')}</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.todoEditDurationRow}>
+              {TODO_DURATION_OPTIONS.map(opt => (
+                <TouchableOpacity
+                  key={opt.value}
+                  onPress={() => setEditTodoDuration(opt.value)}
+                  style={[
+                    styles.todoEditDurationChip,
+                    {backgroundColor: colors.surface},
+                    editTodoDuration === opt.value && {backgroundColor: colors.primary},
+                  ]}>
+                  <Text style={[styles.todoEditDurationChipText, {color: colors.text}, editTodoDuration === opt.value && {color: '#fff'}]}>
+                    {t(opt.label)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <View style={styles.todoEditActions}>
+              <TouchableOpacity onPress={handleDeleteTodo} style={styles.todoEditDeleteBtn}>
+                <Text style={[styles.todoEditDeleteText, {color: colors.error}]}>{t('delete')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleSaveTodoEdit}
+                disabled={!editTodoTitle.trim()}
+                style={[styles.todoEditSaveBtn, {backgroundColor: colors.primary}, !editTodoTitle.trim() && styles.todoEditSaveBtnDisabled]}>
+                <Text style={styles.todoEditSaveText}>{t('save')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableOpacity>
       </Modal>
     </View>
   );
@@ -2061,6 +2182,79 @@ const styles = StyleSheet.create({
   bottomSheetTodoItem: {
     borderWidth: 1,
     borderStyle: 'dashed',
+  },
+  // Centered popup, no full-bleed dim — same shape as the month/week header's
+  // small floating cards elsewhere in this app.
+  todoEditOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  todoEditCard: {
+    width: '100%',
+    maxWidth: 360,
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    shadowOffset: {width: 0, height: 8},
+    elevation: 10,
+  },
+  todoEditLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 6,
+    marginTop: 14,
+  },
+  todoEditInput: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 16,
+  },
+  todoEditDurationRow: {
+    flexDirection: 'row',
+  },
+  todoEditDurationChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 16,
+    marginRight: 8,
+  },
+  todoEditDurationChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  todoEditActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  todoEditDeleteBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+  },
+  todoEditDeleteText: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  todoEditSaveBtn: {
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 24,
+  },
+  todoEditSaveBtnDisabled: {
+    opacity: 0.5,
+  },
+  todoEditSaveText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
   },
   bottomSheetEventTouchable: {
     flex: 1,
