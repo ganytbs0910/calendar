@@ -106,6 +106,7 @@ import {
 } from './src/services/notificationService';
 import {initWakeAlarmListeners, cleanupExpiredWakeAlarms} from './src/services/wakeAlarmService';
 import {maybeAskForReview, recordActiveDay} from './src/services/reviewPromptService';
+import {pingDeviceOnce} from './src/services/analyticsService';
 import {
   codeFromUrl, syncAllShared, getUnseenChangeCounts,
 } from './src/services/sharedCalendarService';
@@ -650,6 +651,13 @@ function AppContent() {
       }
     })();
     return () => { cancelled = true; };
+  }, []);
+
+  // Anonymous "this device opened the app today" signal — see
+  // analyticsService.ts. Fire-and-forget: it throttles itself to once a
+  // day and never throws, so it can't affect anything else here.
+  useEffect(() => {
+    pingDeviceOnce();
   }, []);
 
   // Show first-run onboarding once (drives trial value / retention).
